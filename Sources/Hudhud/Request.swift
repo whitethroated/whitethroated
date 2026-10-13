@@ -21,12 +21,26 @@ public struct Request: @unchecked Sendable {
     internal var routeParameterRanges: RouteParameterRanges
 
     init(head: HTTPRequestHead, body: ByteBuffer) {
+        self.init(
+            head: head,
+            body: body,
+            routeParameterNames: .none,
+            routeParameterRanges: .none
+        )
+    }
+
+    init(
+        head: HTTPRequestHead,
+        body: ByteBuffer,
+        routeParameterNames: RouteParameterNames,
+        routeParameterRanges: RouteParameterRanges
+    ) {
         self.nioMethod = head.method
         self.uri = head.uri
         self.headers = head.headers
         self.body = body
-        self.routeParameterNames = .none
-        self.routeParameterRanges = .none
+        self.routeParameterNames = routeParameterNames
+        self.routeParameterRanges = routeParameterRanges
     }
 
     init(
