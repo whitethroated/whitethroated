@@ -32,3 +32,6 @@ jobs:
 
       - name: Build example
         run: swift build -c release --product hudhud-example
+
+      - name: Build benchmark server
+        run: swift build -c release --product hudhud-benchmark-server
