@@ -41,6 +41,7 @@ final class Router: @unchecked Sendable {
         ) {
             if segment.first == ":" {
                 let name = String(segment.dropFirst())
+
                 precondition(
                     !name.isEmpty,
                     "Route parameter name cannot be empty"
@@ -89,62 +90,66 @@ final class Router: @unchecked Sendable {
     ) -> EventLoopFuture<Response> {
         guard
             let root = roots[request.method],
-            let match = match(path: request.path, from: root)
+            let match = match(
+                path: request.pathBytes,
+                from: root
+            )
         else {
-            return context.eventLoop.makeSucceededFuture(.notFound())
+            return context.eventLoop.makeSucceededFuture(
+                .notFound()
+            )
         }
 
         var matchedRequest = request
+        matchedRequest.routeParameterNames =
+            match.endpoint.parameterNames
+        matchedRequest.routeParameterRanges =
+            match.parameterRanges
 
-        if !match.endpoint.parameterNames.isEmpty {
-            var parameters: [String: String] = [:]
-            parameters.reserveCapacity(match.endpoint.parameterNames.count)
-
-            for (name, value) in zip(
-                match.endpoint.parameterNames,
-                match.parameterValues
-            ) {
-                parameters[name] = value
-            }
-
-            matchedRequest.parameters = parameters
-        }
-
-        return match.endpoint.handler(matchedRequest, context)
+        return match.endpoint.handler(
+            matchedRequest,
+            context
+        )
     }
 
-    private func match(
-        path: String,
+    private func match<C: Collection>(
+        path: C,
         from root: RouterNode
     ) -> (
         endpoint: RouteEndpoint,
-        parameterValues: [String]
-    )? {
-        let bytes = path.utf8
-        var parameterValues: [String] = []
+        parameterRanges: [Range<Int>]
+    )? where C.Element == UInt8 {
+        var parameterRanges: [Range<Int>] = []
 
         guard let endpoint = matchNode(
             root,
-            bytes: bytes,
-            cursor: bytes.startIndex,
-            parameterValues: &parameterValues
+            bytes: path,
+            cursor: path.startIndex,
+            cursorOffset: 0,
+            parameterRanges: &parameterRanges
         ) else {
             return nil
         }
 
-        return (endpoint, parameterValues)
+        return (endpoint, parameterRanges)
     }
 
-    private func matchNode(
+    private func matchNode<C: Collection>(
         _ node: RouterNode,
-        bytes: String.UTF8View,
-        cursor initialCursor: String.UTF8View.Index,
-        parameterValues: inout [String]
-    ) -> RouteEndpoint? {
+        bytes: C,
+        cursor initialCursor: C.Index,
+        cursorOffset initialOffset: Int,
+        parameterRanges: inout [Range<Int>]
+    ) -> RouteEndpoint? where C.Element == UInt8 {
         var cursor = initialCursor
+        var cursorOffset = initialOffset
 
-        while cursor != bytes.endIndex, bytes[cursor] == 47 {
+        while
+            cursor != bytes.endIndex,
+            bytes[cursor] == 47
+        {
             bytes.formIndex(after: &cursor)
+            cursorOffset += 1
         }
 
         guard cursor != bytes.endIndex else {
@@ -152,9 +157,14 @@ final class Router: @unchecked Sendable {
         }
 
         let segmentStart = cursor
+        let segmentStartOffset = cursorOffset
 
-        while cursor != bytes.endIndex, bytes[cursor] != 47 {
+        while
+            cursor != bytes.endIndex,
+            bytes[cursor] != 47
+        {
             bytes.formIndex(after: &cursor)
+            cursorOffset += 1
         }
 
         let segment = bytes[segmentStart..<cursor]
@@ -168,7 +178,8 @@ final class Router: @unchecked Sendable {
             staticChild,
             bytes: bytes,
             cursor: cursor,
-            parameterValues: &parameterValues
+            cursorOffset: cursorOffset,
+            parameterRanges: &parameterRanges
         ) {
             return endpoint
         }
@@ -177,20 +188,21 @@ final class Router: @unchecked Sendable {
             return nil
         }
 
-        parameterValues.append(
-            String(decoding: segment, as: UTF8.self)
+        parameterRanges.append(
+            segmentStartOffset..<cursorOffset
         )
 
         if let endpoint = matchNode(
             parameterChild,
             bytes: bytes,
             cursor: cursor,
-            parameterValues: &parameterValues
+            cursorOffset: cursorOffset,
+            parameterRanges: &parameterRanges
         ) {
             return endpoint
         }
 
-        parameterValues.removeLast()
+        parameterRanges.removeLast()
         return nil
     }
 
@@ -204,7 +216,8 @@ final class Router: @unchecked Sendable {
             return nil
         }
 
-        for candidate in candidates where equals(candidate.bytes, bytes) {
+        for candidate in candidates
+        where equals(candidate.bytes, bytes) {
             return candidate.node
         }
 
@@ -231,7 +244,8 @@ final class Router: @unchecked Sendable {
             rhs.formIndex(after: &rightIndex)
         }
 
-        return leftIndex == lhs.endIndex && rightIndex == rhs.endIndex
+        return leftIndex == lhs.endIndex
+            && rightIndex == rhs.endIndex
     }
 
     @inline(__always)
