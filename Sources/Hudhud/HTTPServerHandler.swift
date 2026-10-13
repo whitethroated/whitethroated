@@ -65,11 +65,12 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
             let keepAlive = head.isKeepAlive
             let version = head.version
+            let method = HTTPMethod(head.method)
 
             if requestBodyTooLarge {
                 write(
                     .payloadTooLarge(),
-                    requestMethod: HTTPMethod(head.method),
+                    requestMethod: method,
                     version: version,
                     keepAlive: keepAlive,
                     context: context
@@ -78,14 +79,10 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 return
             }
 
-            let request = Request(
+            switch application.respondTransport(
+                method: method,
                 head: head,
-                body: requestBody ?? emptyBody
-            )
-            let method = request.method
-
-            switch application.respondFast(
-                to: request,
+                body: requestBody ?? emptyBody,
                 on: context.eventLoop
             ) {
             case .immediate(let response):

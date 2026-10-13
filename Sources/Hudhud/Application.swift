@@ -246,6 +246,58 @@ public final class Application: @unchecked Sendable {
         )
     }
 
+    @inline(__always)
+    func respondTransport(
+        method: HTTPMethod,
+        head: HTTPRequestHead,
+        body: ByteBuffer,
+        on eventLoop: EventLoop
+    ) -> ResponderResult {
+        guard middleware.isEmpty else {
+            let request = Request(
+                head: head,
+                method: method,
+                body: body
+            )
+
+            return respondFast(
+                to: request,
+                on: eventLoop
+            )
+        }
+
+        switch router.lookup(
+            method: method,
+            uri: head.uri.utf8
+        ) {
+        case .prepared(let prepared):
+            return .prepared(prepared)
+
+        case .handler(
+            let handler,
+            let parameterNames,
+            let parameterRanges
+        ):
+            var request = Request(
+                head: head,
+                method: method,
+                body: body
+            )
+            request.routeParameterNames =
+                parameterNames
+            request.routeParameterRanges =
+                parameterRanges
+
+            return handler(
+                request,
+                Context(eventLoop: eventLoop)
+            )
+
+        case .notFound:
+            return .immediate(.notFound())
+        }
+    }
+
     private func buildMiddlewarePipeline() -> InternalHandler {
         var responder: InternalHandler = {
             [router] request, context in
