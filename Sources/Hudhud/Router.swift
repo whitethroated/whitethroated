@@ -15,7 +15,7 @@ public typealias AsyncHandler = @Sendable (
 ) async throws -> Response
 
 enum RouterMatch {
-    case prepared(PreparedResponse)
+    case prepared(PreparedResponseStorage)
     case synchronous(
         SyncHandler,
         parameterNames: RouteParameterNames,
@@ -38,7 +38,7 @@ private enum RouteResponder {
     case synchronous(SyncHandler)
     case asynchronous(Handler)
     case concurrent(AsyncHandler)
-    case prepared(PreparedResponse)
+    case prepared(PreparedResponseStorage)
 }
 
 private struct RouteEndpoint {
@@ -163,7 +163,7 @@ final class Router: @unchecked Sendable {
         insert(
             method: method,
             path: path,
-            responder: .prepared(preparedResponse)
+            responder: .prepared(preparedResponse.storage)
         )
     }
 

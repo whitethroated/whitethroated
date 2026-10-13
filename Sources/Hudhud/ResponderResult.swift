@@ -2,7 +2,7 @@ import NIOCore
 
 enum ResponderResult {
     case immediate(Response)
-    case prepared(PreparedResponse)
+    case prepared(PreparedResponseStorage)
     case future(EventLoopFuture<Response>)
 
     @inline(__always)

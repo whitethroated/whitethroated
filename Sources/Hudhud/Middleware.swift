@@ -39,8 +39,10 @@ public enum MiddlewareResult: @unchecked Sendable {
         case .immediate(let response):
             self = .response(response)
 
-        case .prepared(let prepared):
-            self = .prepared(prepared)
+        case .prepared(let storage):
+            self = .prepared(
+                PreparedResponse(storage: storage)
+            )
 
         case .future(let future):
             self = .future(future)
@@ -53,7 +55,7 @@ public enum MiddlewareResult: @unchecked Sendable {
             return .immediate(response)
 
         case .prepared(let prepared):
-            return .prepared(prepared)
+            return .prepared(prepared.storage)
 
         case .future(let future):
             return .future(future)
