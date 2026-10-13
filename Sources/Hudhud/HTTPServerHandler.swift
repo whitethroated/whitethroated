@@ -35,7 +35,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
             requestHead = head
             requestBody = nil
             receivedBodyBytes = 0
-            requestBodyTooLarge = false
+            requestBodyTooLarge =
+                declaredBodyExceedsLimit(head)
 
         case .body(var body):
             guard !requestBodyTooLarge else {
@@ -128,6 +129,30 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
             resetRequestState()
         }
+    }
+
+    @inline(__always)
+    private func declaredBodyExceedsLimit(
+        _ head: HTTPRequestHead
+    ) -> Bool {
+        switch head.method {
+        case .POST, .PUT, .PATCH, .DELETE:
+            break
+
+        default:
+            return false
+        }
+
+        guard
+            let value = head.headers.first(
+                name: "content-length"
+            ),
+            let contentLength = Int(value)
+        else {
+            return false
+        }
+
+        return contentLength > maxRequestBodyBytes
     }
 
     private func resetRequestState() {
