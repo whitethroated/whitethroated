@@ -244,6 +244,18 @@ Performance work should inspect:
 
 Do not assume an abstraction is expensive. Measure it.
 
+## Profiling discipline
+
+Before adding a hot-path optimization, prefer evidence from:
+
+- repeated `wrk` samples.
+- Linux `perf stat` counters.
+- sampled call stacks from `perf record`.
+- visible Swift ARC symbols such as retain/release functions.
+- allocation tooling when available on the target platform.
+
+A code change that makes source code more complex without moving a measured bottleneck should not be treated as a performance win.
+
 ## Benchmark hierarchy
 
 Performance work should proceed in this order:
