@@ -15,12 +15,12 @@ enum RouterMatch {
     case synchronous(
         SyncHandler,
         parameterNames: [String],
-        parameterRanges: [Range<Int>]
+        parameterRanges: RouteParameterRanges
     )
     case asynchronous(
         Handler,
         parameterNames: [String],
-        parameterRanges: [Range<Int>]
+        parameterRanges: RouteParameterRanges
     )
     case notFound
 }
@@ -391,7 +391,7 @@ final class Router: @unchecked Sendable {
     private func makeMatch(
         _ match: (
             endpoint: RouteEndpoint,
-            parameterRanges: [Range<Int>]
+            parameterRanges: RouteParameterRanges
         )
     ) -> RouterMatch {
         switch match.endpoint.responder {
@@ -486,9 +486,9 @@ final class Router: @unchecked Sendable {
         from root: RouterNode
     ) -> (
         endpoint: RouteEndpoint,
-        parameterRanges: [Range<Int>]
+        parameterRanges: RouteParameterRanges
     )? where C.Element == UInt8 {
-        var parameterRanges: [Range<Int>] = []
+        var parameterRanges: RouteParameterRanges = .none
 
         guard let endpoint = matchNode(
             root,
@@ -509,7 +509,7 @@ final class Router: @unchecked Sendable {
         bytes: C,
         cursor initialCursor: C.Index,
         cursorOffset initialOffset: Int,
-        parameterRanges: inout [Range<Int>]
+        parameterRanges: inout RouteParameterRanges
     ) -> RouteEndpoint? where C.Element == UInt8 {
         var cursor = initialCursor
         var cursorOffset = initialOffset
