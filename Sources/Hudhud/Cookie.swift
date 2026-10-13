@@ -31,6 +31,76 @@ public struct CookieOptions: Sendable {
     }
 }
 
+internal enum CookieValidator {
+    @inline(__always)
+    static func isSafeToken(
+        _ value: String
+    ) -> Bool {
+        guard !value.isEmpty else {
+            return false
+        }
+
+        for byte in value.utf8 {
+            switch byte {
+            case 33,
+                 35...39,
+                 42...43,
+                 45...46,
+                 48...57,
+                 65...90,
+                 94...96,
+                 97...122,
+                 124,
+                 126:
+                continue
+
+            default:
+                return false
+            }
+        }
+
+        return true
+    }
+
+    @inline(__always)
+    static func isSafeValue(
+        _ value: String
+    ) -> Bool {
+        for byte in value.utf8 {
+            if
+                byte < 32
+                || byte == 59
+                || byte == 127
+            {
+                return false
+            }
+        }
+
+        return true
+    }
+
+    @inline(__always)
+    static func isSafeAttribute(
+        _ value: String
+    ) -> Bool {
+        guard !value.isEmpty else {
+            return false
+        }
+
+        for byte in value.utf8 {
+            if
+                byte < 32
+                || byte == 59
+                || byte == 127
+            {
+                return false
+            }
+        }
+
+        return true
+    }
+}
+
 extension Response {
     public mutating func setCookie(
         _ name: String,
@@ -38,21 +108,29 @@ extension Response {
         options: CookieOptions = CookieOptions()
     ) {
         precondition(
-            Self.isSafeCookieToken(name),
+            CookieValidator.isSafeToken(name),
             "Cookie name contains invalid characters"
         )
         precondition(
-            Self.isSafeCookieValue(value),
+            CookieValidator.isSafeValue(value),
             "Cookie value contains invalid characters"
         )
 
         var serialized = "\(name)=\(value)"
 
         if let path = options.path {
+            precondition(
+                CookieValidator.isSafeAttribute(path),
+                "Cookie path contains invalid characters"
+            )
             serialized += "; Path=\(path)"
         }
 
         if let domain = options.domain {
+            precondition(
+                CookieValidator.isSafeAttribute(domain),
+                "Cookie domain contains invalid characters"
+            )
             serialized += "; Domain=\(domain)"
         }
 
@@ -92,52 +170,5 @@ extension Response {
                 maxAgeSeconds: 0
             )
         )
-    }
-
-    @inline(__always)
-    private static func isSafeCookieToken(
-        _ value: String
-    ) -> Bool {
-        guard !value.isEmpty else {
-            return false
-        }
-
-        for byte in value.utf8 {
-            switch byte {
-            case 33,
-                 35...39,
-                 42...43,
-                 45...46,
-                 48...57,
-                 65...90,
-                 94...96,
-                 97...122,
-                 124,
-                 126:
-                continue
-
-            default:
-                return false
-            }
-        }
-
-        return true
-    }
-
-    @inline(__always)
-    private static func isSafeCookieValue(
-        _ value: String
-    ) -> Bool {
-        for byte in value.utf8 {
-            if
-                byte < 32
-                || byte == 59
-                || byte == 127
-            {
-                return false
-            }
-        }
-
-        return true
     }
 }

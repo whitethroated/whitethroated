@@ -74,6 +74,29 @@ final class CookieTests: XCTestCase {
         )
     }
 
+    func testCookieAttributeValidationRejectsInjectionBytes() {
+        XCTAssertFalse(
+            CookieValidator.isSafeAttribute(
+                "/\r\nx-injected: true"
+            )
+        )
+        XCTAssertFalse(
+            CookieValidator.isSafeAttribute(
+                "example.com; Secure"
+            )
+        )
+        XCTAssertTrue(
+            CookieValidator.isSafeAttribute(
+                "/account"
+            )
+        )
+        XCTAssertTrue(
+            CookieValidator.isSafeAttribute(
+                "example.com"
+            )
+        )
+    }
+
     func testResponseClearsCookie() {
         var response = Response.noContent()
 
@@ -84,6 +107,22 @@ final class CookieTests: XCTestCase {
 
         XCTAssertEqual(
             response.headers.first(name: "set-cookie"),
+            "session=; Path=/; Max-Age=0"
+        )
+    }
+
+    func testPreparedResponseClearsCookieInCachedHead() {
+        let prepared = PreparedResponse
+            .text("ok")
+            .clearCookie(
+                "session",
+                path: "/"
+            )
+
+        XCTAssertEqual(
+            prepared.http11Head.headers.first(
+                name: "set-cookie"
+            ),
             "session=; Path=/; Max-Age=0"
         )
     }
