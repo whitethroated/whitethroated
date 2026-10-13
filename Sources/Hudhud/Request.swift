@@ -138,6 +138,103 @@ public struct Request: @unchecked Sendable {
         headers.first(name: name)
     }
 
+    public func cookie(_ name: String) -> String? {
+        guard let header = headers.first(name: "cookie") else {
+            return nil
+        }
+
+        let bytes = header.utf8
+        let expected = name.utf8
+        var cursor = bytes.startIndex
+
+        while cursor != bytes.endIndex {
+            while
+                cursor != bytes.endIndex,
+                bytes[cursor] == 32
+                || bytes[cursor] == 9
+                || bytes[cursor] == 59
+            {
+                bytes.formIndex(after: &cursor)
+            }
+
+            let keyStart = cursor
+
+            while
+                cursor != bytes.endIndex,
+                bytes[cursor] != 61,
+                bytes[cursor] != 59
+            {
+                bytes.formIndex(after: &cursor)
+            }
+
+            var keyEnd = cursor
+
+            while
+                keyEnd != keyStart
+            {
+                let previous = bytes.index(before: keyEnd)
+                let byte = bytes[previous]
+
+                guard byte == 32 || byte == 9 else {
+                    break
+                }
+
+                keyEnd = previous
+            }
+
+            guard
+                cursor != bytes.endIndex,
+                bytes[cursor] == 61
+            else {
+                while
+                    cursor != bytes.endIndex,
+                    bytes[cursor] != 59
+                {
+                    bytes.formIndex(after: &cursor)
+                }
+                continue
+            }
+
+            bytes.formIndex(after: &cursor)
+
+            let valueStart = cursor
+
+            while
+                cursor != bytes.endIndex,
+                bytes[cursor] != 59
+            {
+                bytes.formIndex(after: &cursor)
+            }
+
+            var valueEnd = cursor
+
+            while
+                valueEnd != valueStart
+            {
+                let previous = bytes.index(before: valueEnd)
+                let byte = bytes[previous]
+
+                guard byte == 32 || byte == 9 else {
+                    break
+                }
+
+                valueEnd = previous
+            }
+
+            if RouterByteEquality.equals(
+                bytes[keyStart..<keyEnd],
+                expected
+            ) {
+                return String(
+                    decoding: bytes[valueStart..<valueEnd],
+                    as: UTF8.self
+                )
+            }
+        }
+
+        return nil
+    }
+
     public var bodyString: String? {
         body.getString(
             at: body.readerIndex,
