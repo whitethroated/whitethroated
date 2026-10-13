@@ -5,7 +5,7 @@ import NIOEmbedded
 import NIOHTTP1
 
 final class TransportFastPathTests: XCTestCase {
-    func testPreparedRouteResolvesWithoutRequestDispatch() {
+    func testPreparedRouteResolvesThroughPreparedPath() {
         let app = Application()
         let loop = EmbeddedEventLoop()
 
@@ -14,11 +14,7 @@ final class TransportFastPathTests: XCTestCase {
             response: .text("prepared")
         )
 
-        let head = HTTPRequestHead(
-            version: .http1_1,
-            method: .GET,
-            uri: "/prepared"
-        )
+        let head = makeHead(path: "/prepared")
 
         let result = app.respondTransport(
             method: .get,
@@ -39,7 +35,7 @@ final class TransportFastPathTests: XCTestCase {
         )
     }
 
-    func testTransportBuildsRequestForHandler() {
+    func testSynchronousRouteUsesDirectSyncPath() {
         let app = Application()
         let loop = EmbeddedEventLoop()
 
@@ -47,22 +43,16 @@ final class TransportFastPathTests: XCTestCase {
             .text(request.parameter("id") ?? "")
         }
 
-        let head = HTTPRequestHead(
-            version: .http1_1,
-            method: .GET,
-            uri: "/users/42"
-        )
-
         let result = app.respondTransport(
             method: .get,
-            head: head,
+            head: makeHead(path: "/users/42"),
             body: ByteBufferAllocator().buffer(capacity: 0),
             on: loop
         )
 
         guard case .immediate(let response) = result else {
             return XCTFail(
-                "Expected immediate handler response"
+                "Expected immediate synchronous response"
             )
         }
 
@@ -73,7 +63,31 @@ final class TransportFastPathTests: XCTestCase {
         XCTAssertEqual(body, "42")
     }
 
-    func testMiddlewareDisablesPreparedTransportBypass() {
+    func testAsynchronousRouteUsesDirectFuturePath() {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/async") { _, context in
+            context.eventLoop.makeSucceededFuture(
+                .text("async")
+            )
+        }
+
+        let result = app.respondTransport(
+            method: .get,
+            head: makeHead(path: "/async"),
+            body: ByteBufferAllocator().buffer(capacity: 0),
+            on: loop
+        )
+
+        guard case .future = result else {
+            return XCTFail(
+                "Expected future asynchronous response"
+            )
+        }
+    }
+
+    func testMiddlewareDisablesDirectTransportDispatch() {
         let app = Application()
         let loop = EmbeddedEventLoop()
 
@@ -91,15 +105,9 @@ final class TransportFastPathTests: XCTestCase {
             response: .text("prepared")
         )
 
-        let head = HTTPRequestHead(
-            version: .http1_1,
-            method: .GET,
-            uri: "/prepared"
-        )
-
         let result = app.respondTransport(
             method: .get,
-            head: head,
+            head: makeHead(path: "/prepared"),
             body: ByteBufferAllocator().buffer(capacity: 0),
             on: loop
         )
@@ -113,6 +121,14 @@ final class TransportFastPathTests: XCTestCase {
         XCTAssertEqual(
             response.status,
             .unauthorized
+        )
+    }
+
+    private func makeHead(path: String) -> HTTPRequestHead {
+        HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: path
         )
     }
 }

@@ -53,7 +53,7 @@ public final class Application: @unchecked Sendable {
     public func on(
         _ method: HTTPMethod,
         _ path: String,
-        use handler: @escaping @Sendable (Request) -> Response
+        use handler: @escaping SyncHandler
     ) {
         route(method, path, use: handler)
     }
@@ -75,7 +75,7 @@ public final class Application: @unchecked Sendable {
 
     public func get(
         _ path: String,
-        use handler: @escaping @Sendable (Request) -> Response
+        use handler: @escaping SyncHandler
     ) {
         route(.get, path, use: handler)
     }
@@ -89,7 +89,7 @@ public final class Application: @unchecked Sendable {
 
     public func post(
         _ path: String,
-        use handler: @escaping @Sendable (Request) -> Response
+        use handler: @escaping SyncHandler
     ) {
         route(.post, path, use: handler)
     }
@@ -103,35 +103,35 @@ public final class Application: @unchecked Sendable {
 
     public func put(
         _ path: String,
-        use handler: @escaping @Sendable (Request) -> Response
+        use handler: @escaping SyncHandler
     ) {
         route(.put, path, use: handler)
     }
 
     public func patch(
         _ path: String,
-        use handler: @escaping @Sendable (Request) -> Response
+        use handler: @escaping SyncHandler
     ) {
         route(.patch, path, use: handler)
     }
 
     public func delete(
         _ path: String,
-        use handler: @escaping @Sendable (Request) -> Response
+        use handler: @escaping SyncHandler
     ) {
         route(.delete, path, use: handler)
     }
 
     public func head(
         _ path: String,
-        use handler: @escaping @Sendable (Request) -> Response
+        use handler: @escaping SyncHandler
     ) {
         route(.head, path, use: handler)
     }
 
     public func options(
         _ path: String,
-        use handler: @escaping @Sendable (Request) -> Response
+        use handler: @escaping SyncHandler
     ) {
         route(.options, path, use: handler)
     }
@@ -273,7 +273,7 @@ public final class Application: @unchecked Sendable {
         case .prepared(let prepared):
             return .prepared(prepared)
 
-        case .handler(
+        case .synchronous(
             let handler,
             let parameterNames,
             let parameterRanges
@@ -288,9 +288,30 @@ public final class Application: @unchecked Sendable {
             request.routeParameterRanges =
                 parameterRanges
 
-            return handler(
-                request,
-                Context(eventLoop: eventLoop)
+            return .immediate(
+                handler(request)
+            )
+
+        case .asynchronous(
+            let handler,
+            let parameterNames,
+            let parameterRanges
+        ):
+            var request = Request(
+                head: head,
+                method: method,
+                body: body
+            )
+            request.routeParameterNames =
+                parameterNames
+            request.routeParameterRanges =
+                parameterRanges
+
+            return .future(
+                handler(
+                    request,
+                    Context(eventLoop: eventLoop)
+                )
             )
 
         case .notFound:
@@ -352,14 +373,13 @@ public final class Application: @unchecked Sendable {
     private func route(
         _ method: HTTPMethod,
         _ path: String,
-        use handler: @escaping @Sendable (Request) -> Response
+        use handler: @escaping SyncHandler
     ) {
         router.add(
             method: method,
-            path: path
-        ) { request, _ in
-            .immediate(handler(request))
-        }
+            path: path,
+            syncHandler: handler
+        )
     }
 
     private func route(
@@ -369,14 +389,8 @@ public final class Application: @unchecked Sendable {
     ) {
         router.add(
             method: method,
-            path: path
-        ) { request, context in
-            .future(
-                handler(
-                    request,
-                    context
-                )
-            )
-        }
+            path: path,
+            handler: handler
+        )
     }
 }

@@ -1,5 +1,9 @@
 import NIOCore
 
+public typealias SyncHandler = @Sendable (
+    Request
+) -> Response
+
 public typealias Handler = @Sendable (
     Request,
     Context
@@ -7,8 +11,13 @@ public typealias Handler = @Sendable (
 
 enum RouterMatch {
     case prepared(PreparedResponse)
-    case handler(
-        InternalHandler,
+    case synchronous(
+        SyncHandler,
+        parameterNames: [String],
+        parameterRanges: [Range<Int>]
+    )
+    case asynchronous(
+        Handler,
         parameterNames: [String],
         parameterRanges: [Range<Int>]
     )
@@ -16,7 +25,8 @@ enum RouterMatch {
 }
 
 private enum RouteResponder {
-    case handler(InternalHandler)
+    case synchronous(SyncHandler)
+    case asynchronous(Handler)
     case prepared(PreparedResponse)
 }
 
@@ -58,12 +68,24 @@ final class Router: @unchecked Sendable {
     func add(
         method: HTTPMethod,
         path: String,
-        handler: @escaping InternalHandler
+        syncHandler: @escaping SyncHandler
     ) {
         insert(
             method: method,
             path: path,
-            responder: .handler(handler)
+            responder: .synchronous(syncHandler)
+        )
+    }
+
+    func add(
+        method: HTTPMethod,
+        path: String,
+        handler: @escaping Handler
+    ) {
+        insert(
+            method: method,
+            path: path,
+            responder: .asynchronous(handler)
         )
     }
 
@@ -91,7 +113,7 @@ final class Router: @unchecked Sendable {
         case .prepared(let prepared):
             return .prepared(prepared)
 
-        case .handler(
+        case .synchronous(
             let handler,
             let parameterNames,
             let parameterRanges
@@ -102,9 +124,26 @@ final class Router: @unchecked Sendable {
             matchedRequest.routeParameterRanges =
                 parameterRanges
 
-            return handler(
-                matchedRequest,
-                context
+            return .immediate(
+                handler(matchedRequest)
+            )
+
+        case .asynchronous(
+            let handler,
+            let parameterNames,
+            let parameterRanges
+        ):
+            var matchedRequest = request
+            matchedRequest.routeParameterNames =
+                parameterNames
+            matchedRequest.routeParameterRanges =
+                parameterRanges
+
+            return .future(
+                handler(
+                    matchedRequest,
+                    context
+                )
             )
 
         case .notFound:
@@ -214,8 +253,17 @@ final class Router: @unchecked Sendable {
         case .prepared(let prepared):
             return .prepared(prepared)
 
-        case .handler(let handler):
-            return .handler(
+        case .synchronous(let handler):
+            return .synchronous(
+                handler,
+                parameterNames:
+                    match.endpoint.parameterNames,
+                parameterRanges:
+                    match.parameterRanges
+            )
+
+        case .asynchronous(let handler):
+            return .asynchronous(
                 handler,
                 parameterNames:
                     match.endpoint.parameterNames,
