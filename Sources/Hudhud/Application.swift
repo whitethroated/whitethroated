@@ -10,6 +10,18 @@ private enum MiddlewareEntry {
 public final class Application: @unchecked Sendable {
     public let configuration: ServerConfiguration
 
+    private static let commonMethods: [HTTPMethod] = [
+        .get,
+        .post,
+        .put,
+        .patch,
+        .delete,
+        .head,
+        .options,
+        .connect,
+        .trace
+    ]
+
     private let router = Router()
     private var middleware: [MiddlewareEntry] = []
     private var compiledResponder: InternalHandler?
@@ -48,6 +60,52 @@ public final class Application: @unchecked Sendable {
             .fast(middleware)
         )
         compiledResponder = nil
+    }
+
+
+    public func all(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        requireConfigurationPhase()
+
+        for method in Self.commonMethods {
+            router.add(
+                method: method,
+                path: path,
+                preparedResponse: response
+            )
+        }
+    }
+
+    public func all(
+        _ path: String,
+        use handler: @escaping SyncHandler
+    ) {
+        requireConfigurationPhase()
+
+        for method in Self.commonMethods {
+            router.add(
+                method: method,
+                path: path,
+                syncHandler: handler
+            )
+        }
+    }
+
+    public func all(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        requireConfigurationPhase()
+
+        for method in Self.commonMethods {
+            router.add(
+                method: method,
+                path: path,
+                handler: handler
+            )
+        }
     }
 
     public func on(

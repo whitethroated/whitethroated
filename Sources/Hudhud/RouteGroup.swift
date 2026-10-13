@@ -17,6 +17,36 @@ public struct RouteGroup: Sendable {
         )
     }
 
+    public func all(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        application.all(
+            joined(path),
+            response: response
+        )
+    }
+
+    public func all(
+        _ path: String,
+        use handler: @escaping SyncHandler
+    ) {
+        application.all(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func all(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        application.all(
+            joined(path),
+            use: handler
+        )
+    }
+
     public func on(
         _ method: HTTPMethod,
         _ path: String,
