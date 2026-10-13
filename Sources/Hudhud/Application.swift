@@ -3,13 +3,19 @@ import NIOHTTP1
 import NIOPosix
 
 public final class Application: @unchecked Sendable {
+    public let configuration: ServerConfiguration
+
     private let router = Router()
     private var middleware: [Middleware] = []
     private var compiledResponder: InternalHandler?
     private var group: MultiThreadedEventLoopGroup?
     private var serverChannel: Channel?
 
-    public init() {}
+    public init(
+        configuration: ServerConfiguration = ServerConfiguration()
+    ) {
+        self.configuration = configuration
+    }
 
     public func use(_ middleware: @escaping Middleware) {
         self.middleware.append(middleware)
@@ -103,13 +109,14 @@ public final class Application: @unchecked Sendable {
         compiledResponder = buildMiddlewarePipeline()
 
         let group = MultiThreadedEventLoopGroup(
-            numberOfThreads: System.coreCount
+            numberOfThreads:
+                configuration.eventLoopThreads ?? System.coreCount
         )
 
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(
                 ChannelOptions.backlog,
-                value: 256
+                value: configuration.backlog
             )
             .serverChannelOption(
                 ChannelOptions.socketOption(.so_reuseaddr),
@@ -131,7 +138,11 @@ public final class Application: @unchecked Sendable {
                     )
                     .flatMap {
                         channel.pipeline.addHandler(
-                            HTTPServerHandler(application: self)
+                            HTTPServerHandler(
+                                application: self,
+                                maxRequestBodyBytes:
+                                    self.configuration.maxRequestBodyBytes
+                            )
                         )
                     }
             }

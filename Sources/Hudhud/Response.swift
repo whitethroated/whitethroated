@@ -65,7 +65,10 @@ public struct Response: Sendable {
         var headers = HTTPHeaders()
 
         if let contentType {
-            headers.add(name: "content-type", value: contentType)
+            headers.add(
+                name: "content-type",
+                value: contentType
+            )
         }
 
         return Response(
@@ -80,7 +83,17 @@ public struct Response: Sendable {
     }
 
     public static func notFound() -> Response {
-        Response.text("Not Found", status: .notFound)
+        Response.text(
+            "Not Found",
+            status: .notFound
+        )
+    }
+
+    public static func payloadTooLarge() -> Response {
+        Response.text(
+            "Payload Too Large",
+            status: .payloadTooLarge
+        )
     }
 
     public static func internalServerError() -> Response {
