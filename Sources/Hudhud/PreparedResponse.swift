@@ -97,6 +97,84 @@ public struct PreparedResponse: Sendable {
         )
     }
 
+    public static func redirect(
+        _ location: String,
+        status: HTTPResponseStatus = .seeOther
+    ) -> PreparedResponse {
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "location",
+            value: location
+        )
+        headers.add(
+            name: "content-length",
+            value: "0"
+        )
+
+        let response = Response(
+            status: status,
+            headers: headers,
+            body: .empty
+        )
+
+        return PreparedResponse(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
+                status: status,
+                headers: headers
+            ),
+            bodyBuffer: nil
+        )
+    }
+
+    public func header(
+        _ name: String,
+        _ value: String
+    ) -> PreparedResponse {
+        var headers = response.headers
+        headers.replaceOrAdd(
+            name: name,
+            value: value
+        )
+
+        var response = response
+        response.headers = headers
+
+        return PreparedResponse(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
+                status: response.status,
+                headers: headers
+            ),
+            bodyBuffer: bodyBuffer
+        )
+    }
+
+    public func cookie(
+        _ name: String,
+        value: String,
+        options: CookieOptions = CookieOptions()
+    ) -> PreparedResponse {
+        var response = response
+        response.setCookie(
+            name,
+            value: value,
+            options: options
+        )
+
+        return PreparedResponse(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
+                status: response.status,
+                headers: response.headers
+            ),
+            bodyBuffer: bodyBuffer
+        )
+    }
+
     public static func empty(
         status: HTTPResponseStatus = .noContent
     ) -> PreparedResponse {
