@@ -9,6 +9,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler {
 
     private let body: ByteBuffer
     private let baseHeaders: HTTPHeaders
+    private let http11Head: HTTPResponseHead
     private var requestHead: HTTPRequestHead?
 
     init(allocator: ByteBufferAllocator) {
@@ -26,6 +27,11 @@ private final class RawBenchmarkHandler: ChannelInboundHandler {
             value: "13"
         )
         self.baseHeaders = headers
+        self.http11Head = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: headers
+        )
     }
 
     func channelRead(
@@ -36,7 +42,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler {
         case .head(let head):
             requestHead = head
 
-        case .body:
+        case .body(_):
             break
 
         case .end:
@@ -63,10 +69,30 @@ private final class RawBenchmarkHandler: ChannelInboundHandler {
         }
     }
 
+    @inline(__always)
     private func writePlaintext(
         requestHead: HTTPRequestHead,
         context: ChannelHandlerContext
     ) {
+        if
+            requestHead.version == .http1_1,
+            requestHead.isKeepAlive
+        {
+            context.write(
+                wrapOutboundOut(.head(http11Head)),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(.body(.byteBuffer(body))),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
+
         var headers = baseHeaders
 
         if !requestHead.isKeepAlive {
