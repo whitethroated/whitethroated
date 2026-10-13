@@ -7,7 +7,6 @@ public struct Request: @unchecked Sendable {
     public let headers: HTTPHeaders
     public let body: ByteBuffer
 
-    private let pathEndOffset: Int
     internal var routeParameterNames: [String]
     internal var routeParameterRanges: [Range<Int>]
 
@@ -16,13 +15,21 @@ public struct Request: @unchecked Sendable {
         self.uri = head.uri
         self.headers = head.headers
         self.body = body
-        self.pathEndOffset = Request.pathEndOffset(in: head.uri)
         self.routeParameterNames = []
         self.routeParameterRanges = []
     }
 
     public var path: String {
-        String(decoding: pathBytes, as: UTF8.self)
+        let bytes = uri.utf8
+
+        guard let queryIndex = bytes.firstIndex(of: 63) else {
+            return uri
+        }
+
+        return String(
+            decoding: bytes[..<queryIndex],
+            as: UTF8.self
+        )
     }
 
     public var parameters: [String: String] {
@@ -64,14 +71,8 @@ public struct Request: @unchecked Sendable {
         )
     }
 
-    internal var pathBytes: String.UTF8View.SubSequence {
-        let bytes = uri.utf8
-        let end = bytes.index(
-            bytes.startIndex,
-            offsetBy: pathEndOffset
-        )
-
-        return bytes[..<end]
+    internal var routingBytes: String.UTF8View {
+        uri.utf8
     }
 
     private func decodeParameter(
@@ -90,21 +91,6 @@ public struct Request: @unchecked Sendable {
         return String(
             decoding: bytes[lower..<upper],
             as: UTF8.self
-        )
-    }
-
-    private static func pathEndOffset(
-        in uri: String
-    ) -> Int {
-        let bytes = uri.utf8
-
-        guard let queryIndex = bytes.firstIndex(of: 63) else {
-            return bytes.count
-        }
-
-        return bytes.distance(
-            from: bytes.startIndex,
-            to: queryIndex
         )
     }
 }

@@ -22,6 +22,9 @@ private final class RouterNode {
 }
 
 final class Router: @unchecked Sendable {
+    private static let slash: UInt8 = 47
+    private static let query: UInt8 = 63
+
     private var roots: [HTTPMethod: RouterNode] = [:]
 
     func add(
@@ -97,7 +100,7 @@ final class Router: @unchecked Sendable {
         guard
             let root = roots[request.method],
             let match = match(
-                path: request.pathBytes,
+                uri: request.routingBytes,
                 from: root
             )
         else {
@@ -117,7 +120,7 @@ final class Router: @unchecked Sendable {
     }
 
     private func match<C: Collection>(
-        path: C,
+        uri: C,
         from root: RouterNode
     ) -> (
         endpoint: RouteEndpoint,
@@ -127,8 +130,8 @@ final class Router: @unchecked Sendable {
 
         guard let endpoint = matchNode(
             root,
-            bytes: path,
-            cursor: path.startIndex,
+            bytes: uri,
+            cursor: uri.startIndex,
             cursorOffset: 0,
             parameterRanges: &parameterRanges
         ) else {
@@ -138,6 +141,7 @@ final class Router: @unchecked Sendable {
         return (endpoint, parameterRanges)
     }
 
+    @inline(__always)
     private func matchNode<C: Collection>(
         _ node: RouterNode,
         bytes: C,
@@ -150,23 +154,30 @@ final class Router: @unchecked Sendable {
 
         while
             cursor != bytes.endIndex,
-            bytes[cursor] == 47
+            bytes[cursor] == Self.slash
         {
             bytes.formIndex(after: &cursor)
             cursorOffset += 1
         }
 
-        guard cursor != bytes.endIndex else {
+        if cursor == bytes.endIndex {
+            return node.endpoint
+        }
+
+        if bytes[cursor] == Self.query {
             return node.endpoint
         }
 
         let segmentStart = cursor
         let segmentStartOffset = cursorOffset
 
-        while
-            cursor != bytes.endIndex,
-            bytes[cursor] != 47
-        {
+        while cursor != bytes.endIndex {
+            let byte = bytes[cursor]
+
+            if byte == Self.slash || byte == Self.query {
+                break
+            }
+
             bytes.formIndex(after: &cursor)
             cursorOffset += 1
         }
