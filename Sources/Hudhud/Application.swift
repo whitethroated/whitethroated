@@ -574,14 +574,12 @@ public final class Application: @unchecked Sendable {
             let parameterNames,
             let parameterRanges
         ):
-            var request = Request(
+            let request = Request(
                 head: head,
-                body: body
+                body: body,
+                routeParameterNames: parameterNames,
+                routeParameterRanges: parameterRanges
             )
-            request.routeParameterNames =
-                parameterNames
-            request.routeParameterRanges =
-                parameterRanges
 
             return .immediate(
                 handler(request)
@@ -592,14 +590,12 @@ public final class Application: @unchecked Sendable {
             let parameterNames,
             let parameterRanges
         ):
-            var request = Request(
+            let request = Request(
                 head: head,
-                body: body
+                body: body,
+                routeParameterNames: parameterNames,
+                routeParameterRanges: parameterRanges
             )
-            request.routeParameterNames =
-                parameterNames
-            request.routeParameterRanges =
-                parameterRanges
 
             return .future(
                 handler(
@@ -613,16 +609,12 @@ public final class Application: @unchecked Sendable {
             let parameterNames,
             let parameterRanges
         ):
-            var request = Request(
+            let asyncRequest = Request(
                 head: head,
-                body: body
+                body: body,
+                routeParameterNames: parameterNames,
+                routeParameterRanges: parameterRanges
             )
-            request.routeParameterNames =
-                parameterNames
-            request.routeParameterRanges =
-                parameterRanges
-
-            let asyncRequest = request
             let promise = eventLoop.makePromise(
                 of: Response.self
             )
