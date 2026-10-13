@@ -35,8 +35,15 @@ for _ in 0..<asyncMiddlewareLayers {
     }
 }
 
-let hello = PreparedResponse.text("Hello, World!")
-let ok = PreparedResponse.text("ok")
+let benchmarkDate = "Thu, 01 Jan 1970 00:00:00 GMT"
+
+let hello = PreparedResponse
+    .text("Hello, World!")
+    .header("date", benchmarkDate)
+
+let ok = PreparedResponse
+    .text("ok")
+    .header("date", benchmarkDate)
 
 app.get(
     "/prepared",
@@ -44,7 +51,9 @@ app.get(
 )
 
 app.get("/plaintext") { _ in
-    .text("Hello, World!")
+    Response
+        .text("Hello, World!")
+        .header("date", benchmarkDate)
 }
 
 app.get("/json") { _ in
@@ -52,7 +61,9 @@ app.get("/json") { _ in
 }
 
 app.get("/concurrent") { _ async throws in
-    .text("Hello, World!")
+    Response
+        .text("Hello, World!")
+        .header("date", benchmarkDate)
 }
 
 app.get("/users/:id") { request in

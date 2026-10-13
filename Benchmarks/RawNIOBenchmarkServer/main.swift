@@ -26,6 +26,10 @@ private final class RawBenchmarkHandler: ChannelInboundHandler {
             name: "content-length",
             value: "13"
         )
+        headers.add(
+            name: "date",
+            value: "Thu, 01 Jan 1970 00:00:00 GMT"
+        )
         self.baseHeaders = headers
         self.http11Head = HTTPResponseHead(
             version: .http1_1,
