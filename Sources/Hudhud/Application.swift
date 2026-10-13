@@ -4,10 +4,15 @@ import NIOPosix
 
 public final class Application: @unchecked Sendable {
     private let router = Router()
+    private var middleware: [Middleware] = []
     private var group: MultiThreadedEventLoopGroup?
     private var serverChannel: Channel?
 
     public init() {}
+
+    public func use(_ middleware: @escaping Middleware) {
+        self.middleware.append(middleware)
+    }
 
     public func get(
         _ path: String,
@@ -111,7 +116,32 @@ public final class Application: @unchecked Sendable {
         to request: Request,
         on eventLoop: EventLoop
     ) -> EventLoopFuture<Response> {
-        router.resolve(request, context: Context(eventLoop: eventLoop))
+        let context = Context(eventLoop: eventLoop)
+        return dispatchMiddleware(
+            at: 0,
+            request: request,
+            context: context
+        )
+    }
+
+    private func dispatchMiddleware(
+        at index: Int,
+        request: Request,
+        context: Context
+    ) -> EventLoopFuture<Response> {
+        guard index < middleware.count else {
+            return router.resolve(request, context: context)
+        }
+
+        let current = middleware[index]
+
+        return current(request, context) { [self] nextRequest in
+            dispatchMiddleware(
+                at: index + 1,
+                request: nextRequest,
+                context: context
+            )
+        }
     }
 
     private func route(
