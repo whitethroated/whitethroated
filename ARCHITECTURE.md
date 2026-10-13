@@ -145,6 +145,8 @@ Current trie behavior:
 - Terminal `*catchAll` third.
 - Static branches can backtrack into parameter or catch-all branches when needed.
 - Query-string bytes terminate route matching.
+- Contiguous URI UTF-8 storage is matched through `UnsafeBufferPointer<UInt8>` with integer indices.
+- Non-contiguous URI storage falls back to the zero-copy `String.UTF8View` matcher.
 - Segment boundary scanning and FNV-1a hashing happen in the same byte pass.
 - Static hash buckets store one edge directly and allocate collision arrays only if a 64-bit hash collision occurs.
 - The first two dynamic parameter ranges are stored inline.
