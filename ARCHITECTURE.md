@@ -2,7 +2,7 @@
 
 This document defines the runtime invariants for Hudhud.
 
-The framework is pre-alpha, so implementation details may change. The invariants below should change only when benchmark or correctness evidence justifies it.
+The framework is pre-alpha, so implementation details may change. These invariants should change only when benchmark or correctness evidence justifies it.
 
 ## Goals
 
@@ -29,24 +29,19 @@ Hudhud does not currently optimize for:
 
 ## Setup phase and serving phase
 
-Application configuration is expected to happen before `listen` or `run`.
+Application configuration happens before `listen` or `run`.
 
 Setup work includes:
 
 - Route registration.
+- Route-group prefix composition.
 - Prepared-response construction.
 - Middleware registration.
 - Server configuration.
 
-Serving work includes:
+When the server starts, configuration is frozen. Route and middleware mutation after serving begins is rejected.
 
-- Request decoding.
-- Middleware dispatch.
-- Route matching.
-- Application handler execution.
-- Response writing.
-
-Do not mutate routes or middleware while the application is serving. Router data structures are designed around setup-time mutation followed by read-only serving.
+Router data structures are therefore setup-mutable and serving-read-only.
 
 ## Event-loop model
 
@@ -59,6 +54,39 @@ Rules:
 3. Use NIO futures for event-loop-native asynchronous I/O.
 4. Offload genuinely blocking work to an appropriate external executor.
 5. Keep request-local operations on the current event loop when possible.
+
+## Transport dispatch
+
+The transport path intentionally distinguishes endpoints before constructing higher-level request objects.
+
+With no middleware installed:
+
+```text
+HTTP request head
+  |
+  v
+NIO HTTP method + URI UTF-8 view
+  |
+  v
+Router lookup
+  |
+  +-- prepared endpoint ----------> prepared writer
+  |
+  +-- synchronous endpoint ------> build Request -> sync handler
+  |
+  +-- asynchronous endpoint -----> build Request + Context -> future handler
+  |
+  +-- not found -----------------> immediate 404
+```
+
+A prepared endpoint therefore does not require:
+
+- `Request` construction.
+- `Context` construction.
+- Conversion from `NIOHTTP1.HTTPMethod` to Hudhud's public `HTTPMethod`.
+- Handler closure invocation.
+
+When middleware exists, Hudhud constructs `Request` before the middleware pipeline because middleware is allowed to inspect or transform the request.
 
 ## Responder paths
 
@@ -80,13 +108,13 @@ Prepared routes are stored directly in route endpoints.
 
 A synchronous route returns a `Response` without creating an `EventLoopFuture`.
 
-Use this for CPU-light synchronous request processing.
+Synchronous handlers are stored separately from asynchronous handlers in the trie, so they do not pass through an async wrapper.
 
 ### Future
 
 Handlers performing asynchronous NIO work return an `EventLoopFuture<Response>`.
 
-Future allocation is paid only when the application actually uses that path or when asynchronous middleware requires it.
+`Context` and future allocation are paid only by paths that require them.
 
 ## Middleware paths
 
@@ -100,27 +128,51 @@ Future allocation is paid only when the application actually uses that path or w
 
 A pass-through fast middleware must not promote a prepared or immediate downstream response into a future.
 
-A fast middleware that transforms a prepared response into a mutable `Response` intentionally gives up the prepared response-head fast path.
+A fast middleware that transforms a prepared response into a mutable `Response` intentionally gives up the precomputed prepared-response writer path.
 
 ## Routing
 
 The router is method-aware.
 
-Common HTTP methods have direct root references rather than a dictionary lookup. Custom methods use a fallback dictionary.
+Common NIO HTTP methods dispatch directly to dedicated roots. Custom or uncommon methods use the Hudhud method mapping and fallback root dictionary.
 
-Path matching operates on the request URI UTF-8 view.
+Path matching operates directly on URI UTF-8 bytes.
 
 Current trie behavior:
 
 - Static segment first.
-- Dynamic parameter fallback.
-- Static branches can backtrack into a parameter branch if the static branch dead-ends.
+- Single-segment `:param` second.
+- Terminal `*catchAll` third.
+- Static branches can backtrack into parameter or catch-all branches when needed.
 - Query-string bytes terminate route matching.
-- Dynamic parameter values are stored as URI byte ranges.
-- Parameter strings are decoded only when requested by application code.
+- Segment boundary scanning and FNV-1a hashing happen in the same byte pass.
+- Static hash buckets store one edge directly and allocate collision arrays only if a 64-bit hash collision occurs.
+- The first two dynamic parameter ranges are stored inline.
+- A third parameter promotes range storage to an array.
+- Parameter strings are decoded only when application code reads them.
 - `HEAD` uses an explicit HEAD route first and falls back to GET.
 
-Do not introduce eager path splitting into `[String]` on the request path.
+Catch-all parameters must be the final route segment.
+
+Do not introduce eager request-path splitting into `[String]`.
+
+## Route groups
+
+Route groups are a registration-time abstraction.
+
+```text
+group("/api") + group("/v1") + get("/users")
+                         |
+                         v
+                 /api/v1/users
+                         |
+                         v
+                 normal router insert
+```
+
+No group object or prefix matching exists in the request hot path.
+
+The same rule applies to `all(...)`: it expands into concrete method routes during application setup.
 
 ## Query parsing
 
@@ -130,7 +182,17 @@ Queries are not parsed during request construction.
 
 `request.queryParameters` materializes a dictionary only when requested.
 
-Percent decoding is implemented without Foundation URL parsing in the request hot path.
+Percent decoding is implemented without Foundation URL parsing in the route/query hot path.
+
+## JSON
+
+Codable JSON support is opt-in.
+
+- `request.decodeJSON` copies body bytes into `Data` only when called.
+- `Response.json(Encodable)` encodes only when called.
+- `PreparedResponse.json(Encodable)` performs encoding during setup and then uses the prepared response path.
+
+JSON convenience must never add encoding or Foundation parsing to requests that do not use it.
 
 ## Request bodies
 
@@ -144,7 +206,7 @@ Future body-streaming support should avoid forcing all endpoints back into an ea
 
 ## Responses
 
-Ordinary text and byte responses may allocate/serialize per request.
+Ordinary text and byte responses may allocate or serialize per request.
 
 Use `PreparedResponse` for immutable payloads where avoiding repeated serialization matters.
 
@@ -178,9 +240,11 @@ Performance work should proceed in this order:
 
 1. Hudhud versus minimal raw SwiftNIO with identical behavior.
 2. Hudhud feature deltas, such as prepared versus normal responses.
-3. Middleware and router scaling.
-4. Cross-framework Swift comparisons.
-5. Actix Web comparison.
+3. Router depth, fan-out, and parameter-capture scaling.
+4. Middleware scaling.
+5. ARC and allocation profiling.
+6. Cross-framework Swift comparisons.
+7. Actix Web comparison.
 
 If Hudhud is materially slower than the raw-NIO control, investigate Hudhud before blaming Swift.
 
@@ -210,6 +274,7 @@ Before merging a hot-path change, ask:
 
 - Does it add an allocation to every request?
 - Does it add a dictionary or String conversion to every request?
+- Does it construct `Request` for an endpoint that does not need one?
 - Does it force a synchronous path into a future?
 - Does it introduce a `Task`?
 - Does it copy a ByteBuffer unnecessarily?
