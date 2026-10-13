@@ -7,7 +7,12 @@ public enum RequestDecodingError: Error, Sendable {
 }
 
 public struct Request: @unchecked Sendable {
-    public let method: HTTPMethod
+    private let nioMethod: NIOHTTP1.HTTPMethod
+
+    public var method: HTTPMethod {
+        HTTPMethod(nioMethod)
+    }
+
     public let uri: String
     public let headers: HTTPHeaders
     public let body: ByteBuffer
@@ -16,11 +21,12 @@ public struct Request: @unchecked Sendable {
     internal var routeParameterRanges: RouteParameterRanges
 
     init(head: HTTPRequestHead, body: ByteBuffer) {
-        self.init(
-            head: head,
-            method: HTTPMethod(head.method),
-            body: body
-        )
+        self.nioMethod = head.method
+        self.uri = head.uri
+        self.headers = head.headers
+        self.body = body
+        self.routeParameterNames = .none
+        self.routeParameterRanges = .none
     }
 
     init(
@@ -28,7 +34,7 @@ public struct Request: @unchecked Sendable {
         method: HTTPMethod,
         body: ByteBuffer
     ) {
-        self.method = method
+        self.nioMethod = method.nioMethod
         self.uri = head.uri
         self.headers = head.headers
         self.body = body
