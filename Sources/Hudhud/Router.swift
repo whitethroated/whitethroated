@@ -7,7 +7,7 @@ public typealias Handler = @Sendable (
 
 private enum RouteResponder {
     case handler(InternalHandler)
-    case prepared(Response)
+    case prepared(PreparedResponse)
 }
 
 private struct RouteEndpoint {
@@ -47,7 +47,7 @@ final class Router: @unchecked Sendable {
     func add(
         method: HTTPMethod,
         path: String,
-        preparedResponse: Response
+        preparedResponse: PreparedResponse
     ) {
         insert(
             method: method,
@@ -168,8 +168,8 @@ final class Router: @unchecked Sendable {
         context: Context
     ) -> ResponderResult {
         switch endpoint.responder {
-        case .prepared(let response):
-            return .immediate(response)
+        case .prepared(let prepared):
+            return .prepared(prepared)
 
         case .handler(let handler):
             var matchedRequest = request

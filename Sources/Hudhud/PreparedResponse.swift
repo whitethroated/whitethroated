@@ -3,9 +3,17 @@ import NIOHTTP1
 
 public struct PreparedResponse: Sendable {
     internal let response: Response
+    internal let http11Head: HTTPResponseHead
+    internal let bodyBuffer: ByteBuffer?
 
-    private init(response: Response) {
+    private init(
+        response: Response,
+        http11Head: HTTPResponseHead,
+        bodyBuffer: ByteBuffer?
+    ) {
         self.response = response
+        self.http11Head = http11Head
+        self.bodyBuffer = bodyBuffer
     }
 
     public static func text(
@@ -78,12 +86,20 @@ public struct PreparedResponse: Sendable {
             value: "0"
         )
 
+        let response = Response(
+            status: status,
+            headers: headers,
+            body: .empty
+        )
+
         return PreparedResponse(
-            response: Response(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
                 status: status,
-                headers: headers,
-                body: .empty
-            )
+                headers: headers
+            ),
+            bodyBuffer: nil
         )
     }
 
@@ -106,12 +122,20 @@ public struct PreparedResponse: Sendable {
             value: String(buffer.readableBytes)
         )
 
+        let response = Response(
+            status: status,
+            headers: headers,
+            body: .buffer(buffer)
+        )
+
         return PreparedResponse(
-            response: Response(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
                 status: status,
-                headers: headers,
-                body: .buffer(buffer)
-            )
+                headers: headers
+            ),
+            bodyBuffer: buffer
         )
     }
 }
