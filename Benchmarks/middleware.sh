@@ -5,6 +5,7 @@ set -euo pipefail
 THREADS="${THREADS:-4}"
 CONNECTIONS="${CONNECTIONS:-128}"
 DURATION="${DURATION:-15s}"
+WORKERS="${WORKERS:-4}"
 ROUTE="${ROUTE:-/plaintext}"
 
 run_case() {
@@ -25,6 +26,7 @@ run_case() {
   THREADS="$THREADS" \
   CONNECTIONS="$CONNECTIONS" \
   DURATION="$DURATION" \
+  WORKERS="$WORKERS" \
   ROUTE="$ROUTE" \
     ./Benchmarks/run.sh
 }

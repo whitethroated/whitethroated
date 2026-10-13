@@ -7,6 +7,7 @@ PORT="${PORT:-3000}"
 THREADS="${THREADS:-4}"
 CONNECTIONS="${CONNECTIONS:-128}"
 DURATION="${DURATION:-30s}"
+WORKERS="${WORKERS:-4}"
 ROUTE="${ROUTE:-/prepared}"
 FAST_MIDDLEWARE_LAYERS="${FAST_MIDDLEWARE_LAYERS:-0}"
 ASYNC_MIDDLEWARE_LAYERS="${ASYNC_MIDDLEWARE_LAYERS:-0}"
@@ -25,6 +26,7 @@ swift build -c release --product hudhud-benchmark-server
 
 HUDHUD_HOST="$HOST" \
 HUDHUD_PORT="$PORT" \
+HUDHUD_THREADS="$WORKERS" \
 HUDHUD_FAST_MIDDLEWARE_LAYERS="$FAST_MIDDLEWARE_LAYERS" \
 HUDHUD_ASYNC_MIDDLEWARE_LAYERS="$ASYNC_MIDDLEWARE_LAYERS" \
   .build/release/hudhud-benchmark-server \
@@ -50,7 +52,7 @@ done
 curl -fsS "http://$HOST:$PORT/prepared" >/dev/null
 
 echo "Hudhud benchmark"
-echo "route=$ROUTE threads=$THREADS connections=$CONNECTIONS duration=$DURATION fast_layers=$FAST_MIDDLEWARE_LAYERS async_layers=$ASYNC_MIDDLEWARE_LAYERS"
+echo "route=$ROUTE workers=$WORKERS threads=$THREADS connections=$CONNECTIONS duration=$DURATION fast_layers=$FAST_MIDDLEWARE_LAYERS async_layers=$ASYNC_MIDDLEWARE_LAYERS"
 echo
 
 wrk \
