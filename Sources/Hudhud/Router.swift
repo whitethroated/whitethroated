@@ -635,35 +635,78 @@ final class Router: @unchecked Sendable {
 
         let segmentStart = cursor
         let segmentStartOffset = cursorOffset
-        var segmentHash = Self.hashOffset
-
-        while cursor != bytes.endIndex {
-            let byte = bytes[cursor]
-
-            if byte == Self.slash || byte == Self.query {
-                break
-            }
-
-            segmentHash ^= UInt64(byte)
-            segmentHash &*= Self.hashPrime
-            bytes.formIndex(after: &cursor)
-            cursorOffset += 1
-        }
-
-        let segment = bytes[segmentStart..<cursor]
 
         if
-            let bucket = node.staticChildren[segmentHash],
-            let staticChild = bucket.matching(segment),
-            let endpoint = matchNode(
-                staticChild,
-                bytes: bytes,
-                cursor: cursor,
-                cursorOffset: cursorOffset,
-                parameterRanges: &parameterRanges
-            )
+            node.staticChildren.isEmpty,
+            node.parameterChild == nil,
+            let catchAllChild = node.catchAllChild,
+            let endpoint = catchAllChild.endpoint
         {
+            while
+                cursor != bytes.endIndex,
+                bytes[cursor] != Self.query
+            {
+                bytes.formIndex(after: &cursor)
+                cursorOffset += 1
+            }
+
+            parameterRanges.append(
+                segmentStartOffset..<cursorOffset
+            )
+
             return endpoint
+        }
+
+        var segmentHash = Self.hashOffset
+
+        if node.staticChildren.isEmpty {
+            while cursor != bytes.endIndex {
+                let byte = bytes[cursor]
+
+                if byte == Self.slash || byte == Self.query {
+                    break
+                }
+
+                bytes.formIndex(after: &cursor)
+                cursorOffset += 1
+            }
+        } else {
+            while cursor != bytes.endIndex {
+                let byte = bytes[cursor]
+
+                if byte == Self.slash || byte == Self.query {
+                    break
+                }
+
+                segmentHash ^= UInt64(byte)
+                segmentHash &*= Self.hashPrime
+                bytes.formIndex(after: &cursor)
+                cursorOffset += 1
+            }
+
+            let segment = bytes[segmentStart..<cursor]
+
+            if
+                let bucket = node.staticChildren[segmentHash],
+                let staticChild = bucket.matching(segment)
+            {
+                if
+                    cursor == bytes.endIndex
+                    || bytes[cursor] == Self.query
+                {
+                    if let endpoint = staticChild.endpoint {
+                        return endpoint
+                    }
+                } else if let endpoint = matchNode(
+                    staticChild,
+                    bytes: bytes,
+                    cursor: cursor,
+                    cursorOffset: cursorOffset,
+                    parameterRanges: &parameterRanges
+                ) {
+                    return endpoint
+                }
+            }
         }
 
         if let parameterChild = node.parameterChild {
@@ -671,7 +714,14 @@ final class Router: @unchecked Sendable {
                 segmentStartOffset..<cursorOffset
             )
 
-            if let endpoint = matchNode(
+            if
+                cursor == bytes.endIndex
+                || bytes[cursor] == Self.query
+            {
+                if let endpoint = parameterChild.endpoint {
+                    return endpoint
+                }
+            } else if let endpoint = matchNode(
                 parameterChild,
                 bytes: bytes,
                 cursor: cursor,
@@ -691,19 +741,16 @@ final class Router: @unchecked Sendable {
             return nil
         }
 
-        var catchAllCursor = cursor
-        var catchAllOffset = cursorOffset
-
         while
-            catchAllCursor != bytes.endIndex,
-            bytes[catchAllCursor] != Self.query
+            cursor != bytes.endIndex,
+            bytes[cursor] != Self.query
         {
-            bytes.formIndex(after: &catchAllCursor)
-            catchAllOffset += 1
+            bytes.formIndex(after: &cursor)
+            cursorOffset += 1
         }
 
         parameterRanges.append(
-            segmentStartOffset..<catchAllOffset
+            segmentStartOffset..<cursorOffset
         )
 
         return endpoint

@@ -155,7 +155,10 @@ Current trie behavior:
 - Query-string bytes terminate route matching.
 - Contiguous URI UTF-8 storage is matched through `UnsafeBufferPointer<UInt8>` with integer indices.
 - Non-contiguous URI storage falls back to the zero-copy `String.UTF8View` matcher.
-- Segment boundary scanning and FNV-1a hashing happen in the same byte pass.
+- Segment boundary scanning and FNV-1a hashing happen in the same byte pass when a node actually has static children.
+- Parameter-only nodes skip static hashing entirely.
+- Terminal static/parameter matches avoid an extra recursive trie call.
+- Catch-all-only nodes scan the remaining URI once, stopping at the query string.
 - Static hash buckets store one edge directly and allocate collision arrays only if a 64-bit hash collision occurs.
 - The first two dynamic parameter names and ranges are stored inline.
 - A third parameter promotes name/range storage to arrays.
