@@ -263,10 +263,25 @@ public struct Request: @unchecked Sendable {
         uri.utf8
     }
 
+    @inline(__always)
     private func decodeParameter(
         in range: Range<Int>
     ) -> String {
         let bytes = uri.utf8
+
+        if let decoded = bytes
+            .withContiguousStorageIfAvailable({
+                storage in
+
+                URLComponentDecoder.decode(
+                    storage[range],
+                    plusAsSpace: false
+                )
+            })
+        {
+            return decoded
+        }
+
         let lower = bytes.index(
             bytes.startIndex,
             offsetBy: range.lowerBound

@@ -71,6 +71,52 @@ final class RouterTests: XCTestCase {
         XCTAssertTextBody(response, equals: "42")
     }
 
+    func testPercentEncodedPathParameter() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/users/:id") { request in
+            .text(request.parameter("id") ?? "")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(
+                    path: "/users/hello%20world"
+                ),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertTextBody(
+            response,
+            equals: "hello world"
+        )
+    }
+
+    func testUnicodePathParameter() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/users/:id") { request in
+            .text(request.parameter("id") ?? "")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(
+                    path: "/users/%E6%B5%8B%E8%AF%95"
+                ),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertTextBody(
+            response,
+            equals: "测试"
+        )
+    }
+
     func testMultiplePathParameters() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
