@@ -10,6 +10,10 @@ public typealias Handler = @Sendable (
     Context
 ) -> EventLoopFuture<Response>
 
+public typealias AsyncHandler = @Sendable (
+    Request
+) async throws -> Response
+
 enum RouterMatch {
     case prepared(PreparedResponse)
     case synchronous(
@@ -22,12 +26,18 @@ enum RouterMatch {
         parameterNames: [String],
         parameterRanges: RouteParameterRanges
     )
+    case concurrent(
+        AsyncHandler,
+        parameterNames: [String],
+        parameterRanges: RouteParameterRanges
+    )
     case notFound
 }
 
 private enum RouteResponder {
     case synchronous(SyncHandler)
     case asynchronous(Handler)
+    case concurrent(AsyncHandler)
     case prepared(PreparedResponse)
 }
 
@@ -136,6 +146,18 @@ final class Router: @unchecked Sendable {
     func add(
         method: HTTPMethod,
         path: String,
+        asyncHandler: @escaping AsyncHandler
+    ) {
+        insert(
+            method: method,
+            path: path,
+            responder: .concurrent(asyncHandler)
+        )
+    }
+
+    func add(
+        method: HTTPMethod,
+        path: String,
         preparedResponse: PreparedResponse
     ) {
         insert(
@@ -189,6 +211,27 @@ final class Router: @unchecked Sendable {
                     context
                 )
             )
+
+        case .concurrent(
+            let handler,
+            let parameterNames,
+            let parameterRanges
+        ):
+            var matchedRequest = request
+            matchedRequest.routeParameterNames =
+                parameterNames
+            matchedRequest.routeParameterRanges =
+                parameterRanges
+
+            let asyncRequest = matchedRequest
+            let promise = context.eventLoop.makePromise(
+                of: Response.self
+            )
+            promise.completeWithTask {
+                try await handler(asyncRequest)
+            }
+
+            return .future(promise.futureResult)
 
         case .notFound:
             return .immediate(.notFound())
@@ -460,6 +503,15 @@ final class Router: @unchecked Sendable {
 
         case .asynchronous(let handler):
             return .asynchronous(
+                handler,
+                parameterNames:
+                    match.endpoint.parameterNames,
+                parameterRanges:
+                    match.parameterRanges
+            )
+
+        case .concurrent(let handler):
+            return .concurrent(
                 handler,
                 parameterNames:
                     match.endpoint.parameterNames,

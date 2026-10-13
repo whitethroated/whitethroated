@@ -97,6 +97,32 @@ let payload = try PreparedResponse.json(
 app.get("/user", response: payload)
 ```
 
+## Async/await routes
+
+Swift concurrency is available as an opt-in route type:
+
+```swift
+app.get("/profile") { request async throws in
+    let profile = try await loadProfile(
+        id: request.parameter("id") ?? ""
+    )
+
+    return try Response.json(profile)
+}
+```
+
+Async/await routes use SwiftNIO's `EventLoopPromise.completeWithTask` bridge. A `Task` is created only for a route registered with an async handler. Prepared, synchronous, and NIO-future handlers do not pay this cost.
+
+For event-loop-native I/O where maximum throughput matters, the NIO future handler remains available:
+
+```swift
+app.get("/nio") { request, context in
+    context.eventLoop.makeSucceededFuture(
+        .text("ok")
+    )
+}
+```
+
 ## Prepared responses
 
 For immutable responses, Hudhud can prebuild the body, content length, and HTTP/1.1 response head during application setup.
