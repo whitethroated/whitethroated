@@ -175,6 +175,29 @@ public struct PreparedResponse: Sendable {
         )
     }
 
+    public func clearCookie(
+        _ name: String,
+        path: String? = nil,
+        domain: String? = nil
+    ) -> PreparedResponse {
+        var response = response
+        response.clearCookie(
+            name,
+            path: path,
+            domain: domain
+        )
+
+        return PreparedResponse(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
+                status: response.status,
+                headers: response.headers
+            ),
+            bodyBuffer: bodyBuffer
+        )
+    }
+
     public static func empty(
         status: HTTPResponseStatus = .noContent
     ) -> PreparedResponse {
