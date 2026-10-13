@@ -26,6 +26,29 @@ Before running performance tests, validate shell syntax and the benchmark summar
 
 This check does not start a server and does not require network access.
 
+## In-process core dispatch benchmark
+
+Network benchmarks are the final performance signal, but small router/responder changes can be hidden by kernel and socket noise. Run the release-mode core dispatch benchmark:
+
+```bash
+./Benchmarks/core.sh
+```
+
+Increase the iteration count when comparing small changes:
+
+```bash
+ITERATIONS=5000000 ./Benchmarks/core.sh
+```
+
+The benchmark exercises the transport dispatch path without opening a socket:
+
+- prepared static route.
+- synchronous static route.
+- synchronous single-parameter route with parameter decoding.
+- synchronous targeted-query route with query decoding.
+
+The test is skipped during normal `swift test` runs unless `HUDHUD_CORE_BENCHMARK=1` is set. Treat these numbers as diagnostic ns/op measurements, not as substitutes for the repeated `wrk` network suite.
+
 ## Benchmark servers
 
 The repository contains two release benchmark servers.
