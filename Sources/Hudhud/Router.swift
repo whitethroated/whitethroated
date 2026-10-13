@@ -1,9 +1,12 @@
 import NIOCore
 
-public typealias Handler = @Sendable (Request, Context) -> EventLoopFuture<Response>
+public typealias Handler = @Sendable (
+    Request,
+    Context
+) -> EventLoopFuture<Response>
 
 private struct RouteEndpoint {
-    let handler: Handler
+    let handler: InternalHandler
     let parameterNames: [String]
 }
 
@@ -24,7 +27,7 @@ final class Router: @unchecked Sendable {
     func add(
         method: HTTPMethod,
         path: String,
-        handler: @escaping Handler
+        handler: @escaping InternalHandler
     ) {
         let root = roots[method] ?? {
             let node = RouterNode()
@@ -73,7 +76,10 @@ final class Router: @unchecked Sendable {
             }
 
             let child = RouterNode()
-            let edge = StaticEdge(bytes: bytes, node: child)
+            let edge = StaticEdge(
+                bytes: bytes,
+                node: child
+            )
             node.staticChildren[hash, default: []].append(edge)
             node = child
         }
@@ -87,7 +93,7 @@ final class Router: @unchecked Sendable {
     func resolve(
         _ request: Request,
         context: Context
-    ) -> EventLoopFuture<Response> {
+    ) -> ResponderResult {
         guard
             let root = roots[request.method],
             let match = match(
@@ -95,9 +101,7 @@ final class Router: @unchecked Sendable {
                 from: root
             )
         else {
-            return context.eventLoop.makeSucceededFuture(
-                .notFound()
-            )
+            return .immediate(.notFound())
         }
 
         var matchedRequest = request

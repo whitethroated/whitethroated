@@ -5,7 +5,7 @@ import NIOPosix
 public final class Application: @unchecked Sendable {
     private let router = Router()
     private var middleware: [Middleware] = []
-    private var compiledResponder: Handler?
+    private var compiledResponder: InternalHandler?
     private var group: MultiThreadedEventLoopGroup?
     private var serverChannel: Channel?
 
@@ -29,7 +29,7 @@ public final class Application: @unchecked Sendable {
         _ path: String,
         use handler: @escaping Handler
     ) {
-        router.add(method: method, path: path, handler: handler)
+        route(method, path, use: handler)
     }
 
     public func get(
@@ -43,7 +43,7 @@ public final class Application: @unchecked Sendable {
         _ path: String,
         use handler: @escaping Handler
     ) {
-        router.add(method: .get, path: path, handler: handler)
+        route(.get, path, use: handler)
     }
 
     public func post(
@@ -57,7 +57,7 @@ public final class Application: @unchecked Sendable {
         _ path: String,
         use handler: @escaping Handler
     ) {
-        router.add(method: .post, path: path, handler: handler)
+        route(.post, path, use: handler)
     }
 
     public func put(
@@ -174,7 +174,17 @@ public final class Application: @unchecked Sendable {
         to request: Request,
         on eventLoop: EventLoop
     ) -> EventLoopFuture<Response> {
-        let responder: Handler
+        respondFast(
+            to: request,
+            on: eventLoop
+        ).asFuture(on: eventLoop)
+    }
+
+    func respondFast(
+        to request: Request,
+        on eventLoop: EventLoop
+    ) -> ResponderResult {
+        let responder: InternalHandler
 
         if let compiledResponder {
             responder = compiledResponder
@@ -190,18 +200,28 @@ public final class Application: @unchecked Sendable {
         )
     }
 
-    private func buildMiddlewarePipeline() -> Handler {
-        var responder: Handler = { [router] request, context in
-            router.resolve(request, context: context)
+    private func buildMiddlewarePipeline() -> InternalHandler {
+        var responder: InternalHandler = {
+            [router] request, context in
+
+            router.resolve(
+                request,
+                context: context
+            )
         }
 
         for current in middleware.reversed() {
             let next = responder
 
             responder = { request, context in
-                current(request, context) { nextRequest in
-                    next(nextRequest, context)
-                }
+                .future(
+                    current(request, context) { nextRequest in
+                        next(
+                            nextRequest,
+                            context
+                        ).asFuture(on: context.eventLoop)
+                    }
+                )
             }
         }
 
@@ -213,9 +233,28 @@ public final class Application: @unchecked Sendable {
         _ path: String,
         use handler: @escaping @Sendable (Request) -> Response
     ) {
-        router.add(method: method, path: path) { request, context in
-            context.eventLoop.makeSucceededFuture(
-                handler(request)
+        router.add(
+            method: method,
+            path: path
+        ) { request, _ in
+            .immediate(handler(request))
+        }
+    }
+
+    private func route(
+        _ method: HTTPMethod,
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        router.add(
+            method: method,
+            path: path
+        ) { request, context in
+            .future(
+                handler(
+                    request,
+                    context
+                )
             )
         }
     }
