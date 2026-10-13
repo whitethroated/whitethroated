@@ -141,6 +141,46 @@ final class RouterTests: XCTestCase {
         XCTAssertTextBody(postResponse, equals: "post")
     }
 
+    func testHeadFallsBackToGetRoute() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/resource") { _ in
+            .text("get")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(path: "/resource", method: .HEAD),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertTextBody(response, equals: "get")
+    }
+
+    func testExplicitHeadRouteWinsOverGetFallback() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/resource") { _ in
+            .text("get")
+        }
+
+        app.head("/resource") { _ in
+            .text("head")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(path: "/resource", method: .HEAD),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertTextBody(response, equals: "head")
+    }
+
     func testUnsupportedMethodDoesNotFallThroughToGet() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()

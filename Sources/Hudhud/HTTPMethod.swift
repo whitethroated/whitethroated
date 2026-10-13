@@ -32,6 +32,8 @@ public enum HTTPMethod: Sendable, Hashable {
             self = .connect
         case .TRACE:
             self = .trace
+        case .RAW(let value):
+            self = .other(value)
         default:
             self = .other(String(describing: method))
         }

@@ -97,23 +97,54 @@ final class Router: @unchecked Sendable {
         _ request: Request,
         context: Context
     ) -> ResponderResult {
-        guard
+        if
             let root = roots[request.method],
             let match = match(
                 uri: request.routingBytes,
                 from: root
             )
-        else {
-            return .immediate(.notFound())
+        {
+            return invoke(
+                match.endpoint,
+                parameterRanges: match.parameterRanges,
+                request: request,
+                context: context
+            )
         }
 
+        if
+            request.method == .head,
+            let root = roots[.get],
+            let match = match(
+                uri: request.routingBytes,
+                from: root
+            )
+        {
+            return invoke(
+                match.endpoint,
+                parameterRanges: match.parameterRanges,
+                request: request,
+                context: context
+            )
+        }
+
+        return .immediate(.notFound())
+    }
+
+    @inline(__always)
+    private func invoke(
+        _ endpoint: RouteEndpoint,
+        parameterRanges: [Range<Int>],
+        request: Request,
+        context: Context
+    ) -> ResponderResult {
         var matchedRequest = request
         matchedRequest.routeParameterNames =
-            match.endpoint.parameterNames
+            endpoint.parameterNames
         matchedRequest.routeParameterRanges =
-            match.parameterRanges
+            parameterRanges
 
-        return match.endpoint.handler(
+        return endpoint.handler(
             matchedRequest,
             context
         )
