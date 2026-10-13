@@ -7,7 +7,13 @@ The project has two non-negotiable goals:
 1. An ergonomic developer experience inspired by Express.js.
 2. A low-overhead runtime architecture designed to push Swift server performance as far as practical.
 
-Hudhud is currently pre-alpha.
+Hudhud is currently pre-alpha. The API and internals can change aggressively while the runtime architecture is being established.
+
+## Requirements
+
+- Swift 6.4 is the development and benchmark toolchain.
+- Swift Package Manager tools version 6.1 or newer.
+- SwiftNIO 2.104.0, pinned exactly for reproducible builds.
 
 ## Example
 
@@ -19,7 +25,10 @@ let app = Application()
 app.use { request, context, next in
     next(request).map { response in
         var response = response
-        response.headers.replaceOrAdd(name: "x-powered-by", value: "Hudhud")
+        response.headers.replaceOrAdd(
+            name: "x-powered-by",
+            value: "Hudhud"
+        )
         return response
     }
 }
@@ -30,7 +39,11 @@ app.get("/") { _ in
 
 app.get("/users/:id") { request in
     let id = request.parameter("id") ?? "unknown"
-    return .json(#"{"id":"\#(id)"}"#)
+    let expand = request.query("expand") ?? "false"
+
+    return .json(
+        #"{"id":"\#(id)","expand":"\#(expand)"}"#
+    )
 }
 
 try app.run(port: 3000)
@@ -38,56 +51,74 @@ try app.run(port: 3000)
 
 ## Current core
 
-- Swift Package Manager package.
-- SwiftNIO-based HTTP/1.1 server.
+- SwiftNIO-based HTTP/1.1 transport.
 - Express-style route registration.
-- Static and parameterized routes.
-- GET, POST, PUT, PATCH, and DELETE helpers.
-- Request headers and body access.
-- Text, JSON, byte, empty, 404, and 500 responses.
-- Middleware pipeline.
-- Keep-alive support.
-- Unit-testable request dispatch.
-- Release benchmark guide.
+- Method-aware UTF-8 trie router.
+- Static route priority with dynamic-parameter fallback.
+- Lazy route parameter decoding from URI byte ranges.
+- Lazy query parsing and percent decoding.
+- Synchronous responder fast path that avoids creating an `EventLoopFuture` for ordinary synchronous routes.
+- NIO future handlers for asynchronous I/O.
+- Compiled middleware pipeline.
+- Direct `ByteBuffer` response support.
+- HTTP keep-alive and pipelining assistance.
+- Express-style `HEAD` fallback to matching `GET` routes.
+- Correct `HEAD` body suppression while preserving `Content-Length`.
+- Configurable request-body limits.
+- Configurable event-loop thread count and listen backlog.
+- Release benchmark server and `wrk` harness.
+- Unit tests for routing, middleware, request parsing, fast-path dispatch, HTTP semantics, and request-body limits.
 
-## Design principles
+## Performance design
 
-- Swift-first public API.
-- SwiftNIO event loops as the transport foundation.
-- No Swift concurrency `Task` creation on the default request hot path.
-- Minimal abstraction between the socket and the route handler.
-- Prefer allocation-aware data structures in hot paths.
-- Route registration happens during application setup.
-- Synchronous handlers get a direct fast path.
-- NIO futures remain available for asynchronous I/O without leaving the event loop model.
-- Performance claims must come from reproducible release-build benchmarks.
+Hudhud deliberately keeps the default synchronous request path separate from asynchronous I/O.
 
-## Why NIO first
+```text
+Socket
+  |
+  v
+SwiftNIO EventLoop
+  |
+  v
+HTTP Decoder
+  |
+  v
+URI UTF-8 View
+  |
+  v
+Compiled Middleware Chain
+  |
+  v
+Method-aware Trie Router
+  |
+  +-- static edge
+  |
+  +-- parameter edge -> byte range
+  |
+  v
+Immediate Response or Future
+  |
+  v
+ByteBuffer
+  |
+  v
+Socket
+```
 
-Hudhud is not trying to beat Actix by adding more abstractions on top of an already expensive request path.
+Important rules:
 
-SwiftNIO provides the event-loop and non-blocking I/O primitives needed to build a serious Swift server runtime while still giving Hudhud control over routing, middleware dispatch, response serialization, allocation behavior, and API design.
+- No Swift concurrency `Task` is created on the default request hot path.
+- Static routing does not split the URI into an array of Swift `String` values.
+- Route parameter strings are decoded only when the application reads them.
+- Query parameters are scanned only when the application asks for them.
+- Synchronous handlers return through an immediate internal responder path.
+- Performance claims must come from reproducible release-build measurements.
 
-That gives us a measurable optimization surface.
+## Why SwiftNIO
 
-## Performance roadmap
+SwiftNIO provides the event-loop and non-blocking I/O foundation while Hudhud keeps control over routing, middleware dispatch, request representation, response serialization, allocation behavior, and public API design.
 
-The current router intentionally starts simple. It is not the final high-performance router.
-
-The next performance milestones are:
-
-1. Replace linear route scanning with a method-aware radix tree.
-2. Match paths without allocating an array of Swift `String` values per request.
-3. Introduce direct `ByteBuffer` response bodies.
-4. Reduce dictionary allocation for route parameters.
-5. Benchmark middleware dispatch overhead independently.
-6. Profile ARC retains/releases in the request hot path.
-7. Add parser/body-size limits and production-safe error handling.
-8. Add structured benchmark runs against raw SwiftNIO, Hummingbird, Vapor, and Actix Web.
-9. Optimize from latency, throughput, CPU, memory, and tail latency together.
-10. Add HTTP/2 only after the HTTP/1.1 execution path is well understood.
-
-See [BENCHMARKS.md](BENCHMARKS.md).
+The goal is not to recreate a large framework on top of NIO. The goal is to keep the distance between the socket and the application handler small and measurable.
 
 ## Run
 
@@ -100,9 +131,24 @@ The example listens on `127.0.0.1:3000`.
 ## Test
 
 ```bash
-swift test
+swift test -c release
 ```
 
-## Status
+## Benchmark
 
-Pre-alpha. The API can change aggressively while the runtime architecture is being established.
+```bash
+./Benchmarks/run.sh
+```
+
+See [BENCHMARKS.md](BENCHMARKS.md) for the comparison protocol and current optimization targets.
+
+## Next performance targets
+
+1. Reduce response-header and response-body allocations for static responses.
+2. Add a prepared response path for reusable immutable payloads.
+3. Measure the framework overhead against a minimal raw SwiftNIO server.
+4. Quantify middleware overhead per layer.
+5. Profile ARC retain/release traffic.
+6. Measure route matching by route count and depth.
+7. Evaluate a synchronous middleware fast path.
+8. Add structured comparisons against Hummingbird, Vapor, and Actix Web only after the raw-NIO delta is understood.

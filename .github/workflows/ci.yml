@@ -8,17 +8,10 @@ on:
 
 jobs:
   test:
-    name: Swift ${{ matrix.swift }}
+    name: Swift 6.4.0
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        swift:
-          - "5.10-jammy"
-          - "6.0-noble"
-
     container:
-      image: swift:${{ matrix.swift }}
+      image: swift:6.4.0-noble
 
     steps:
       - name: Checkout
@@ -26,6 +19,9 @@ jobs:
 
       - name: Swift version
         run: swift --version
+
+      - name: Resolve pinned dependencies
+        run: swift package resolve
 
       - name: Test release build
         run: swift test -c release
