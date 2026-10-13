@@ -11,7 +11,19 @@ public struct Request: @unchecked Sendable {
     internal var routeParameterRanges: [Range<Int>]
 
     init(head: HTTPRequestHead, body: ByteBuffer) {
-        self.method = HTTPMethod(head.method)
+        self.init(
+            head: head,
+            method: HTTPMethod(head.method),
+            body: body
+        )
+    }
+
+    init(
+        head: HTTPRequestHead,
+        method: HTTPMethod,
+        body: ByteBuffer
+    ) {
+        self.method = method
         self.uri = head.uri
         self.headers = head.headers
         self.body = body

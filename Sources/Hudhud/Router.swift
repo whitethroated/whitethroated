@@ -5,6 +5,16 @@ public typealias Handler = @Sendable (
     Context
 ) -> EventLoopFuture<Response>
 
+enum RouterMatch {
+    case prepared(PreparedResponse)
+    case handler(
+        InternalHandler,
+        parameterNames: [String],
+        parameterRanges: [Range<Int>]
+    )
+    case notFound
+}
+
 private enum RouteResponder {
     case handler(InternalHandler)
     case prepared(PreparedResponse)
@@ -74,38 +84,61 @@ final class Router: @unchecked Sendable {
         _ request: Request,
         context: Context
     ) -> ResponderResult {
+        switch lookup(
+            method: request.method,
+            uri: request.routingBytes
+        ) {
+        case .prepared(let prepared):
+            return .prepared(prepared)
+
+        case .handler(
+            let handler,
+            let parameterNames,
+            let parameterRanges
+        ):
+            var matchedRequest = request
+            matchedRequest.routeParameterNames =
+                parameterNames
+            matchedRequest.routeParameterRanges =
+                parameterRanges
+
+            return handler(
+                matchedRequest,
+                context
+            )
+
+        case .notFound:
+            return .immediate(.notFound())
+        }
+    }
+
+    @inline(__always)
+    func lookup(
+        method: HTTPMethod,
+        uri: String.UTF8View
+    ) -> RouterMatch {
         if
-            let root = root(for: request.method),
+            let root = root(for: method),
             let match = match(
-                uri: request.routingBytes,
+                uri: uri,
                 from: root
             )
         {
-            return invoke(
-                match.endpoint,
-                parameterRanges: match.parameterRanges,
-                request: request,
-                context: context
-            )
+            return makeMatch(match)
         }
 
         if
-            request.method == .head,
+            method == .head,
             let root = getRoot,
             let match = match(
-                uri: request.routingBytes,
+                uri: uri,
                 from: root
             )
         {
-            return invoke(
-                match.endpoint,
-                parameterRanges: match.parameterRanges,
-                request: request,
-                context: context
-            )
+            return makeMatch(match)
         }
 
-        return .immediate(.notFound())
+        return .notFound
     }
 
     private func insert(
@@ -171,6 +204,28 @@ final class Router: @unchecked Sendable {
     }
 
     @inline(__always)
+    private func makeMatch(
+        _ match: (
+            endpoint: RouteEndpoint,
+            parameterRanges: [Range<Int>]
+        )
+    ) -> RouterMatch {
+        switch match.endpoint.responder {
+        case .prepared(let prepared):
+            return .prepared(prepared)
+
+        case .handler(let handler):
+            return .handler(
+                handler,
+                parameterNames:
+                    match.endpoint.parameterNames,
+                parameterRanges:
+                    match.parameterRanges
+            )
+        }
+    }
+
+    @inline(__always)
     private func root(
         for method: HTTPMethod
     ) -> RouterNode? {
@@ -231,31 +286,6 @@ final class Router: @unchecked Sendable {
         }
 
         return node
-    }
-
-    @inline(__always)
-    private func invoke(
-        _ endpoint: RouteEndpoint,
-        parameterRanges: [Range<Int>],
-        request: Request,
-        context: Context
-    ) -> ResponderResult {
-        switch endpoint.responder {
-        case .prepared(let prepared):
-            return .prepared(prepared)
-
-        case .handler(let handler):
-            var matchedRequest = request
-            matchedRequest.routeParameterNames =
-                endpoint.parameterNames
-            matchedRequest.routeParameterRanges =
-                parameterRanges
-
-            return handler(
-                matchedRequest,
-                context
-            )
-        }
     }
 
     private func match<C: Collection>(
