@@ -19,6 +19,10 @@ let package = Package(
         .executable(
             name: "hudhud-benchmark-server",
             targets: ["HudhudBenchmarkServer"]
+        ),
+        .executable(
+            name: "raw-nio-benchmark-server",
+            targets: ["RawNIOBenchmarkServer"]
         )
     ],
     dependencies: [
@@ -53,6 +57,24 @@ let package = Package(
             name: "HudhudBenchmarkServer",
             dependencies: ["Hudhud"],
             path: "Benchmarks/HudhudBenchmarkServer"
+        ),
+        .executableTarget(
+            name: "RawNIOBenchmarkServer",
+            dependencies: [
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                )
+            ],
+            path: "Benchmarks/RawNIOBenchmarkServer"
         ),
         .testTarget(
             name: "HudhudTests",

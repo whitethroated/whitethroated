@@ -7,7 +7,7 @@ PORT="${PORT:-3000}"
 THREADS="${THREADS:-4}"
 CONNECTIONS="${CONNECTIONS:-128}"
 DURATION="${DURATION:-30s}"
-ROUTE="${ROUTE:-/plaintext}"
+ROUTE="${ROUTE:-/prepared}"
 
 if ! command -v wrk >/dev/null 2>&1; then
   echo "wrk is required to run the network benchmark." >&2
@@ -21,7 +21,9 @@ fi
 
 swift build -c release --product hudhud-benchmark-server
 
-HUDHUD_HOST="$HOST" HUDHUD_PORT="$PORT"   .build/release/hudhud-benchmark-server   >/tmp/hudhud-benchmark-server.log 2>&1 &
+HUDHUD_HOST="$HOST" HUDHUD_PORT="$PORT" \
+  .build/release/hudhud-benchmark-server \
+  >/tmp/hudhud-benchmark-server.log 2>&1 &
 
 SERVER_PID=$!
 
@@ -33,17 +35,22 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 for _ in {1..50}; do
-  if curl -fsS "http://$HOST:$PORT/plaintext" >/dev/null; then
+  if curl -fsS "http://$HOST:$PORT/prepared" >/dev/null; then
     break
   fi
 
   sleep 0.1
 done
 
-curl -fsS "http://$HOST:$PORT/plaintext" >/dev/null
+curl -fsS "http://$HOST:$PORT/prepared" >/dev/null
 
 echo "Hudhud benchmark"
 echo "route=$ROUTE threads=$THREADS connections=$CONNECTIONS duration=$DURATION"
 echo
 
-wrk   -t"$THREADS"   -c"$CONNECTIONS"   -d"$DURATION"   --latency   "http://$HOST:$PORT$ROUTE"
+wrk \
+  -t"$THREADS" \
+  -c"$CONNECTIONS" \
+  -d"$DURATION" \
+  --latency \
+  "http://$HOST:$PORT$ROUTE"

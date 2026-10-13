@@ -29,5 +29,8 @@ jobs:
       - name: Build example
         run: swift build -c release --product hudhud-example
 
-      - name: Build benchmark server
+      - name: Build Hudhud benchmark server
         run: swift build -c release --product hudhud-benchmark-server
+
+      - name: Build raw NIO benchmark server
+        run: swift build -c release --product raw-nio-benchmark-server
