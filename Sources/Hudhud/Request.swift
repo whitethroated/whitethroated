@@ -8,7 +8,7 @@ public struct Request: @unchecked Sendable {
     public let body: ByteBuffer
 
     internal var routeParameterNames: [String]
-    internal var routeParameterRanges: [Range<Int>]
+    internal var routeParameterRanges: RouteParameterRanges
 
     init(head: HTTPRequestHead, body: ByteBuffer) {
         self.init(
@@ -28,7 +28,7 @@ public struct Request: @unchecked Sendable {
         self.headers = head.headers
         self.body = body
         self.routeParameterNames = []
-        self.routeParameterRanges = []
+        self.routeParameterRanges = .none
     }
 
     public var path: String {
