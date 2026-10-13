@@ -41,8 +41,50 @@ private struct StaticEdge {
     let node: RouterNode
 }
 
+private enum StaticBucket {
+    case single(StaticEdge)
+    case collisions([StaticEdge])
+
+    @inline(__always)
+    func matching<C: Collection>(
+        _ bytes: C
+    ) -> RouterNode? where C.Element == UInt8 {
+        switch self {
+        case .single(let edge):
+            return Router.equals(
+                edge.bytes,
+                bytes
+            )
+            ? edge.node
+            : nil
+
+        case .collisions(let edges):
+            for edge in edges
+            where Router.equals(edge.bytes, bytes) {
+                return edge.node
+            }
+
+            return nil
+        }
+    }
+
+    func appending(_ edge: StaticEdge) -> StaticBucket {
+        switch self {
+        case .single(let existing):
+            return .collisions([
+                existing,
+                edge
+            ])
+
+        case .collisions(var edges):
+            edges.append(edge)
+            return .collisions(edges)
+        }
+    }
+}
+
 private final class RouterNode {
-    var staticChildren: [UInt64: [StaticEdge]] = [:]
+    var staticChildren: [UInt64: StaticBucket] = [:]
     var parameterChild: RouterNode?
     var endpoint: RouteEndpoint?
 }
@@ -285,11 +327,10 @@ final class Router: @unchecked Sendable {
             let bytes = Array(segment.utf8)
             let hash = Self.hash(bytes)
 
-            if let child = Self.findStaticChild(
-                in: node,
-                hash: hash,
-                matching: bytes
-            ) {
+            if
+                let bucket = node.staticChildren[hash],
+                let child = bucket.matching(bytes)
+            {
                 node = child
                 continue
             }
@@ -299,7 +340,15 @@ final class Router: @unchecked Sendable {
                 bytes: bytes,
                 node: child
             )
-            node.staticChildren[hash, default: []].append(edge)
+
+            if let bucket = node.staticChildren[hash] {
+                node.staticChildren[hash] =
+                    bucket.appending(edge)
+            } else {
+                node.staticChildren[hash] =
+                    .single(edge)
+            }
+
             node = child
         }
 
@@ -500,17 +549,17 @@ final class Router: @unchecked Sendable {
 
         let segment = bytes[segmentStart..<cursor]
 
-        if let staticChild = Self.findStaticChild(
-            in: node,
-            hash: segmentHash,
-            matching: segment
-        ), let endpoint = matchNode(
-            staticChild,
-            bytes: bytes,
-            cursor: cursor,
-            cursorOffset: cursorOffset,
-            parameterRanges: &parameterRanges
-        ) {
+        if
+            let bucket = node.staticChildren[segmentHash],
+            let staticChild = bucket.matching(segment),
+            let endpoint = matchNode(
+                staticChild,
+                bytes: bytes,
+                cursor: cursor,
+                cursorOffset: cursorOffset,
+                parameterRanges: &parameterRanges
+            )
+        {
             return endpoint
         }
 
@@ -537,25 +586,7 @@ final class Router: @unchecked Sendable {
     }
 
     @inline(__always)
-    private static func findStaticChild<C: Collection>(
-        in node: RouterNode,
-        hash: UInt64,
-        matching bytes: C
-    ) -> RouterNode? where C.Element == UInt8 {
-        guard let candidates = node.staticChildren[hash] else {
-            return nil
-        }
-
-        for candidate in candidates
-        where equals(candidate.bytes, bytes) {
-            return candidate.node
-        }
-
-        return nil
-    }
-
-    @inline(__always)
-    private static func equals<C: Collection>(
+    fileprivate static func equals<C: Collection>(
         _ lhs: [UInt8],
         _ rhs: C
     ) -> Bool where C.Element == UInt8 {
