@@ -248,7 +248,6 @@ public final class Application: @unchecked Sendable {
 
     @inline(__always)
     func respondTransport(
-        method: HTTPMethod,
         head: HTTPRequestHead,
         body: ByteBuffer,
         on eventLoop: EventLoop
@@ -256,7 +255,6 @@ public final class Application: @unchecked Sendable {
         guard middleware.isEmpty else {
             let request = Request(
                 head: head,
-                method: method,
                 body: body
             )
 
@@ -267,7 +265,7 @@ public final class Application: @unchecked Sendable {
         }
 
         switch router.lookup(
-            method: method,
+            method: head.method,
             uri: head.uri.utf8
         ) {
         case .prepared(let prepared):
@@ -280,7 +278,6 @@ public final class Application: @unchecked Sendable {
         ):
             var request = Request(
                 head: head,
-                method: method,
                 body: body
             )
             request.routeParameterNames =
@@ -299,7 +296,6 @@ public final class Application: @unchecked Sendable {
         ):
             var request = Request(
                 head: head,
-                method: method,
                 body: body
             )
             request.routeParameterNames =
