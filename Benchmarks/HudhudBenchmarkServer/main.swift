@@ -66,6 +66,10 @@ app.get("/concurrent") { _ async throws in
         .header("date", benchmarkDate)
 }
 
+app.get("/query") { request in
+    .text(request.query("q") ?? "")
+}
+
 app.get("/users/:id") { request in
     .text(request.parameter("id") ?? "")
 }

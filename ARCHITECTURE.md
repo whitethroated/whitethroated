@@ -189,7 +189,7 @@ The same rule applies to `all(...)`: it expands into concrete method routes duri
 
 Queries are not parsed during request construction.
 
-`request.query(name)` scans lazily and stops after the requested key is found.
+`request.query(name)` scans lazily and stops after the requested key is found. When URI UTF-8 storage is contiguous, targeted lookup uses integer-indexed bytes directly.
 
 `request.queryParameters` materializes a dictionary only when requested.
 

@@ -113,25 +113,26 @@ public struct Request: @unchecked Sendable {
     }
 
     public func query(_ name: String) -> String? {
-        var result: String?
+        let bytes = uri.utf8
+        let expected = name.utf8
 
-        scanQuery { key, value in
-            guard URLComponentDecoder.equalsDecoded(
-                key,
-                name.utf8,
-                plusAsSpace: true
-            ) else {
-                return true
-            }
+        if let result = bytes
+            .withContiguousStorageIfAvailable({
+                storage in
 
-            result = URLComponentDecoder.decode(
-                value,
-                plusAsSpace: true
-            )
-            return false
+                Self.queryValue(
+                    named: expected,
+                    in: storage
+                )
+            })
+        {
+            return result
         }
 
-        return result
+        return Self.queryValue(
+            named: expected,
+            in: bytes
+        )
     }
 
     public func header(_ name: String) -> String? {
@@ -295,6 +296,77 @@ public struct Request: @unchecked Sendable {
             bytes[lower..<upper],
             plusAsSpace: false
         )
+    }
+
+    @inline(__always)
+    private static func queryValue<
+        C: Collection,
+        N: Collection
+    >(
+        named expected: N,
+        in bytes: C
+    ) -> String?
+    where C.Element == UInt8, N.Element == UInt8 {
+        guard let queryIndex = bytes.firstIndex(of: 63) else {
+            return nil
+        }
+
+        var cursor = bytes.index(after: queryIndex)
+
+        while cursor != bytes.endIndex {
+            if bytes[cursor] == 38 {
+                bytes.formIndex(after: &cursor)
+                continue
+            }
+
+            let keyStart = cursor
+
+            while
+                cursor != bytes.endIndex,
+                bytes[cursor] != 61,
+                bytes[cursor] != 38
+            {
+                bytes.formIndex(after: &cursor)
+            }
+
+            let keyEnd = cursor
+            var valueStart = cursor
+
+            if
+                cursor != bytes.endIndex,
+                bytes[cursor] == 61
+            {
+                bytes.formIndex(after: &cursor)
+                valueStart = cursor
+
+                while
+                    cursor != bytes.endIndex,
+                    bytes[cursor] != 38
+                {
+                    bytes.formIndex(after: &cursor)
+                }
+            }
+
+            if URLComponentDecoder.equalsDecoded(
+                bytes[keyStart..<keyEnd],
+                expected,
+                plusAsSpace: true
+            ) {
+                return URLComponentDecoder.decode(
+                    bytes[valueStart..<cursor],
+                    plusAsSpace: true
+                )
+            }
+
+            if
+                cursor != bytes.endIndex,
+                bytes[cursor] == 38
+            {
+                bytes.formIndex(after: &cursor)
+            }
+        }
+
+        return nil
     }
 
     private func scanQuery(
