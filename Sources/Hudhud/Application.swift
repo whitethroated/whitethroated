@@ -89,6 +89,13 @@ public final class Application: @unchecked Sendable {
 
     public func post(
         _ path: String,
+        response: PreparedResponse
+    ) {
+        on(.post, path, response: response)
+    }
+
+    public func post(
+        _ path: String,
         use handler: @escaping SyncHandler
     ) {
         route(.post, path, use: handler)
@@ -103,9 +110,30 @@ public final class Application: @unchecked Sendable {
 
     public func put(
         _ path: String,
+        response: PreparedResponse
+    ) {
+        on(.put, path, response: response)
+    }
+
+    public func put(
+        _ path: String,
         use handler: @escaping SyncHandler
     ) {
         route(.put, path, use: handler)
+    }
+
+    public func put(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        route(.put, path, use: handler)
+    }
+
+    public func patch(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        on(.patch, path, response: response)
     }
 
     public func patch(
@@ -115,11 +143,39 @@ public final class Application: @unchecked Sendable {
         route(.patch, path, use: handler)
     }
 
+    public func patch(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        route(.patch, path, use: handler)
+    }
+
+    public func delete(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        on(.delete, path, response: response)
+    }
+
     public func delete(
         _ path: String,
         use handler: @escaping SyncHandler
     ) {
         route(.delete, path, use: handler)
+    }
+
+    public func delete(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        route(.delete, path, use: handler)
+    }
+
+    public func head(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        on(.head, path, response: response)
     }
 
     public func head(
@@ -129,11 +185,74 @@ public final class Application: @unchecked Sendable {
         route(.head, path, use: handler)
     }
 
+    public func head(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        route(.head, path, use: handler)
+    }
+
+    public func options(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        on(.options, path, response: response)
+    }
+
     public func options(
         _ path: String,
         use handler: @escaping SyncHandler
     ) {
         route(.options, path, use: handler)
+    }
+
+    public func options(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        route(.options, path, use: handler)
+    }
+
+    public func connect(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        on(.connect, path, response: response)
+    }
+
+    public func connect(
+        _ path: String,
+        use handler: @escaping SyncHandler
+    ) {
+        route(.connect, path, use: handler)
+    }
+
+    public func connect(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        route(.connect, path, use: handler)
+    }
+
+    public func trace(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        on(.trace, path, response: response)
+    }
+
+    public func trace(
+        _ path: String,
+        use handler: @escaping SyncHandler
+    ) {
+        route(.trace, path, use: handler)
+    }
+
+    public func trace(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        route(.trace, path, use: handler)
     }
 
     @discardableResult
