@@ -20,7 +20,7 @@ The repository contains two release benchmark servers.
 
 ### Hudhud server
 
-Routes:
+Core routes:
 
 - `/prepared` — prepared immutable plaintext response.
 - `/plaintext` — ordinary synchronous plaintext handler.
@@ -59,6 +59,38 @@ FAST_MIDDLEWARE=1 \
 ROUTE=/prepared \
 ./Benchmarks/run.sh
 ```
+
+### Router scaling benchmark
+
+The benchmark server also registers dedicated route shapes for measuring router scaling.
+
+Static depth:
+
+- 1 segment after the prefix.
+- 4 segments.
+- 8 segments.
+- 16 segments.
+
+Static fan-out:
+
+- 16 sibling routes.
+- 256 sibling routes.
+- 4,096 sibling routes.
+
+Dynamic depth:
+
+- 1 parameter.
+- 4 parameters mixed with static segments.
+
+Run the full router matrix:
+
+```bash
+./Benchmarks/router.sh
+```
+
+The matrix runs against one warmed release server so machine and process setup remain constant across the route cases.
+
+Interpret the matrix by comparing each case to `/prepared`. The response path is intentionally the same prepared response for static depth and fan-out cases, so most of the delta should come from routing.
 
 ### Raw SwiftNIO control
 
@@ -117,6 +149,7 @@ Completed:
 - Method-aware UTF-8 trie routing.
 - Static-route priority with parameter fallback.
 - Direct routing over URI bytes.
+- Route segment boundary scanning and hashing in one byte pass.
 - Lazy route parameter decoding from byte ranges.
 - Lazy query parsing.
 - Custom percent decoding without Foundation URL parsing.
@@ -136,17 +169,17 @@ Completed:
 - HTTP/1.1 keep-alive without a redundant `Connection: keep-alive` response header.
 - Raw SwiftNIO control server with equivalent prepared response behavior.
 - Exact SwiftNIO dependency pin.
+- Router depth and fan-out benchmark matrix.
 
 Next measurements and optimizations:
 
 1. Quantify Hudhud overhead relative to the raw NIO control.
 2. Measure ordinary synchronous `/plaintext` against prepared `/prepared`.
-3. Quantify fast and asynchronous middleware overhead per layer.
-4. Combine route segment scanning and hashing where profiling validates the gain.
-5. Measure route matching by static/dynamic depth and route count.
-6. Profile ARC retain/release traffic.
-7. Profile request-body accumulation.
-8. Evaluate response write batching from profiler evidence.
-9. Compare with Actix Web only after the raw-NIO framework overhead is understood.
+3. Run the router matrix and quantify depth/fan-out cost.
+4. Quantify fast and asynchronous middleware overhead per layer.
+5. Profile ARC retain/release traffic.
+6. Profile request-body accumulation.
+7. Evaluate response write batching from profiler evidence.
+8. Compare with Actix Web only after the raw-NIO framework overhead is understood.
 
 No performance number should be published until the benchmark environment and commands are recorded with it.
