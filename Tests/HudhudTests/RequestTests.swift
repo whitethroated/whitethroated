@@ -19,6 +19,57 @@ final class RequestTests: XCTestCase {
         XCTAssertEqual(request.path, "/health")
     }
 
+    func testQueryStringIsLazyPublicView() {
+        let request = makeRequest(
+            path: "/search?q=hudhud&limit=10"
+        )
+
+        XCTAssertEqual(
+            request.queryString,
+            "q=hudhud&limit=10"
+        )
+    }
+
+    func testQueryReturnsDecodedValue() {
+        let request = makeRequest(
+            path: "/search?q=hello+world&next=%2Fhome"
+        )
+
+        XCTAssertEqual(
+            request.query("q"),
+            "hello world"
+        )
+        XCTAssertEqual(
+            request.query("next"),
+            "/home"
+        )
+    }
+
+    func testQueryMatchesPercentEncodedKey() {
+        let request = makeRequest(
+            path: "/search?na%6De=hudhud"
+        )
+
+        XCTAssertEqual(
+            request.query("name"),
+            "hudhud"
+        )
+    }
+
+    func testQueryParametersMaterializesValuesOnDemand() {
+        let request = makeRequest(
+            path: "/search?q=hello+world&limit=10"
+        )
+
+        XCTAssertEqual(
+            request.queryParameters,
+            [
+                "q": "hello world",
+                "limit": "10"
+            ]
+        )
+    }
+
     func testRouteParameterIsDecodedOnAccess() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
@@ -39,6 +90,28 @@ final class RequestTests: XCTestCase {
         }
 
         XCTAssertEqual(body, "42")
+    }
+
+    func testRouteParameterPercentDecoding() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/files/:path") { request in
+            .text(request.parameter("path") ?? "")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(path: "/files/a%2Fb"),
+                on: loop
+            )
+            .wait()
+
+        guard case .text(let body) = response.body else {
+            return XCTFail("Expected text response")
+        }
+
+        XCTAssertEqual(body, "a/b")
     }
 
     func testParametersPropertyMaterializesAllValues() throws {
