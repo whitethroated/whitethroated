@@ -15,6 +15,7 @@ public final class Application: @unchecked Sendable {
     private var compiledResponder: InternalHandler?
     private var group: MultiThreadedEventLoopGroup?
     private var serverChannel: Channel?
+    private var configurationFrozen = false
 
     public init(
         configuration: ServerConfiguration = ServerConfiguration()
@@ -30,6 +31,8 @@ public final class Application: @unchecked Sendable {
     }
 
     public func use(_ middleware: @escaping Middleware) {
+        requireConfigurationPhase()
+
         self.middleware.append(
             .asynchronous(middleware)
         )
@@ -39,6 +42,8 @@ public final class Application: @unchecked Sendable {
     public func useFast(
         _ middleware: @escaping FastMiddleware
     ) {
+        requireConfigurationPhase()
+
         self.middleware.append(
             .fast(middleware)
         )
@@ -50,6 +55,8 @@ public final class Application: @unchecked Sendable {
         _ path: String,
         response: PreparedResponse
     ) {
+        requireConfigurationPhase()
+
         router.add(
             method: method,
             path: path,
@@ -267,6 +274,11 @@ public final class Application: @unchecked Sendable {
         host: String = "127.0.0.1",
         port: Int = 3000
     ) throws -> Channel {
+        guard !configurationFrozen else {
+            throw ApplicationError.alreadyRunning
+        }
+
+        configurationFrozen = true
         compiledResponder = buildMiddlewarePipeline()
 
         let group = MultiThreadedEventLoopGroup(
@@ -318,6 +330,7 @@ public final class Application: @unchecked Sendable {
             return channel
         } catch {
             try? group.syncShutdownGracefully()
+            configurationFrozen = false
             throw error
         }
     }
@@ -327,6 +340,11 @@ public final class Application: @unchecked Sendable {
         port: Int = 3000
     ) throws {
         let channel = try listen(host: host, port: port)
+
+        defer {
+            try? shutdown()
+        }
+
         try channel.closeFuture.wait()
     }
 
@@ -340,6 +358,16 @@ public final class Application: @unchecked Sendable {
             try group.syncShutdownGracefully()
             self.group = nil
         }
+
+        configurationFrozen = false
+    }
+
+    @inline(__always)
+    private func requireConfigurationPhase() {
+        precondition(
+            !configurationFrozen,
+            "Routes and middleware must be registered before the server starts"
+        )
     }
 
     func respond(
@@ -497,6 +525,8 @@ public final class Application: @unchecked Sendable {
         _ path: String,
         use handler: @escaping SyncHandler
     ) {
+        requireConfigurationPhase()
+
         router.add(
             method: method,
             path: path,
@@ -509,6 +539,8 @@ public final class Application: @unchecked Sendable {
         _ path: String,
         use handler: @escaping Handler
     ) {
+        requireConfigurationPhase()
+
         router.add(
             method: method,
             path: path,
