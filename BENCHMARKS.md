@@ -138,6 +138,38 @@ Run the paired comparison:
 
 The script builds both servers in release mode and runs them sequentially with identical `wrk` settings on the same host and port.
 
+## Repeated benchmark suite
+
+Do not use one run as a performance conclusion. The suite runner records multiple raw samples together with machine and compiler metadata.
+
+Raw SwiftNIO comparison:
+
+```bash
+MODE=raw-nio \
+SAMPLES=5 \
+WORKERS=8 \
+THREADS=8 \
+CONNECTIONS=256 \
+DURATION=30s \
+./Benchmarks/suite.sh
+```
+
+Actix Web comparison:
+
+```bash
+MODE=actix \
+SAMPLES=5 \
+WORKERS=8 \
+THREADS=8 \
+CONNECTIONS=256 \
+DURATION=30s \
+./Benchmarks/suite.sh
+```
+
+Each run is written beneath `benchmark-results/<timestamp>-<mode>/` together with `environment.txt`. Generated benchmark records are ignored by Git by default so experimental runs are not accidentally published.
+
+When reporting results, calculate summary statistics from all samples and preserve the raw records used to produce them.
+
 ## Comparison protocol
 
 When comparing Hudhud with raw SwiftNIO, Hummingbird, Vapor, Actix Web, or another server:
