@@ -18,17 +18,17 @@ enum RouterMatch {
     case prepared(PreparedResponse)
     case synchronous(
         SyncHandler,
-        parameterNames: [String],
+        parameterNames: RouteParameterNames,
         parameterRanges: RouteParameterRanges
     )
     case asynchronous(
         Handler,
-        parameterNames: [String],
+        parameterNames: RouteParameterNames,
         parameterRanges: RouteParameterRanges
     )
     case concurrent(
         AsyncHandler,
-        parameterNames: [String],
+        parameterNames: RouteParameterNames,
         parameterRanges: RouteParameterRanges
     )
     case notFound
@@ -43,7 +43,7 @@ private enum RouteResponder {
 
 private struct RouteEndpoint {
     let responder: RouteResponder
-    let parameterNames: [String]
+    let parameterNames: RouteParameterNames
 }
 
 private struct StaticEdge {
@@ -341,7 +341,7 @@ final class Router: @unchecked Sendable {
         let root = rootForInsert(method)
 
         var node = root
-        var parameterNames: [String] = []
+        var parameterNames: RouteParameterNames = .none
         let segments = path.split(
             separator: "/",
             omittingEmptySubsequences: true

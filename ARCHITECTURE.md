@@ -157,8 +157,8 @@ Current trie behavior:
 - Non-contiguous URI storage falls back to the zero-copy `String.UTF8View` matcher.
 - Segment boundary scanning and FNV-1a hashing happen in the same byte pass.
 - Static hash buckets store one edge directly and allocate collision arrays only if a 64-bit hash collision occurs.
-- The first two dynamic parameter ranges are stored inline.
-- A third parameter promotes range storage to an array.
+- The first two dynamic parameter names and ranges are stored inline.
+- A third parameter promotes name/range storage to arrays.
 - Parameter strings are decoded only when application code reads them.
 - `HEAD` uses an explicit HEAD route first and falls back to GET.
 
