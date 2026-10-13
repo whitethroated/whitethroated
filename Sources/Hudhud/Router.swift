@@ -29,6 +29,10 @@ private final class RouterNode {
 final class Router: @unchecked Sendable {
     private static let slash: UInt8 = 47
     private static let query: UInt8 = 63
+    private static let hashOffset: UInt64 =
+        14_695_981_039_346_656_037
+    private static let hashPrime: UInt64 =
+        1_099_511_628_211
 
     private var getRoot: RouterNode?
     private var postRoot: RouterNode?
@@ -305,6 +309,7 @@ final class Router: @unchecked Sendable {
 
         let segmentStart = cursor
         let segmentStartOffset = cursorOffset
+        var segmentHash = Self.hashOffset
 
         while cursor != bytes.endIndex {
             let byte = bytes[cursor]
@@ -313,12 +318,13 @@ final class Router: @unchecked Sendable {
                 break
             }
 
+            segmentHash ^= UInt64(byte)
+            segmentHash &*= Self.hashPrime
             bytes.formIndex(after: &cursor)
             cursorOffset += 1
         }
 
         let segment = bytes[segmentStart..<cursor]
-        let segmentHash = Self.hash(segment)
 
         if let staticChild = Self.findStaticChild(
             in: node,
@@ -402,11 +408,11 @@ final class Router: @unchecked Sendable {
     private static func hash<C: Collection>(
         _ bytes: C
     ) -> UInt64 where C.Element == UInt8 {
-        var hash: UInt64 = 14_695_981_039_346_656_037
+        var hash = Self.hashOffset
 
         for byte in bytes {
             hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
+            hash &*= Self.hashPrime
         }
 
         return hash
