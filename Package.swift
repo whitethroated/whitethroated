@@ -29,7 +29,11 @@ let package = Package(
         ),
         .testTarget(
             name: "HudhudTests",
-            dependencies: ["Hudhud"]
+            dependencies: [
+                "Hudhud",
+                .product(name: "NIOEmbedded", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio")
+            ]
         )
     ]
 )
