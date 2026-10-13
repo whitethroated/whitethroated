@@ -47,7 +47,23 @@ The benchmark exercises the transport dispatch path without opening a socket:
 - synchronous single-parameter route with parameter decoding.
 - synchronous targeted-query route with query decoding.
 
-The test is skipped during normal `swift test` runs unless `HUDHUD_CORE_BENCHMARK=1` is set. Treat these numbers as diagnostic ns/op measurements, not as substitutes for the repeated `wrk` network suite.
+The test is skipped during normal `swift test` runs unless `HUDHUD_CORE_BENCHMARK=1` is set.
+
+To isolate dispatch plus the `HTTPServerHandler` outbound writer using `EmbeddedChannel`:
+
+```bash
+./Benchmarks/writer-core.sh
+```
+
+Increase its iterations independently:
+
+```bash
+ITERATIONS=500000 ./Benchmarks/writer-core.sh
+```
+
+The writer benchmark compares prepared and ordinary synchronous text responses while draining the same three HTTP response parts (`head`, `body`, `end`) per request. Compare it with `core.sh` to determine whether a measured delta comes primarily from dispatch or response writing.
+
+Treat all in-process numbers as diagnostic ns/op measurements, not as substitutes for the repeated `wrk` network suite.
 
 ## Benchmark servers
 
