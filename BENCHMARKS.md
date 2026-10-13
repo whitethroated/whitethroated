@@ -22,11 +22,19 @@ The repository contains two release benchmark servers.
 
 Routes:
 
-- `/prepared` — prepared immutable plaintext response; no handler closure or text-to-buffer conversion per request.
+- `/prepared` — prepared immutable plaintext response.
 - `/plaintext` — ordinary synchronous plaintext handler.
 - `/json` — ordinary synchronous JSON handler.
 - `/users/:id` — one dynamic route parameter.
 - `/users/:id/posts/:post` — two dynamic route parameters.
+
+The prepared route precomputes:
+
+- Body bytes.
+- `Content-Length`.
+- HTTP/1.1 response head.
+
+It is stored directly in the route trie and is the closest Hudhud control path to raw SwiftNIO.
 
 Run the default Hudhud benchmark:
 
@@ -44,11 +52,19 @@ DURATION=60s \
 ./Benchmarks/run.sh
 ```
 
+Measure one pass-through synchronous middleware layer:
+
+```bash
+FAST_MIDDLEWARE=1 \
+ROUTE=/prepared \
+./Benchmarks/run.sh
+```
+
 ### Raw SwiftNIO control
 
-`raw-nio-benchmark-server` is deliberately tiny and serves the same `Hello, World!` plaintext bytes, content type, HTTP/1.1 keep-alive behavior, and SwiftNIO HTTP pipeline as the Hudhud prepared-response benchmark.
+`raw-nio-benchmark-server` serves the same `Hello, World!` bytes and content type as Hudhud's `/prepared` route.
 
-Its purpose is to measure Hudhud's framework overhead before comparing Swift with another language runtime.
+For the common HTTP/1.1 keep-alive path, both servers precompute their response body and response head. Both use SwiftNIO's HTTP server pipeline with pipelining assistance enabled.
 
 Run the paired comparison:
 
@@ -57,28 +73,6 @@ Run the paired comparison:
 ```
 
 The script builds both servers in release mode and runs them sequentially with identical `wrk` settings on the same host and port.
-
-## Manual benchmark
-
-Build the servers:
-
-```bash
-swift build -c release --product hudhud-benchmark-server
-swift build -c release --product raw-nio-benchmark-server
-```
-
-Run Hudhud:
-
-```bash
-.build/release/hudhud-benchmark-server
-```
-
-Then:
-
-```bash
-wrk -t4 -c128 -d30s --latency \
-  http://127.0.0.1:3000/prepared
-```
 
 ## Comparison protocol
 
@@ -96,6 +90,7 @@ When comparing Hudhud with raw SwiftNIO, Hummingbird, Vapor, Actix Web, or anoth
 10. Record CPU and resident memory alongside throughput.
 11. Compare tail latency, not only requests per second.
 12. Compare Hudhud with minimal raw SwiftNIO before attributing a delta to Swift itself.
+13. Do not tune only one side of a comparison.
 
 Record at minimum:
 
@@ -118,38 +113,40 @@ Record at minimum:
 
 Completed:
 
-- Method-aware trie routing.
-- UTF-8 static route matching.
+- Direct roots for common HTTP methods.
+- Method-aware UTF-8 trie routing.
 - Static-route priority with parameter fallback.
 - Direct routing over URI bytes.
 - Lazy route parameter decoding from byte ranges.
 - Lazy query parsing.
 - Custom percent decoding without Foundation URL parsing.
-- Compiled middleware chain.
+- Compiled asynchronous middleware chain.
+- Synchronous middleware fast path.
 - Synchronous responder fast path.
 - Direct `ByteBuffer` response support.
 - Prepared immutable response path.
 - Prepared routes stored directly in the routing trie.
-- Content-length precomputation for prepared responses.
-- First-body-chunk reuse instead of always copying into a new buffer.
+- Prepared body and content-length precomputation.
+- Prepared HTTP/1.1 response-head precomputation.
+- Bodyless-request empty-buffer reuse.
+- First-body-chunk reuse instead of unconditional copying.
 - Configurable request-body limits.
 - HTTP pipelining assistance.
 - Express-style `HEAD` fallback to `GET`.
 - HTTP/1.1 keep-alive without a redundant `Connection: keep-alive` response header.
-- Dedicated release benchmark runner.
-- Raw SwiftNIO control server.
+- Raw SwiftNIO control server with equivalent prepared response behavior.
 - Exact SwiftNIO dependency pin.
 
 Next measurements and optimizations:
 
 1. Quantify Hudhud overhead relative to the raw NIO control.
 2. Measure ordinary synchronous `/plaintext` against prepared `/prepared`.
-3. Measure middleware overhead per layer.
-4. Measure route matching by static/dynamic depth and route count.
-5. Profile ARC retain/release traffic.
-6. Profile request-body accumulation.
-7. Evaluate a synchronous middleware fast path.
-8. Evaluate response-head caching where HTTP semantics permit it.
+3. Quantify fast and asynchronous middleware overhead per layer.
+4. Combine route segment scanning and hashing where profiling validates the gain.
+5. Measure route matching by static/dynamic depth and route count.
+6. Profile ARC retain/release traffic.
+7. Profile request-body accumulation.
+8. Evaluate response write batching from profiler evidence.
 9. Compare with Actix Web only after the raw-NIO framework overhead is understood.
 
 No performance number should be published until the benchmark environment and commands are recorded with it.
