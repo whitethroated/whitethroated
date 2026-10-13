@@ -30,7 +30,16 @@ final class Router: @unchecked Sendable {
     private static let slash: UInt8 = 47
     private static let query: UInt8 = 63
 
-    private var roots: [HTTPMethod: RouterNode] = [:]
+    private var getRoot: RouterNode?
+    private var postRoot: RouterNode?
+    private var putRoot: RouterNode?
+    private var patchRoot: RouterNode?
+    private var deleteRoot: RouterNode?
+    private var headRoot: RouterNode?
+    private var optionsRoot: RouterNode?
+    private var connectRoot: RouterNode?
+    private var traceRoot: RouterNode?
+    private var otherRoots: [String: RouterNode] = [:]
 
     func add(
         method: HTTPMethod,
@@ -56,12 +65,13 @@ final class Router: @unchecked Sendable {
         )
     }
 
+    @inline(__always)
     func resolve(
         _ request: Request,
         context: Context
     ) -> ResponderResult {
         if
-            let root = roots[request.method],
+            let root = root(for: request.method),
             let match = match(
                 uri: request.routingBytes,
                 from: root
@@ -77,7 +87,7 @@ final class Router: @unchecked Sendable {
 
         if
             request.method == .head,
-            let root = roots[.get],
+            let root = getRoot,
             let match = match(
                 uri: request.routingBytes,
                 from: root
@@ -99,11 +109,7 @@ final class Router: @unchecked Sendable {
         path: String,
         responder: RouteResponder
     ) {
-        let root = roots[method] ?? {
-            let node = RouterNode()
-            roots[method] = node
-            return node
-        }()
+        let root = rootForInsert(method)
 
         var node = root
         var parameterNames: [String] = []
@@ -158,6 +164,69 @@ final class Router: @unchecked Sendable {
             responder: responder,
             parameterNames: parameterNames
         )
+    }
+
+    @inline(__always)
+    private func root(
+        for method: HTTPMethod
+    ) -> RouterNode? {
+        switch method {
+        case .get:
+            return getRoot
+        case .post:
+            return postRoot
+        case .put:
+            return putRoot
+        case .patch:
+            return patchRoot
+        case .delete:
+            return deleteRoot
+        case .head:
+            return headRoot
+        case .options:
+            return optionsRoot
+        case .connect:
+            return connectRoot
+        case .trace:
+            return traceRoot
+        case .other(let value):
+            return otherRoots[value]
+        }
+    }
+
+    private func rootForInsert(
+        _ method: HTTPMethod
+    ) -> RouterNode {
+        if let existing = root(for: method) {
+            return existing
+        }
+
+        let node = RouterNode()
+
+        switch method {
+        case .get:
+            getRoot = node
+        case .post:
+            postRoot = node
+        case .put:
+            putRoot = node
+        case .patch:
+            patchRoot = node
+        case .delete:
+            deleteRoot = node
+        case .head:
+            headRoot = node
+        case .options:
+            optionsRoot = node
+        case .connect:
+            connectRoot = node
+        case .trace:
+            traceRoot = node
+        case .other(let value):
+            otherRoots[value] = node
+        }
+
+        return node
     }
 
     @inline(__always)
