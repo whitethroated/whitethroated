@@ -108,6 +108,8 @@ For HTTP/1.1 keep-alive requests it can reuse:
 
 Prepared routes are stored directly in route endpoints.
 
+A `PreparedResponse` is a small value wrapper around immutable shared storage containing the fallback response, cached HTTP/1.1 head, and cached body buffer. Copies during routing therefore retain one storage reference instead of independently carrying several copy-on-write-backed response values.
+
 ### Immediate
 
 A synchronous route returns a `Response` without creating an `EventLoopFuture`.

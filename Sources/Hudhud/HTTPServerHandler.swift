@@ -175,7 +175,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
             keepAlive
         else {
             write(
-                prepared.response,
+                prepared.storage.response,
                 isHeadRequest: isHeadRequest,
                 version: version,
                 keepAlive: keepAlive,
@@ -184,14 +184,16 @@ final class HTTPServerHandler: ChannelInboundHandler {
             return
         }
 
+        let storage = prepared.storage
+
         context.write(
-            wrapOutboundOut(.head(prepared.http11Head)),
+            wrapOutboundOut(.head(storage.http11Head)),
             promise: nil
         )
 
         if
             !isHeadRequest,
-            let body = prepared.bodyBuffer,
+            let body = storage.bodyBuffer,
             body.readableBytes > 0
         {
             context.write(

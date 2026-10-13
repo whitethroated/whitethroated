@@ -2,12 +2,12 @@ import Foundation
 import NIOCore
 import NIOHTTP1
 
-public struct PreparedResponse: Sendable {
-    internal let response: Response
-    internal let http11Head: HTTPResponseHead
-    internal let bodyBuffer: ByteBuffer?
+internal final class PreparedResponseStorage: Sendable {
+    let response: Response
+    let http11Head: HTTPResponseHead
+    let bodyBuffer: ByteBuffer?
 
-    private init(
+    init(
         response: Response,
         http11Head: HTTPResponseHead,
         bodyBuffer: ByteBuffer?
@@ -15,6 +15,37 @@ public struct PreparedResponse: Sendable {
         self.response = response
         self.http11Head = http11Head
         self.bodyBuffer = bodyBuffer
+    }
+}
+
+public struct PreparedResponse: Sendable {
+    internal let storage: PreparedResponseStorage
+
+    @inline(__always)
+    internal var response: Response {
+        storage.response
+    }
+
+    @inline(__always)
+    internal var http11Head: HTTPResponseHead {
+        storage.http11Head
+    }
+
+    @inline(__always)
+    internal var bodyBuffer: ByteBuffer? {
+        storage.bodyBuffer
+    }
+
+    private init(
+        response: Response,
+        http11Head: HTTPResponseHead,
+        bodyBuffer: ByteBuffer?
+    ) {
+        self.storage = PreparedResponseStorage(
+            response: response,
+            http11Head: http11Head,
+            bodyBuffer: bodyBuffer
+        )
     }
 
     public static func text(
