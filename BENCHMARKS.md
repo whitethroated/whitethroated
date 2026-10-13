@@ -25,6 +25,7 @@ Core routes:
 - `/prepared` — prepared immutable plaintext response.
 - `/plaintext` — ordinary synchronous plaintext handler.
 - `/json` — ordinary synchronous JSON handler.
+- `/concurrent` — Swift async/await handler, isolating per-request Task bridge overhead.
 - `/users/:id` — one dynamic route parameter.
 - `/users/:id/posts/:post` — two dynamic route parameters.
 
@@ -177,7 +178,8 @@ Next measurements and optimizations:
 
 1. Quantify Hudhud overhead relative to the raw NIO control.
 2. Measure ordinary synchronous `/plaintext` against prepared `/prepared`.
-3. Run the router matrix and quantify depth/fan-out cost.
+3. Measure async/await `/concurrent` against synchronous `/plaintext` to quantify Task bridge cost.
+4. Run the router matrix and quantify depth/fan-out cost.
 4. Quantify fast and asynchronous middleware overhead per layer.
 5. Profile ARC retain/release traffic.
 6. Profile request-body accumulation.

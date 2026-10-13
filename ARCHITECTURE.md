@@ -74,7 +74,9 @@ Router lookup
   |
   +-- synchronous endpoint ------> build Request -> sync handler
   |
-  +-- asynchronous endpoint -----> build Request + Context -> future handler
+  +-- NIO-future endpoint -------> build Request + Context -> future handler
+  |
+  +-- async/await endpoint -------> build Request -> Task -> future bridge
   |
   +-- not found -----------------> immediate 404
 ```
@@ -115,6 +117,12 @@ Synchronous handlers are stored separately from asynchronous handlers in the tri
 Handlers performing asynchronous NIO work return an `EventLoopFuture<Response>`.
 
 `Context` and future allocation are paid only by paths that require them.
+
+### Async/await
+
+An `AsyncHandler` is an opt-in Swift concurrency path. Hudhud bridges it through SwiftNIO's `EventLoopPromise.completeWithTask`.
+
+This path intentionally creates a Swift `Task` for that request. It must never become an implicit wrapper around synchronous, prepared, or NIO-future handlers.
 
 ## Middleware paths
 

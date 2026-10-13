@@ -108,6 +108,21 @@ public final class Application: @unchecked Sendable {
         }
     }
 
+    public func all(
+        _ path: String,
+        use handler: @escaping AsyncHandler
+    ) {
+        requireConfigurationPhase()
+
+        for method in Self.commonMethods {
+            router.add(
+                method: method,
+                path: path,
+                asyncHandler: handler
+            )
+        }
+    }
+
     public func on(
         _ method: HTTPMethod,
         _ path: String,
@@ -138,6 +153,14 @@ public final class Application: @unchecked Sendable {
         route(method, path, use: handler)
     }
 
+    public func on(
+        _ method: HTTPMethod,
+        _ path: String,
+        use handler: @escaping AsyncHandler
+    ) {
+        route(method, path, use: handler)
+    }
+
     public func get(
         _ path: String,
         response: PreparedResponse
@@ -155,6 +178,13 @@ public final class Application: @unchecked Sendable {
     public func get(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        route(.get, path, use: handler)
+    }
+
+    public func get(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         route(.get, path, use: handler)
     }
@@ -180,6 +210,13 @@ public final class Application: @unchecked Sendable {
         route(.post, path, use: handler)
     }
 
+    public func post(
+        _ path: String,
+        use handler: @escaping AsyncHandler
+    ) {
+        route(.post, path, use: handler)
+    }
+
     public func put(
         _ path: String,
         response: PreparedResponse
@@ -197,6 +234,13 @@ public final class Application: @unchecked Sendable {
     public func put(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        route(.put, path, use: handler)
+    }
+
+    public func put(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         route(.put, path, use: handler)
     }
@@ -222,6 +266,13 @@ public final class Application: @unchecked Sendable {
         route(.patch, path, use: handler)
     }
 
+    public func patch(
+        _ path: String,
+        use handler: @escaping AsyncHandler
+    ) {
+        route(.patch, path, use: handler)
+    }
+
     public func delete(
         _ path: String,
         response: PreparedResponse
@@ -239,6 +290,13 @@ public final class Application: @unchecked Sendable {
     public func delete(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        route(.delete, path, use: handler)
+    }
+
+    public func delete(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         route(.delete, path, use: handler)
     }
@@ -264,6 +322,13 @@ public final class Application: @unchecked Sendable {
         route(.head, path, use: handler)
     }
 
+    public func head(
+        _ path: String,
+        use handler: @escaping AsyncHandler
+    ) {
+        route(.head, path, use: handler)
+    }
+
     public func options(
         _ path: String,
         response: PreparedResponse
@@ -281,6 +346,13 @@ public final class Application: @unchecked Sendable {
     public func options(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        route(.options, path, use: handler)
+    }
+
+    public func options(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         route(.options, path, use: handler)
     }
@@ -306,6 +378,13 @@ public final class Application: @unchecked Sendable {
         route(.connect, path, use: handler)
     }
 
+    public func connect(
+        _ path: String,
+        use handler: @escaping AsyncHandler
+    ) {
+        route(.connect, path, use: handler)
+    }
+
     public func trace(
         _ path: String,
         response: PreparedResponse
@@ -323,6 +402,13 @@ public final class Application: @unchecked Sendable {
     public func trace(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        route(.trace, path, use: handler)
+    }
+
+    public func trace(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         route(.trace, path, use: handler)
     }
@@ -522,6 +608,30 @@ public final class Application: @unchecked Sendable {
                 )
             )
 
+        case .concurrent(
+            let handler,
+            let parameterNames,
+            let parameterRanges
+        ):
+            var request = Request(
+                head: head,
+                body: body
+            )
+            request.routeParameterNames =
+                parameterNames
+            request.routeParameterRanges =
+                parameterRanges
+
+            let asyncRequest = request
+            let promise = eventLoop.makePromise(
+                of: Response.self
+            )
+            promise.completeWithTask {
+                try await handler(asyncRequest)
+            }
+
+            return .future(promise.futureResult)
+
         case .notFound:
             return .immediate(.notFound())
         }
@@ -603,6 +713,20 @@ public final class Application: @unchecked Sendable {
             method: method,
             path: path,
             handler: handler
+        )
+    }
+
+    private func route(
+        _ method: HTTPMethod,
+        _ path: String,
+        use handler: @escaping AsyncHandler
+    ) {
+        requireConfigurationPhase()
+
+        router.add(
+            method: method,
+            path: path,
+            asyncHandler: handler
         )
     }
 }

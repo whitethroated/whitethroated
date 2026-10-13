@@ -31,6 +31,10 @@ app.get("/json") { _ in
     .json(#"{"message":"Hello, World!"}"#)
 }
 
+app.get("/concurrent") { _ async throws in
+    .text("Hello, World!")
+}
+
 app.get("/users/:id") { request in
     .text(request.parameter("id") ?? "")
 }

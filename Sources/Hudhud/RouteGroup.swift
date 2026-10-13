@@ -47,6 +47,16 @@ public struct RouteGroup: Sendable {
         )
     }
 
+    public func all(
+        _ path: String,
+        use handler: @escaping AsyncHandler
+    ) {
+        application.all(
+            joined(path),
+            use: handler
+        )
+    }
+
     public func on(
         _ method: HTTPMethod,
         _ path: String,
@@ -83,6 +93,18 @@ public struct RouteGroup: Sendable {
         )
     }
 
+    public func on(
+        _ method: HTTPMethod,
+        _ path: String,
+        use handler: @escaping AsyncHandler
+    ) {
+        application.on(
+            method,
+            joined(path),
+            use: handler
+        )
+    }
+
     public func get(
         _ path: String,
         response: PreparedResponse
@@ -106,6 +128,16 @@ public struct RouteGroup: Sendable {
     public func get(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        application.get(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func get(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         application.get(
             joined(path),
@@ -136,6 +168,16 @@ public struct RouteGroup: Sendable {
     public func post(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        application.post(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func post(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         application.post(
             joined(path),
@@ -166,6 +208,16 @@ public struct RouteGroup: Sendable {
     public func put(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        application.put(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func put(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         application.put(
             joined(path),
@@ -196,6 +248,16 @@ public struct RouteGroup: Sendable {
     public func patch(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        application.patch(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func patch(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         application.patch(
             joined(path),
@@ -226,6 +288,16 @@ public struct RouteGroup: Sendable {
     public func delete(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        application.delete(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func delete(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         application.delete(
             joined(path),
@@ -256,6 +328,16 @@ public struct RouteGroup: Sendable {
     public func head(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        application.head(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func head(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         application.head(
             joined(path),
@@ -286,6 +368,16 @@ public struct RouteGroup: Sendable {
     public func options(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        application.options(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func options(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         application.options(
             joined(path),
@@ -316,6 +408,16 @@ public struct RouteGroup: Sendable {
     public func connect(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        application.connect(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func connect(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         application.connect(
             joined(path),
@@ -346,6 +448,16 @@ public struct RouteGroup: Sendable {
     public func trace(
         _ path: String,
         use handler: @escaping Handler
+    ) {
+        application.trace(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func trace(
+        _ path: String,
+        use handler: @escaping AsyncHandler
     ) {
         application.trace(
             joined(path),
