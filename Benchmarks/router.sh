@@ -7,6 +7,7 @@ PORT="${PORT:-3000}"
 THREADS="${THREADS:-4}"
 CONNECTIONS="${CONNECTIONS:-128}"
 DURATION="${DURATION:-15s}"
+WORKERS="${WORKERS:-4}"
 
 if ! command -v wrk >/dev/null 2>&1; then
   echo "wrk is required to run the router benchmark." >&2
@@ -20,7 +21,9 @@ fi
 
 swift build -c release --product hudhud-benchmark-server
 
-HUDHUD_HOST="$HOST" HUDHUD_PORT="$PORT" \
+HUDHUD_HOST="$HOST" \
+HUDHUD_PORT="$PORT" \
+HUDHUD_THREADS="$WORKERS" \
   .build/release/hudhud-benchmark-server \
   >/tmp/hudhud-router-benchmark.log 2>&1 &
 
@@ -53,7 +56,7 @@ run_case() {
   echo "============================================================"
   echo "$label"
   echo "route=$route"
-  echo "threads=$THREADS connections=$CONNECTIONS duration=$DURATION"
+  echo "workers=$WORKERS threads=$THREADS connections=$CONNECTIONS duration=$DURATION"
   echo "============================================================"
   echo
 

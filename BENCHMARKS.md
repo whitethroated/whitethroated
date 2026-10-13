@@ -102,15 +102,25 @@ Dynamic parameter capture:
 - 2 parameters, both stored inline.
 - 4 parameters, which exercises promotion beyond the inline range storage.
 
-Run the full router matrix:
+Run the full router matrix with an explicit server worker count:
 
 ```bash
-./Benchmarks/router.sh
+WORKERS=4 ./Benchmarks/router.sh
 ```
 
 The matrix runs against one warmed release server so machine and process setup remain constant across the route cases.
 
 Interpret the matrix by comparing each case to `/prepared`. The response path is intentionally the same prepared response for static depth and fan-out cases, so most of the delta should come from routing.
+
+### Wire contract verification
+
+Before collecting cross-runtime numbers, verify the HTTP/1.1 response contract:
+
+```bash
+./Benchmarks/verify-wire.sh
+```
+
+The verifier builds and runs Hudhud, raw SwiftNIO, and Actix sequentially and confirms that all three return the same plaintext body plus the same `Content-Type`, `Content-Length`, and fixed `Date` value.
 
 ### Actix Web control
 
