@@ -1,3 +1,4 @@
+import Foundation
 import NIOCore
 import NIOHTTP1
 
@@ -20,14 +21,20 @@ public struct PreparedResponse: Sendable {
         _ value: String,
         status: HTTPResponseStatus = .ok
     ) -> PreparedResponse {
-        var buffer = ByteBufferAllocator().buffer(
-            capacity: value.utf8.count
-        )
-        buffer.writeString(value)
-
-        return make(
-            buffer: buffer,
+        encodedString(
+            value,
             contentType: "text/plain; charset=utf-8",
+            status: status
+        )
+    }
+
+    public static func html(
+        _ value: String,
+        status: HTTPResponseStatus = .ok
+    ) -> PreparedResponse {
+        encodedString(
+            value,
+            contentType: "text/html; charset=utf-8",
             status: status
         )
     }
@@ -36,10 +43,23 @@ public struct PreparedResponse: Sendable {
         _ value: String,
         status: HTTPResponseStatus = .ok
     ) -> PreparedResponse {
-        var buffer = ByteBufferAllocator().buffer(
-            capacity: value.utf8.count
+        encodedString(
+            value,
+            contentType: "application/json; charset=utf-8",
+            status: status
         )
-        buffer.writeString(value)
+    }
+
+    public static func json<T: Encodable>(
+        _ value: T,
+        encoder: JSONEncoder = JSONEncoder(),
+        status: HTTPResponseStatus = .ok
+    ) throws -> PreparedResponse {
+        let data = try encoder.encode(value)
+        var buffer = ByteBufferAllocator().buffer(
+            capacity: data.count
+        )
+        buffer.writeBytes(data)
 
         return make(
             buffer: buffer,
@@ -100,6 +120,23 @@ public struct PreparedResponse: Sendable {
                 headers: headers
             ),
             bodyBuffer: nil
+        )
+    }
+
+    private static func encodedString(
+        _ value: String,
+        contentType: String,
+        status: HTTPResponseStatus
+    ) -> PreparedResponse {
+        var buffer = ByteBufferAllocator().buffer(
+            capacity: value.utf8.count
+        )
+        buffer.writeString(value)
+
+        return make(
+            buffer: buffer,
+            contentType: contentType,
+            status: status
         )
     }
 

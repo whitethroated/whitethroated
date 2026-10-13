@@ -1,5 +1,10 @@
+import Foundation
 import NIOCore
 import NIOHTTP1
+
+public enum RequestDecodingError: Error, Sendable {
+    case emptyBody
+}
 
 public struct Request: @unchecked Sendable {
     public let method: HTTPMethod
@@ -137,6 +142,23 @@ public struct Request: @unchecked Sendable {
         body.getString(
             at: body.readerIndex,
             length: body.readableBytes
+        )
+    }
+
+    public func decodeJSON<T: Decodable>(
+        _ type: T.Type = T.self,
+        decoder: JSONDecoder = JSONDecoder()
+    ) throws -> T {
+        guard body.readableBytes > 0 else {
+            throw RequestDecodingError.emptyBody
+        }
+
+        let bytes = body.readableBytesView
+        let data = Data(bytes)
+
+        return try decoder.decode(
+            type,
+            from: data
         )
     }
 

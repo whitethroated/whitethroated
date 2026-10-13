@@ -1,3 +1,4 @@
+import Foundation
 import NIOCore
 import NIOHTTP1
 
@@ -27,16 +28,21 @@ public struct Response: Sendable {
         _ value: String,
         status: HTTPResponseStatus = .ok
     ) -> Response {
-        var headers = HTTPHeaders()
-        headers.add(
-            name: "content-type",
-            value: "text/plain; charset=utf-8"
+        response(
+            value,
+            contentType: "text/plain; charset=utf-8",
+            status: status
         )
+    }
 
-        return Response(
-            status: status,
-            headers: headers,
-            body: .text(value)
+    public static func html(
+        _ value: String,
+        status: HTTPResponseStatus = .ok
+    ) -> Response {
+        response(
+            value,
+            contentType: "text/html; charset=utf-8",
+            status: status
         )
     }
 
@@ -44,16 +50,49 @@ public struct Response: Sendable {
         _ value: String,
         status: HTTPResponseStatus = .ok
     ) -> Response {
-        var headers = HTTPHeaders()
-        headers.add(
-            name: "content-type",
-            value: "application/json; charset=utf-8"
+        response(
+            value,
+            contentType: "application/json; charset=utf-8",
+            status: status
         )
+    }
+
+    public static func json<T: Encodable>(
+        _ value: T,
+        encoder: JSONEncoder = JSONEncoder(),
+        status: HTTPResponseStatus = .ok
+    ) throws -> Response {
+        let data = try encoder.encode(value)
+        var encodedBuffer = ByteBufferAllocator().buffer(
+            capacity: data.count
+        )
+        encodedBuffer.writeBytes(data)
+
+        return Response.buffer(
+            encodedBuffer,
+            contentType: "application/json; charset=utf-8",
+            status: status
+        )
+    }
+
+    public static func bytes(
+        _ value: [UInt8],
+        contentType: String? = nil,
+        status: HTTPResponseStatus = .ok
+    ) -> Response {
+        var headers = HTTPHeaders()
+
+        if let contentType {
+            headers.add(
+                name: "content-type",
+                value: contentType
+            )
+        }
 
         return Response(
             status: status,
             headers: headers,
-            body: .text(value)
+            body: .bytes(value)
         )
     }
 
@@ -78,28 +117,68 @@ public struct Response: Sendable {
         )
     }
 
+    public static func empty(
+        status: HTTPResponseStatus = .ok
+    ) -> Response {
+        Response(status: status)
+    }
+
+    public static func redirect(
+        _ location: String,
+        status: HTTPResponseStatus = .seeOther
+    ) -> Response {
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "location",
+            value: location
+        )
+
+        return Response(
+            status: status,
+            headers: headers
+        )
+    }
+
     public static func noContent() -> Response {
-        Response(status: .noContent)
+        empty(status: .noContent)
     }
 
     public static func notFound() -> Response {
-        Response.text(
+        text(
             "Not Found",
             status: .notFound
         )
     }
 
     public static func payloadTooLarge() -> Response {
-        Response.text(
+        text(
             "Payload Too Large",
             status: .payloadTooLarge
         )
     }
 
     public static func internalServerError() -> Response {
-        Response.text(
+        text(
             "Internal Server Error",
             status: .internalServerError
+        )
+    }
+
+    private static func response(
+        _ value: String,
+        contentType: String,
+        status: HTTPResponseStatus
+    ) -> Response {
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "content-type",
+            value: contentType
+        )
+
+        return Response(
+            status: status,
+            headers: headers,
+            body: .text(value)
         )
     }
 }
