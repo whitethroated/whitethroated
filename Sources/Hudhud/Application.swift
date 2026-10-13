@@ -5,6 +5,7 @@ import NIOPosix
 public final class Application: @unchecked Sendable {
     private let router = Router()
     private var middleware: [Middleware] = []
+    private var compiledResponder: Handler?
     private var group: MultiThreadedEventLoopGroup?
     private var serverChannel: Channel?
 
@@ -12,6 +13,7 @@ public final class Application: @unchecked Sendable {
 
     public func use(_ middleware: @escaping Middleware) {
         self.middleware.append(middleware)
+        compiledResponder = nil
     }
 
     public func get(
@@ -68,21 +70,44 @@ public final class Application: @unchecked Sendable {
         host: String = "127.0.0.1",
         port: Int = 3000
     ) throws -> Channel {
-        let group = MultiThreadedEventLoopGroup(numberOfThreads: System.coreCount)
+        compiledResponder = buildMiddlewarePipeline()
+
+        let group = MultiThreadedEventLoopGroup(
+            numberOfThreads: System.coreCount
+        )
 
         let bootstrap = ServerBootstrap(group: group)
-            .serverChannelOption(ChannelOptions.backlog, value: 256)
-            .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
-            .childChannelOption(ChannelOptions.socketOption(.tcp_nodelay), value: 1)
-            .childChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            .serverChannelOption(
+                ChannelOptions.backlog,
+                value: 256
+            )
+            .serverChannelOption(
+                ChannelOptions.socketOption(.so_reuseaddr),
+                value: 1
+            )
+            .childChannelOption(
+                ChannelOptions.socketOption(.tcp_nodelay),
+                value: 1
+            )
+            .childChannelOption(
+                ChannelOptions.socketOption(.so_reuseaddr),
+                value: 1
+            )
             .childChannelInitializer { channel in
-                channel.pipeline.configureHTTPServerPipeline().flatMap {
-                    channel.pipeline.addHandler(HTTPServerHandler(application: self))
-                }
+                channel.pipeline
+                    .configureHTTPServerPipeline()
+                    .flatMap {
+                        channel.pipeline.addHandler(
+                            HTTPServerHandler(application: self)
+                        )
+                    }
             }
 
         do {
-            let channel = try bootstrap.bind(host: host, port: port).wait()
+            let channel = try bootstrap
+                .bind(host: host, port: port)
+                .wait()
+
             self.group = group
             self.serverChannel = channel
             return channel
@@ -116,32 +141,38 @@ public final class Application: @unchecked Sendable {
         to request: Request,
         on eventLoop: EventLoop
     ) -> EventLoopFuture<Response> {
-        let context = Context(eventLoop: eventLoop)
-        return dispatchMiddleware(
-            at: 0,
-            request: request,
-            context: context
+        let responder: Handler
+
+        if let compiledResponder {
+            responder = compiledResponder
+        } else {
+            let built = buildMiddlewarePipeline()
+            compiledResponder = built
+            responder = built
+        }
+
+        return responder(
+            request,
+            Context(eventLoop: eventLoop)
         )
     }
 
-    private func dispatchMiddleware(
-        at index: Int,
-        request: Request,
-        context: Context
-    ) -> EventLoopFuture<Response> {
-        guard index < middleware.count else {
-            return router.resolve(request, context: context)
+    private func buildMiddlewarePipeline() -> Handler {
+        var responder: Handler = { [router] request, context in
+            router.resolve(request, context: context)
         }
 
-        let current = middleware[index]
+        for current in middleware.reversed() {
+            let next = responder
 
-        return current(request, context) { [self] nextRequest in
-            dispatchMiddleware(
-                at: index + 1,
-                request: nextRequest,
-                context: context
-            )
+            responder = { request, context in
+                current(request, context) { nextRequest in
+                    next(nextRequest, context)
+                }
+            }
         }
+
+        return responder
     }
 
     private func route(
@@ -150,7 +181,9 @@ public final class Application: @unchecked Sendable {
         use handler: @escaping @Sendable (Request) -> Response
     ) {
         router.add(method: method, path: path) { request, context in
-            context.eventLoop.makeSucceededFuture(handler(request))
+            context.eventLoop.makeSucceededFuture(
+                handler(request)
+            )
         }
     }
 }
