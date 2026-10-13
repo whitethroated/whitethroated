@@ -7,7 +7,7 @@ The project has two non-negotiable goals:
 1. An ergonomic developer experience inspired by Express.js.
 2. A low-overhead runtime architecture designed to push Swift server performance as far as practical.
 
-Hudhud is currently pre-alpha. The API and internals can change aggressively while the runtime architecture is being established.
+Hudhud is pre-alpha. API compatibility is intentionally secondary to establishing a fast, measurable runtime architecture.
 
 ## Requirements
 
@@ -15,23 +15,12 @@ Hudhud is currently pre-alpha. The API and internals can change aggressively whi
 - Swift Package Manager tools version 6.1 or newer.
 - SwiftNIO 2.104.0, pinned exactly for reproducible builds.
 
-## Example
+## Quick start
 
 ```swift
 import Hudhud
 
 let app = Application()
-
-app.use { request, context, next in
-    next(request).map { response in
-        var response = response
-        response.headers.replaceOrAdd(
-            name: "x-powered-by",
-            value: "Hudhud"
-        )
-        return response
-    }
-}
 
 app.get("/") { _ in
     .text("Hello from Hudhud")
@@ -49,29 +38,82 @@ app.get("/users/:id") { request in
 try app.run(port: 3000)
 ```
 
+## Prepared responses
+
+For immutable responses, Hudhud can prebuild the body, content length, and HTTP/1.1 response head during application setup.
+
+```swift
+app.get(
+    "/health",
+    response: .text("ok")
+)
+```
+
+A prepared route is stored directly in the routing trie. On the normal HTTP/1.1 keep-alive path it avoids:
+
+- Route-handler closure invocation.
+- Per-request text-to-`ByteBuffer` conversion.
+- Per-request content-length formatting.
+- Per-request `HTTPResponseHead` construction.
+
+Use prepared responses only for payloads that are truly immutable.
+
+## Middleware
+
+The regular middleware API supports asynchronous NIO work:
+
+```swift
+app.use { request, _, next in
+    next(request).map { response in
+        var response = response
+        response.headers.add(
+            name: "x-powered-by",
+            value: "Hudhud"
+        )
+        return response
+    }
+}
+```
+
+For middleware that does not require asynchronous I/O, `useFast` preserves Hudhud's synchronous and prepared responder paths:
+
+```swift
+app.useFast { request, _, next in
+    next(request)
+}
+```
+
+A pass-through `useFast` middleware does not force an `EventLoopFuture` allocation.
+
 ## Current core
 
 - SwiftNIO-based HTTP/1.1 transport.
 - Express-style route registration.
-- Method-aware UTF-8 trie router.
+- Direct method roots for common HTTP methods.
+- UTF-8 trie routing.
 - Static route priority with dynamic-parameter fallback.
-- Lazy route parameter decoding from URI byte ranges.
-- Lazy query parsing and percent decoding.
-- Synchronous responder fast path that avoids creating an `EventLoopFuture` for ordinary synchronous routes.
+- Routing directly over the URI UTF-8 view.
+- Lazy route parameter decoding from byte ranges.
+- Lazy query scanning and percent decoding.
+- Synchronous responder fast path.
+- Prepared immutable response fast path.
+- Precomputed HTTP/1.1 heads for prepared responses.
 - NIO future handlers for asynchronous I/O.
-- Compiled middleware pipeline.
+- Compiled asynchronous middleware pipeline.
+- Synchronous `useFast` middleware pipeline.
 - Direct `ByteBuffer` response support.
+- Bodyless-request empty-buffer reuse.
+- First request-body chunk reuse instead of unconditional copying.
+- Configurable request-body limits.
 - HTTP keep-alive and pipelining assistance.
 - Express-style `HEAD` fallback to matching `GET` routes.
 - Correct `HEAD` body suppression while preserving `Content-Length`.
-- Configurable request-body limits.
 - Configurable event-loop thread count and listen backlog.
-- Release benchmark server and `wrk` harness.
-- Unit tests for routing, middleware, request parsing, fast-path dispatch, HTTP semantics, and request-body limits.
+- Release benchmark server.
+- Raw SwiftNIO control benchmark server.
+- Reproducible `wrk` comparison harness.
 
-## Performance design
-
-Hudhud deliberately keeps the default synchronous request path separate from asynchronous I/O.
+## Request lifecycle
 
 ```text
 Socket
@@ -80,45 +122,53 @@ Socket
 SwiftNIO EventLoop
   |
   v
-HTTP Decoder
+HTTP/1 Decoder
   |
   v
-URI UTF-8 View
+Request wrapping
   |
   v
-Compiled Middleware Chain
+Compiled middleware
   |
   v
-Method-aware Trie Router
-  |
-  +-- static edge
-  |
-  +-- parameter edge -> byte range
+Direct HTTP-method root
   |
   v
-Immediate Response or Future
+UTF-8 route trie
   |
-  v
-ByteBuffer
-  |
-  v
-Socket
+  +-- prepared response -----------+
+  |                                |
+  +-- synchronous handler -----+   |
+  |                            |   |
+  +-- future handler ------+   |   |
+                          |   |   |
+                          v   v   v
+                      response writer
+                          |
+                          v
+                        Socket
 ```
 
-Important rules:
+## Performance rules
 
-- No Swift concurrency `Task` is created on the default request hot path.
-- Static routing does not split the URI into an array of Swift `String` values.
-- Route parameter strings are decoded only when the application reads them.
-- Query parameters are scanned only when the application asks for them.
-- Synchronous handlers return through an immediate internal responder path.
-- Performance claims must come from reproducible release-build measurements.
+Hudhud follows several runtime rules:
+
+- Do not create a Swift concurrency `Task` on the default request path.
+- Do not split request paths into arrays of Swift `String` values.
+- Do not eagerly decode route parameters.
+- Do not eagerly parse query parameters.
+- Keep synchronous work synchronous.
+- Keep reusable response bytes reusable.
+- Prefer setup-time work over per-request work.
+- Keep the event loop non-blocking.
+- Treat allocation count, ARC traffic, CPU, memory, and tail latency as first-class metrics.
+- Never publish a speed claim without a reproducible benchmark configuration.
 
 ## Why SwiftNIO
 
 SwiftNIO provides the event-loop and non-blocking I/O foundation while Hudhud keeps control over routing, middleware dispatch, request representation, response serialization, allocation behavior, and public API design.
 
-The goal is not to recreate a large framework on top of NIO. The goal is to keep the distance between the socket and the application handler small and measurable.
+The goal is not to build a large abstraction stack on top of NIO. The goal is to keep the distance between socket and handler small enough to profile and optimize.
 
 ## Run
 
@@ -136,19 +186,32 @@ swift test -c release
 
 ## Benchmark
 
+Run Hudhud:
+
 ```bash
 ./Benchmarks/run.sh
 ```
 
-See [BENCHMARKS.md](BENCHMARKS.md) for the comparison protocol and current optimization targets.
+Compare the prepared-response path with a minimal raw SwiftNIO control server:
+
+```bash
+./Benchmarks/compare.sh
+```
+
+Measure a pass-through fast middleware layer:
+
+```bash
+FAST_MIDDLEWARE=1 ./Benchmarks/run.sh
+```
+
+See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.md](ARCHITECTURE.md) for runtime invariants.
 
 ## Next performance targets
 
-1. Reduce response-header and response-body allocations for static responses.
-2. Add a prepared response path for reusable immutable payloads.
-3. Measure the framework overhead against a minimal raw SwiftNIO server.
-4. Quantify middleware overhead per layer.
-5. Profile ARC retain/release traffic.
-6. Measure route matching by route count and depth.
-7. Evaluate a synchronous middleware fast path.
-8. Add structured comparisons against Hummingbird, Vapor, and Actix Web only after the raw-NIO delta is understood.
+1. Measure the Hudhud-to-raw-NIO delta on pinned hardware.
+2. Combine route scanning and segment hashing into fewer byte passes.
+3. Measure route depth and route-count scaling.
+4. Profile ARC retain/release traffic.
+5. Quantify `useFast` and asynchronous middleware overhead per layer.
+6. Investigate response encoder/write batching only from profiler evidence.
+7. Add Actix Web comparison after Hudhud's raw-NIO overhead is understood.
