@@ -16,6 +16,16 @@ The repository intentionally pins the runtime baseline:
 
 Do not publish benchmark numbers from a dependency graph that differs from the recorded baseline without documenting the difference.
 
+## Tooling sanity check
+
+Before running performance tests, validate shell syntax and the benchmark summarizer:
+
+```bash
+./Benchmarks/check.sh
+```
+
+This check does not start a server and does not require network access.
+
 ## Benchmark servers
 
 The repository contains two release benchmark servers.
