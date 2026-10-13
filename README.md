@@ -208,7 +208,8 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Route precedence: static segment, dynamic `:param`, then terminal `*catchAll`.
 - Routing directly over the URI UTF-8 view.
 - Lazy route parameter decoding from byte ranges.
-- Inline parameter-range storage for the first two dynamic parameters.
+- Contiguous-byte fast paths for route parameter and targeted query decoding.
+- Inline parameter name/range storage for the first two dynamic parameters.
 - Lazy query scanning and percent decoding.
 - Synchronous responder fast path.
 - Prepared immutable response fast path.
@@ -216,6 +217,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - NIO future handlers for asynchronous I/O.
 - Compiled asynchronous middleware pipeline.
 - Synchronous `useFast` middleware pipeline.
+- Opt-in async/await route handlers through SwiftNIO's Task bridge.
 - Direct `ByteBuffer` response support.
 - Bodyless-request empty-buffer reuse.
 - First request-body chunk reuse instead of unconditional copying.
@@ -227,6 +229,8 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Release benchmark server.
 - Raw SwiftNIO control benchmark server.
 - Reproducible `wrk` comparison harness.
+- Raw SwiftNIO and pinned Actix Web controls.
+- Multi-sample benchmark summaries and Linux perf profiling.
 
 ## Request lifecycle
 
@@ -317,6 +321,12 @@ Measure a pass-through fast middleware layer:
 
 ```bash
 FAST_MIDDLEWARE=1 ./Benchmarks/run.sh
+```
+
+Validate benchmark tooling without starting a server:
+
+```bash
+./Benchmarks/check.sh
 ```
 
 See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.md](ARCHITECTURE.md) for runtime invariants.
