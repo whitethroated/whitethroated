@@ -22,6 +22,13 @@ public final class Application: @unchecked Sendable {
         self.configuration = configuration
     }
 
+    public func group(_ prefix: String) -> RouteGroup {
+        RouteGroup(
+            application: self,
+            prefix: prefix
+        )
+    }
+
     public func use(_ middleware: @escaping Middleware) {
         self.middleware.append(
             .asynchronous(middleware)
