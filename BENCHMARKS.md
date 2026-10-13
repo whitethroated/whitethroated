@@ -46,6 +46,7 @@ The benchmark exercises the transport dispatch path without opening a socket:
 - synchronous static route.
 - synchronous single-parameter route with parameter decoding.
 - synchronous targeted-query route with query decoding.
+- synchronous static route that explicitly reads `request.method`, isolating the lazy method-conversion cost.
 
 The test is skipped during normal `swift test` runs unless `HUDHUD_CORE_BENCHMARK=1` is set.
 
@@ -86,7 +87,7 @@ The prepared route precomputes:
 - `Content-Length`.
 - HTTP/1.1 response head.
 
-It is stored directly in the route trie and is the closest Hudhud control path to raw SwiftNIO.
+The route stores immutable prepared-response storage directly, and the internal router/responder pipeline carries that storage reference without rebuilding the public wrapper. It is the closest Hudhud control path to raw SwiftNIO.
 
 Run the default Hudhud benchmark:
 
@@ -147,9 +148,9 @@ Static fan-out:
 
 Dynamic parameter capture:
 
-- 1 parameter, stored inline.
-- 2 parameters, both stored inline.
-- 4 parameters, which exercises promotion beyond the inline range storage.
+- 1 parameter, with name and range stored inline.
+- 2 parameters, with both names and ranges stored inline.
+- 4 parameters, which exercises promotion beyond inline name/range storage.
 
 Run the full router matrix with an explicit server worker count:
 
