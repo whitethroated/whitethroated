@@ -16,6 +16,22 @@ public final class Application: @unchecked Sendable {
         compiledResponder = nil
     }
 
+    public func on(
+        _ method: HTTPMethod,
+        _ path: String,
+        use handler: @escaping @Sendable (Request) -> Response
+    ) {
+        route(method, path, use: handler)
+    }
+
+    public func on(
+        _ method: HTTPMethod,
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        router.add(method: method, path: path, handler: handler)
+    }
+
     public func get(
         _ path: String,
         use handler: @escaping @Sendable (Request) -> Response
@@ -65,6 +81,20 @@ public final class Application: @unchecked Sendable {
         route(.delete, path, use: handler)
     }
 
+    public func head(
+        _ path: String,
+        use handler: @escaping @Sendable (Request) -> Response
+    ) {
+        route(.head, path, use: handler)
+    }
+
+    public func options(
+        _ path: String,
+        use handler: @escaping @Sendable (Request) -> Response
+    ) {
+        route(.options, path, use: handler)
+    }
+
     @discardableResult
     public func listen(
         host: String = "127.0.0.1",
@@ -95,7 +125,10 @@ public final class Application: @unchecked Sendable {
             )
             .childChannelInitializer { channel in
                 channel.pipeline
-                    .configureHTTPServerPipeline()
+                    .configureHTTPServerPipeline(
+                        withPipeliningAssistance: true,
+                        withErrorHandling: true
+                    )
                     .flatMap {
                         channel.pipeline.addHandler(
                             HTTPServerHandler(application: self)
