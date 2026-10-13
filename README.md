@@ -206,14 +206,18 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Direct method roots for common HTTP methods.
 - UTF-8 trie routing.
 - Route precedence: static segment, dynamic `:param`, then terminal `*catchAll`.
-- Routing directly over the URI UTF-8 view.
+- Routing directly over the URI UTF-8 view with a contiguous-byte fast path.
+- Parameter-only trie nodes skip unused static hashing.
+- Terminal static/parameter routes avoid an extra recursive matcher call.
 - Lazy route parameter decoding from byte ranges.
 - Contiguous-byte fast paths for route parameter and targeted query decoding.
 - Inline parameter name/range storage for the first two dynamic parameters.
 - Lazy query scanning and percent decoding.
+- Lazy conversion from SwiftNIO HTTP methods to Hudhud's public method enum.
 - Synchronous responder fast path.
 - Prepared immutable response fast path.
-- Precomputed HTTP/1.1 heads for prepared responses.
+- Immutable shared prepared-response storage carried directly through the internal pipeline.
+- Precomputed HTTP/1.1 heads and body buffers for prepared responses.
 - NIO future handlers for asynchronous I/O.
 - Compiled asynchronous middleware pipeline.
 - Synchronous `useFast` middleware pipeline.
@@ -244,13 +248,15 @@ SwiftNIO EventLoop
 HTTP/1 Decoder
   |
   v
-Request wrapping
-  |
-  v
-Compiled middleware
-  |
-  v
 Direct HTTP-method root
+  |
+  +-- prepared/no middleware -----> cached storage
+  |
+  v
+Request wrapping when required
+  |
+  v
+Compiled middleware / handler
   |
   v
 UTF-8 route trie
@@ -317,10 +323,17 @@ Compare the prepared-response path with a minimal raw SwiftNIO control server:
 ./Benchmarks/compare.sh
 ```
 
-Measure a pass-through fast middleware layer:
+Measure pass-through fast middleware layers:
 
 ```bash
-FAST_MIDDLEWARE=1 ./Benchmarks/run.sh
+FAST_MIDDLEWARE_LAYERS=4 ./Benchmarks/run.sh
+```
+
+Run in-process dispatch and writer diagnostics:
+
+```bash
+./Benchmarks/core.sh
+./Benchmarks/writer-core.sh
 ```
 
 Validate benchmark tooling without starting a server:
@@ -333,10 +346,9 @@ See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.
 
 ## Next performance targets
 
-1. Measure the Hudhud-to-raw-NIO delta on pinned hardware.
-2. Combine route scanning and segment hashing into fewer byte passes.
-3. Measure route depth and route-count scaling.
-4. Profile ARC retain/release traffic.
-5. Quantify `useFast` and asynchronous middleware overhead per layer.
-6. Investigate response encoder/write batching only from profiler evidence.
-7. Add Actix Web comparison after Hudhud's raw-NIO overhead is understood.
+1. Run the repeated Hudhud-to-raw-NIO suite on pinned hardware and record median/p99 deltas.
+2. Run the core dispatch and writer benchmarks before changing NIO response-part boxing.
+3. Profile ARC retain/release traffic for prepared, synchronous, dynamic-parameter, and async/await routes.
+4. Quantify route depth/fan-out and middleware scaling with the committed matrices.
+5. Add request-body streaming so large uploads do not require whole-body aggregation by default.
+6. Compare the pinned Actix Web control only after Hudhud's raw-NIO framework overhead is measured and explained.
