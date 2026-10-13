@@ -115,7 +115,36 @@ A prepared route is stored directly in the routing trie. On the normal HTTP/1.1 
 - Per-request content-length formatting.
 - Per-request `HTTPResponseHead` construction.
 
-Use prepared responses only for payloads that are truly immutable.
+Prepared headers are also built during setup:
+
+```swift
+let health = PreparedResponse
+    .text("ok")
+    .header("cache-control", "no-store")
+
+app.get("/health", response: health)
+```
+
+Prepared cookies and redirects keep the same cached-head path:
+
+```swift
+let redirect = PreparedResponse.redirect("/login")
+
+let sessionResponse = PreparedResponse
+    .text("ready")
+    .cookie(
+        "session",
+        value: "opaque-token",
+        options: CookieOptions(
+            path: "/",
+            httpOnly: true,
+            secure: true,
+            sameSite: .lax
+        )
+    )
+```
+
+Use prepared responses only for payloads and headers that are truly immutable.
 
 ## Middleware
 
