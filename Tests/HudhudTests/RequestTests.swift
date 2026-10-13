@@ -5,6 +5,38 @@ import NIOEmbedded
 import NIOHTTP1
 
 final class RequestTests: XCTestCase {
+    func testMethodMapsLazilyFromNIO() {
+        let request = Request(
+            head: HTTPRequestHead(
+                version: .http1_1,
+                method: .PATCH,
+                uri: "/"
+            ),
+            body: ByteBufferAllocator().buffer(capacity: 0)
+        )
+
+        XCTAssertEqual(
+            request.method,
+            .patch
+        )
+    }
+
+    func testCustomMethodMapsLazilyFromNIO() {
+        let request = Request(
+            head: HTTPRequestHead(
+                version: .http1_1,
+                method: .RAW(value: "PROPFIND"),
+                uri: "/"
+            ),
+            body: ByteBufferAllocator().buffer(capacity: 0)
+        )
+
+        XCTAssertEqual(
+            request.method,
+            .other("PROPFIND")
+        )
+    }
+
     func testTargetedQueryLookup() {
         let request = makeRequest(
             path: "/search?q=hudhud&page=2"

@@ -90,6 +90,8 @@ A prepared endpoint therefore does not require:
 
 When middleware exists, Hudhud constructs `Request` before the middleware pipeline because middleware is allowed to inspect or transform the request.
 
+`Request` stores the original SwiftNIO HTTP method and converts it to Hudhud's public `HTTPMethod` only when application code reads `request.method`.
+
 ## Responder paths
 
 Hudhud has three internal response paths.

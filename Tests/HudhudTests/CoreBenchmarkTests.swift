@@ -44,6 +44,14 @@ final class CoreBenchmarkTests: XCTestCase {
             .text(request.query("q") ?? "")
         }
 
+        app.get("/method") { request in
+            .text(
+                request.method == .get
+                    ? "GET"
+                    : "OTHER"
+            )
+        }
+
         let cases = [
             BenchmarkCase(
                 name: "prepared-static",
@@ -60,6 +68,10 @@ final class CoreBenchmarkTests: XCTestCase {
             BenchmarkCase(
                 name: "sync-query",
                 head: makeHead("/query?q=hudhud")
+            ),
+            BenchmarkCase(
+                name: "sync-method",
+                head: makeHead("/method")
             )
         ]
 

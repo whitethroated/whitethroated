@@ -12,6 +12,31 @@ public enum HTTPMethod: Sendable, Hashable {
     case trace
     case other(String)
 
+    internal var nioMethod: NIOHTTP1.HTTPMethod {
+        switch self {
+        case .get:
+            return .GET
+        case .post:
+            return .POST
+        case .put:
+            return .PUT
+        case .patch:
+            return .PATCH
+        case .delete:
+            return .DELETE
+        case .head:
+            return .HEAD
+        case .options:
+            return .OPTIONS
+        case .connect:
+            return .CONNECT
+        case .trace:
+            return .TRACE
+        case .other(let value):
+            return .RAW(value: value)
+        }
+    }
+
     init(_ method: NIOHTTP1.HTTPMethod) {
         switch method {
         case .GET:
