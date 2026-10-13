@@ -164,7 +164,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
     @inline(__always)
     private func writePrepared(
-        _ prepared: PreparedResponse,
+        _ storage: PreparedResponseStorage,
         isHeadRequest: Bool,
         version: HTTPVersion,
         keepAlive: Bool,
@@ -175,7 +175,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
             keepAlive
         else {
             write(
-                prepared.storage.response,
+                storage.response,
                 isHeadRequest: isHeadRequest,
                 version: version,
                 keepAlive: keepAlive,
@@ -183,8 +183,6 @@ final class HTTPServerHandler: ChannelInboundHandler {
             )
             return
         }
-
-        let storage = prepared.storage
 
         context.write(
             wrapOutboundOut(.head(storage.http11Head)),

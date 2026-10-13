@@ -21,6 +21,12 @@ internal final class PreparedResponseStorage: Sendable {
 public struct PreparedResponse: Sendable {
     internal let storage: PreparedResponseStorage
 
+    internal init(
+        storage: PreparedResponseStorage
+    ) {
+        self.storage = storage
+    }
+
     @inline(__always)
     internal var response: Response {
         storage.response
