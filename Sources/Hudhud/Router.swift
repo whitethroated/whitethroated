@@ -391,24 +391,48 @@ final class Router: @unchecked Sendable {
         fallbackRoot: RouterNode?,
         uri: String.UTF8View
     ) -> RouterMatch {
-        if
-            let root,
-            let match = match(
+        if let root {
+            if let contiguous = uri
+                .withContiguousStorageIfAvailable({
+                    bytes in
+
+                    match(
+                        uri: bytes,
+                        from: root
+                    )
+                })
+            {
+                if let match = contiguous {
+                    return makeMatch(match)
+                }
+            } else if let match = match(
                 uri: uri,
                 from: root
-            )
-        {
-            return makeMatch(match)
+            ) {
+                return makeMatch(match)
+            }
         }
 
-        if
-            let fallbackRoot,
-            let match = match(
+        if let fallbackRoot {
+            if let contiguous = uri
+                .withContiguousStorageIfAvailable({
+                    bytes in
+
+                    match(
+                        uri: bytes,
+                        from: fallbackRoot
+                    )
+                })
+            {
+                if let match = contiguous {
+                    return makeMatch(match)
+                }
+            } else if let match = match(
                 uri: uri,
                 from: fallbackRoot
-            )
-        {
-            return makeMatch(match)
+            ) {
+                return makeMatch(match)
+            }
         }
 
         return .notFound
