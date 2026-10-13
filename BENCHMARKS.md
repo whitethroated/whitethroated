@@ -55,13 +55,29 @@ DURATION=60s \
 ./Benchmarks/run.sh
 ```
 
-Measure one pass-through synchronous middleware layer:
+Measure pass-through middleware layers:
 
 ```bash
-FAST_MIDDLEWARE=1 \
-ROUTE=/prepared \
+FAST_MIDDLEWARE_LAYERS=4 \
+ROUTE=/plaintext \
 ./Benchmarks/run.sh
 ```
+
+For asynchronous middleware:
+
+```bash
+ASYNC_MIDDLEWARE_LAYERS=4 \
+ROUTE=/plaintext \
+./Benchmarks/run.sh
+```
+
+Run the middleware scaling matrix:
+
+```bash
+./Benchmarks/middleware.sh
+```
+
+The matrix compares 0, 1, 4, and 8 pass-through layers for both the synchronous `useFast` path and the regular future-based middleware path.
 
 ### Router scaling benchmark
 

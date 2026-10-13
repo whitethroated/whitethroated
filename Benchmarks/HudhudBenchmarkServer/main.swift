@@ -16,8 +16,21 @@ let app = Application(
     )
 )
 
-if environment["HUDHUD_FAST_MIDDLEWARE"] == "1" {
+let fastMiddlewareLayers = Int(
+    environment["HUDHUD_FAST_MIDDLEWARE_LAYERS"] ?? "0"
+) ?? 0
+let asyncMiddlewareLayers = Int(
+    environment["HUDHUD_ASYNC_MIDDLEWARE_LAYERS"] ?? "0"
+) ?? 0
+
+for _ in 0..<fastMiddlewareLayers {
     app.useFast { request, _, next in
+        next(request)
+    }
+}
+
+for _ in 0..<asyncMiddlewareLayers {
+    app.use { request, _, next in
         next(request)
     }
 }
