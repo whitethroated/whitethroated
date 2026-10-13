@@ -1,4 +1,5 @@
 import NIOCore
+import NIOHTTP1
 
 public typealias SyncHandler = @Sendable (
     Request
@@ -153,31 +154,97 @@ final class Router: @unchecked Sendable {
 
     @inline(__always)
     func lookup(
+        method: NIOHTTP1.HTTPMethod,
+        uri: String.UTF8View
+    ) -> RouterMatch {
+        switch method {
+        case .GET:
+            return lookup(
+                root: getRoot,
+                fallbackRoot: nil,
+                uri: uri
+            )
+
+        case .POST:
+            return lookup(
+                root: postRoot,
+                fallbackRoot: nil,
+                uri: uri
+            )
+
+        case .PUT:
+            return lookup(
+                root: putRoot,
+                fallbackRoot: nil,
+                uri: uri
+            )
+
+        case .PATCH:
+            return lookup(
+                root: patchRoot,
+                fallbackRoot: nil,
+                uri: uri
+            )
+
+        case .DELETE:
+            return lookup(
+                root: deleteRoot,
+                fallbackRoot: nil,
+                uri: uri
+            )
+
+        case .HEAD:
+            return lookup(
+                root: headRoot,
+                fallbackRoot: getRoot,
+                uri: uri
+            )
+
+        case .OPTIONS:
+            return lookup(
+                root: optionsRoot,
+                fallbackRoot: nil,
+                uri: uri
+            )
+
+        case .CONNECT:
+            return lookup(
+                root: connectRoot,
+                fallbackRoot: nil,
+                uri: uri
+            )
+
+        case .TRACE:
+            return lookup(
+                root: traceRoot,
+                fallbackRoot: nil,
+                uri: uri
+            )
+
+        default:
+            return lookup(
+                method: HTTPMethod(method),
+                uri: uri
+            )
+        }
+    }
+
+    @inline(__always)
+    func lookup(
         method: HTTPMethod,
         uri: String.UTF8View
     ) -> RouterMatch {
-        if
-            let root = root(for: method),
-            let match = match(
-                uri: uri,
-                from: root
-            )
-        {
-            return makeMatch(match)
-        }
+        let primary = root(for: method)
+        let fallback =
+            method == .head
+            ? getRoot
+            : nil
 
-        if
-            method == .head,
-            let root = getRoot,
-            let match = match(
-                uri: uri,
-                from: root
-            )
-        {
-            return makeMatch(match)
-        }
-
-        return .notFound
+        return lookup(
+            root: primary,
+            fallbackRoot: fallback,
+            uri: uri
+        )
     }
 
     private func insert(
@@ -240,6 +307,35 @@ final class Router: @unchecked Sendable {
             responder: responder,
             parameterNames: parameterNames
         )
+    }
+
+    @inline(__always)
+    private func lookup(
+        root: RouterNode?,
+        fallbackRoot: RouterNode?,
+        uri: String.UTF8View
+    ) -> RouterMatch {
+        if
+            let root,
+            let match = match(
+                uri: uri,
+                from: root
+            )
+        {
+            return makeMatch(match)
+        }
+
+        if
+            let fallbackRoot,
+            let match = match(
+                uri: uri,
+                from: fallbackRoot
+            )
+        {
+            return makeMatch(match)
+        }
+
+        return .notFound
     }
 
     @inline(__always)

@@ -65,12 +65,12 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
             let keepAlive = head.isKeepAlive
             let version = head.version
-            let method = HTTPMethod(head.method)
+            let isHead = head.method == .HEAD
 
             if requestBodyTooLarge {
                 write(
                     .payloadTooLarge(),
-                    requestMethod: method,
+                    isHeadRequest: isHead,
                     version: version,
                     keepAlive: keepAlive,
                     context: context
@@ -80,7 +80,6 @@ final class HTTPServerHandler: ChannelInboundHandler {
             }
 
             switch application.respondTransport(
-                method: method,
                 head: head,
                 body: requestBody ?? emptyBody,
                 on: context.eventLoop
@@ -88,7 +87,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
             case .immediate(let response):
                 write(
                     response,
-                    requestMethod: method,
+                    isHeadRequest: isHead,
                     version: version,
                     keepAlive: keepAlive,
                     context: context
@@ -97,7 +96,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
             case .prepared(let prepared):
                 writePrepared(
                     prepared,
-                    requestMethod: method,
+                    isHeadRequest: isHead,
                     version: version,
                     keepAlive: keepAlive,
                     context: context
@@ -109,7 +108,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     case .success(let response):
                         self.write(
                             response,
-                            requestMethod: method,
+                            isHeadRequest: isHead,
                             version: version,
                             keepAlive: keepAlive,
                             context: context
@@ -118,7 +117,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     case .failure:
                         self.write(
                             .internalServerError(),
-                            requestMethod: method,
+                            isHeadRequest: isHead,
                             version: version,
                             keepAlive: keepAlive,
                             context: context
@@ -141,7 +140,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
     @inline(__always)
     private func writePrepared(
         _ prepared: PreparedResponse,
-        requestMethod: HTTPMethod,
+        isHeadRequest: Bool,
         version: HTTPVersion,
         keepAlive: Bool,
         context: ChannelHandlerContext
@@ -152,7 +151,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         else {
             write(
                 prepared.response,
-                requestMethod: requestMethod,
+                isHeadRequest: isHeadRequest,
                 version: version,
                 keepAlive: keepAlive,
                 context: context
@@ -166,7 +165,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         )
 
         if
-            requestMethod != .head,
+            !isHeadRequest,
             let body = prepared.bodyBuffer,
             body.readableBytes > 0
         {
@@ -184,7 +183,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
     private func write(
         _ response: Response,
-        requestMethod: HTTPMethod,
+        isHeadRequest: Bool,
         version: HTTPVersion,
         keepAlive: Bool,
         context: ChannelHandlerContext
@@ -245,7 +244,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         )
 
         if
-            requestMethod != .head,
+            !isHeadRequest,
             let buffer,
             buffer.readableBytes > 0
         {

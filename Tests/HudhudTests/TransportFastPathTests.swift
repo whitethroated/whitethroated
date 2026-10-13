@@ -14,11 +14,8 @@ final class TransportFastPathTests: XCTestCase {
             response: .text("prepared")
         )
 
-        let head = makeHead(path: "/prepared")
-
         let result = app.respondTransport(
-            method: .get,
-            head: head,
+            head: makeHead(path: "/prepared"),
             body: ByteBufferAllocator().buffer(capacity: 0),
             on: loop
         )
@@ -44,7 +41,6 @@ final class TransportFastPathTests: XCTestCase {
         }
 
         let result = app.respondTransport(
-            method: .get,
             head: makeHead(path: "/users/42"),
             body: ByteBufferAllocator().buffer(capacity: 0),
             on: loop
@@ -74,7 +70,6 @@ final class TransportFastPathTests: XCTestCase {
         }
 
         let result = app.respondTransport(
-            method: .get,
             head: makeHead(path: "/async"),
             body: ByteBufferAllocator().buffer(capacity: 0),
             on: loop
@@ -106,7 +101,6 @@ final class TransportFastPathTests: XCTestCase {
         )
 
         let result = app.respondTransport(
-            method: .get,
             head: makeHead(path: "/prepared"),
             body: ByteBufferAllocator().buffer(capacity: 0),
             on: loop
