@@ -5,6 +5,50 @@ import NIOEmbedded
 import NIOHTTP1
 
 final class RequestTests: XCTestCase {
+    func testTargetedQueryLookup() {
+        let request = makeRequest(
+            path: "/search?q=hudhud&page=2"
+        )
+
+        XCTAssertEqual(
+            request.query("q"),
+            "hudhud"
+        )
+        XCTAssertEqual(
+            request.query("page"),
+            "2"
+        )
+        XCTAssertNil(
+            request.query("missing")
+        )
+    }
+
+    func testTargetedQueryLookupDecodesPercentAndPlus() {
+        let request = makeRequest(
+            path: "/search?q=hello+world&tag=swift%20server"
+        )
+
+        XCTAssertEqual(
+            request.query("q"),
+            "hello world"
+        )
+        XCTAssertEqual(
+            request.query("tag"),
+            "swift server"
+        )
+    }
+
+    func testTargetedQueryLookupDecodesKey() {
+        let request = makeRequest(
+            path: "/search?hello%20world=value"
+        )
+
+        XCTAssertEqual(
+            request.query("hello world"),
+            "value"
+        )
+    }
+
     func testPathExcludesQueryString() {
         let request = makeRequest(
             path: "/search?q=hudhud&limit=10"
