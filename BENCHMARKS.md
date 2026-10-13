@@ -77,10 +77,11 @@ Static fan-out:
 - 256 sibling routes.
 - 4,096 sibling routes.
 
-Dynamic depth:
+Dynamic parameter capture:
 
-- 1 parameter.
-- 4 parameters mixed with static segments.
+- 1 parameter, stored inline.
+- 2 parameters, both stored inline.
+- 4 parameters, which exercises promotion beyond the inline range storage.
 
 Run the full router matrix:
 
@@ -151,6 +152,7 @@ Completed:
 - Direct routing over URI bytes.
 - Route segment boundary scanning and hashing in one byte pass.
 - Lazy route parameter decoding from byte ranges.
+- Inline route-parameter range storage for the first two parameters.
 - Lazy query parsing.
 - Custom percent decoding without Foundation URL parsing.
 - Compiled asynchronous middleware chain.

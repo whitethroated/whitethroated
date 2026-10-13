@@ -263,6 +263,66 @@ public struct RouteGroup: Sendable {
         )
     }
 
+    public func connect(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        application.connect(
+            joined(path),
+            response: response
+        )
+    }
+
+    public func connect(
+        _ path: String,
+        use handler: @escaping SyncHandler
+    ) {
+        application.connect(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func connect(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        application.connect(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func trace(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        application.trace(
+            joined(path),
+            response: response
+        )
+    }
+
+    public func trace(
+        _ path: String,
+        use handler: @escaping SyncHandler
+    ) {
+        application.trace(
+            joined(path),
+            use: handler
+        )
+    }
+
+    public func trace(
+        _ path: String,
+        use handler: @escaping Handler
+    ) {
+        application.trace(
+            joined(path),
+            use: handler
+        )
+    }
+
     private func joined(_ path: String) -> String {
         let normalizedPath = Self.normalize(path)
 
