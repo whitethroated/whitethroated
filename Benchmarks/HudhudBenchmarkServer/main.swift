@@ -6,8 +6,15 @@ let host = environment["HUDHUD_HOST"] ?? "127.0.0.1"
 let port = Int(
     environment["HUDHUD_PORT"] ?? "3000"
 ) ?? 3000
+let eventLoopThreads = Int(
+    environment["HUDHUD_THREADS"] ?? ""
+)
 
-let app = Application()
+let app = Application(
+    configuration: ServerConfiguration(
+        eventLoopThreads: eventLoopThreads
+    )
+)
 
 if environment["HUDHUD_FAST_MIDDLEWARE"] == "1" {
     app.useFast { request, _, next in

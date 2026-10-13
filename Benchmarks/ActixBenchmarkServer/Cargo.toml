@@ -1,0 +1,12 @@
+[package]
+name = "hudhud-actix-benchmark"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+actix-web = { version = "=4.16.0", default-features = false, features = ["macros"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"

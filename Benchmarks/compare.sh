@@ -7,6 +7,7 @@ PORT="${PORT:-3000}"
 THREADS="${THREADS:-4}"
 CONNECTIONS="${CONNECTIONS:-128}"
 DURATION="${DURATION:-30s}"
+WORKERS="${WORKERS:-4}"
 
 if ! command -v wrk >/dev/null 2>&1; then
   echo "wrk is required to run the comparison." >&2
@@ -40,7 +41,9 @@ run_case() {
   local readiness_route="$4"
   local log_file="$5"
 
-  HUDHUD_HOST="$HOST" HUDHUD_PORT="$PORT" \
+  HUDHUD_HOST="$HOST" \
+  HUDHUD_PORT="$PORT" \
+  HUDHUD_THREADS="$WORKERS" \
     "$executable" >"$log_file" 2>&1 &
 
   SERVER_PID=$!
@@ -58,7 +61,7 @@ run_case() {
   echo
   echo "============================================================"
   echo "$label"
-  echo "threads=$THREADS connections=$CONNECTIONS duration=$DURATION"
+  echo "workers=$WORKERS threads=$THREADS connections=$CONNECTIONS duration=$DURATION"
   echo "============================================================"
   echo
 

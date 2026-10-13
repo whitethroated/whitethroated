@@ -180,8 +180,12 @@ let port = Int(
     environment["HUDHUD_PORT"] ?? "3000"
 ) ?? 3000
 
+let eventLoopThreads = Int(
+    environment["HUDHUD_THREADS"] ?? ""
+) ?? System.coreCount
+
 let group = MultiThreadedEventLoopGroup(
-    numberOfThreads: System.coreCount
+    numberOfThreads: eventLoopThreads
 )
 
 let bootstrap = ServerBootstrap(group: group)
