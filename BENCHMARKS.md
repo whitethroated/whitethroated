@@ -94,6 +94,34 @@ The matrix runs against one warmed release server so machine and process setup r
 
 Interpret the matrix by comparing each case to `/prepared`. The response path is intentionally the same prepared response for static depth and fan-out cases, so most of the delta should come from routing.
 
+### Actix Web control
+
+The repository includes an Actix Web control pinned to `actix-web = 4.16.0` with compression and HTTP/2 features disabled for the plaintext HTTP/1.1 comparison.
+
+Run:
+
+```bash
+./Benchmarks/compare-actix.sh
+```
+
+The comparison runs sequentially on the same host and port:
+
+1. Hudhud `/prepared`.
+2. Hudhud ordinary synchronous `/plaintext`.
+3. Actix Web `/plaintext`.
+
+Use `WORKERS` to force the same SwiftNIO event-loop count and Actix worker count:
+
+```bash
+WORKERS=8 \
+THREADS=8 \
+CONNECTIONS=256 \
+DURATION=60s \
+./Benchmarks/compare-actix.sh
+```
+
+This is intentionally not a claim that prepared Hudhud and idiomatic Actix perform identical work internally. The ordinary Hudhud synchronous route is included as the closer framework-level comparison, while the prepared route measures Hudhud's optimized immutable-response ceiling.
+
 ### Raw SwiftNIO control
 
 `raw-nio-benchmark-server` serves the same `Hello, World!` bytes and content type as Hudhud's `/prepared` route.
@@ -184,6 +212,6 @@ Next measurements and optimizations:
 5. Profile ARC retain/release traffic.
 6. Profile request-body accumulation.
 7. Evaluate response write batching from profiler evidence.
-8. Compare with Actix Web only after the raw-NIO framework overhead is understood.
+8. Run the pinned Actix Web comparison after the raw-NIO framework overhead is understood.
 
 No performance number should be published until the benchmark environment and commands are recorded with it.
