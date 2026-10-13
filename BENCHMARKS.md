@@ -11,6 +11,8 @@ The repository intentionally pins the runtime baseline:
 - Swift development/benchmark toolchain: 6.4.0.
 - Swift Package Manager tools version: 6.1.
 - SwiftNIO: exactly 2.104.0.
+- Rust control toolchain: 1.99.0.
+- Actix Web control: exactly 4.16.0.
 
 Do not publish benchmark numbers from a dependency graph that differs from the recorded baseline without documenting the difference.
 
