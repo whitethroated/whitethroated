@@ -8,15 +8,18 @@ use actix_web::{
 };
 
 const BODY: &str = "Hello, World!";
+const BENCHMARK_DATE: &str = "Thu, 01 Jan 1970 00:00:00 GMT";
 
 async fn plaintext() -> HttpResponse {
     HttpResponse::Ok()
+        .insert_header(("date", BENCHMARK_DATE))
         .content_type("text/plain; charset=utf-8")
         .body(BODY)
 }
 
 async fn dynamic(path: web::Path<String>) -> HttpResponse {
     HttpResponse::Ok()
+        .insert_header(("date", BENCHMARK_DATE))
         .content_type("text/plain; charset=utf-8")
         .body(path.into_inner())
 }

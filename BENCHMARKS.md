@@ -116,6 +116,8 @@ Interpret the matrix by comparing each case to `/prepared`. The response path is
 
 The repository includes an Actix Web control pinned to `actix-web = 4.16.0` with compression and HTTP/2 features disabled for the plaintext HTTP/1.1 comparison.
 
+Actix HTTP/1.1 normally inserts a generated `Date` header when one is absent. The benchmark explicitly supplies the same fixed `Date` value to Hudhud, raw SwiftNIO, and Actix. This suppresses Actix's automatic date generation and keeps the response header set materially closer across implementations.
+
 Run:
 
 ```bash
@@ -145,6 +147,8 @@ This is intentionally not a claim that prepared Hudhud and idiomatic Actix perfo
 `raw-nio-benchmark-server` serves the same `Hello, World!` bytes and content type as Hudhud's `/prepared` route.
 
 For the common HTTP/1.1 keep-alive path, both servers precompute their response body and response head. Both use SwiftNIO's HTTP server pipeline with pipelining assistance enabled.
+
+The raw NIO and Hudhud controls include the same fixed RFC-style `Date` header used by the Actix comparison.
 
 Run the paired comparison:
 
