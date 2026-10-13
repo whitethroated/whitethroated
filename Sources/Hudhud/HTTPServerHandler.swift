@@ -6,11 +6,21 @@ final class HTTPServerHandler: ChannelInboundHandler {
     typealias OutboundOut = HTTPServerResponsePart
 
     private let application: Application
+    private let maxRequestBodyBytes: Int
+
     private var requestHead: HTTPRequestHead?
     private var requestBody: ByteBuffer?
+    private var receivedBodyBytes = 0
+    private var requestBodyTooLarge = false
 
-    init(application: Application) {
+    init(
+        application: Application,
+        maxRequestBodyBytes: Int? = nil
+    ) {
         self.application = application
+        self.maxRequestBodyBytes =
+            maxRequestBodyBytes
+            ?? application.configuration.maxRequestBodyBytes
     }
 
     func channelRead(
@@ -21,8 +31,24 @@ final class HTTPServerHandler: ChannelInboundHandler {
         case .head(let head):
             requestHead = head
             requestBody = nil
+            receivedBodyBytes = 0
+            requestBodyTooLarge = false
 
         case .body(var body):
+            guard !requestBodyTooLarge else {
+                return
+            }
+
+            let chunkBytes = body.readableBytes
+
+            if chunkBytes > maxRequestBodyBytes - receivedBodyBytes {
+                requestBody = nil
+                requestBodyTooLarge = true
+                return
+            }
+
+            receivedBodyBytes += chunkBytes
+
             if requestBody == nil {
                 requestBody = body
             } else {
@@ -34,6 +60,22 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 return
             }
 
+            let keepAlive = head.isKeepAlive
+            let version = head.version
+            let method = HTTPMethod(head.method)
+
+            if requestBodyTooLarge {
+                write(
+                    .payloadTooLarge(),
+                    requestMethod: method,
+                    version: version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+                resetRequestState()
+                return
+            }
+
             let body = requestBody
                 ?? context.channel.allocator.buffer(capacity: 0)
 
@@ -41,9 +83,6 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 head: head,
                 body: body
             )
-            let keepAlive = head.isKeepAlive
-            let version = head.version
-            let method = request.method
 
             switch application.respondFast(
                 to: request,
@@ -82,9 +121,15 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 }
             }
 
-            requestHead = nil
-            requestBody = nil
+            resetRequestState()
         }
+    }
+
+    private func resetRequestState() {
+        requestHead = nil
+        requestBody = nil
+        receivedBodyBytes = 0
+        requestBodyTooLarge = false
     }
 
     private func write(
