@@ -68,6 +68,11 @@ app.get(
 )
 
 app.get(
+    "/dynamic/a/:p1/b/:p2",
+    response: ok
+)
+
+app.get(
     "/dynamic/a/:p1/b/:p2/c/:p3/d/:p4",
     response: ok
 )

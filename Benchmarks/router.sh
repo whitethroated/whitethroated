@@ -76,5 +76,6 @@ run_case "Fan-out 16" "/fanout/16/r15"
 run_case "Fan-out 256" "/fanout/256/r255"
 run_case "Fan-out 4096" "/fanout/4096/r4095"
 
-run_case "Dynamic depth 1" "/dynamic/a/value"
-run_case "Dynamic depth 4" "/dynamic/a/v1/b/v2/c/v3/d/v4"
+run_case "Dynamic params 1" "/dynamic/a/v1"
+run_case "Dynamic params 2" "/dynamic/a/v1/b/v2"
+run_case "Dynamic params 4" "/dynamic/a/v1/b/v2/c/v3/d/v4"

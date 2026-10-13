@@ -38,6 +38,51 @@ app.get("/users/:id") { request in
 try app.run(port: 3000)
 ```
 
+## Route groups
+
+Route prefixes are composed during application setup, so groups add no extra request-time routing layer.
+
+```swift
+let api = app.group("/api")
+let v1 = api.group("/v1")
+
+v1.get("/health", response: .text("ok"))
+
+v1.get("/users/:id") { request in
+    .json(#"{"id":"\#(request.parameter("id") ?? "")"}"#)
+}
+```
+
+## JSON
+
+Hudhud supports lazy JSON request decoding and both dynamic and prepared Codable JSON responses.
+
+```swift
+struct User: Codable {
+    let id: Int
+    let name: String
+}
+
+app.post("/users") { request in
+    guard let user = try? request.decodeJSON(User.self) else {
+        return .text("Invalid JSON", status: .badRequest)
+    }
+
+    return (try? Response.json(user))
+        ?? .internalServerError()
+}
+```
+
+For immutable Codable payloads, encode once during setup:
+
+```swift
+let payload = try PreparedResponse.json(
+    User(id: 1, name: "Hudhud")
+)
+
+app.get("/user", response: payload)
+```
+
 ## Prepared responses
 
 For immutable responses, Hudhud can prebuild the body, content length, and HTTP/1.1 response head during application setup.
@@ -88,12 +133,13 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 ## Current core
 
 - SwiftNIO-based HTTP/1.1 transport.
-- Express-style route registration.
+- Express-style route registration and zero-overhead route groups.
 - Direct method roots for common HTTP methods.
 - UTF-8 trie routing.
 - Static route priority with dynamic-parameter fallback.
 - Routing directly over the URI UTF-8 view.
 - Lazy route parameter decoding from byte ranges.
+- Inline parameter-range storage for the first two dynamic parameters.
 - Lazy query scanning and percent decoding.
 - Synchronous responder fast path.
 - Prepared immutable response fast path.
