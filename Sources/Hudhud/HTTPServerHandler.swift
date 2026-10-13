@@ -7,6 +7,9 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
     private let application: Application
     private let maxRequestBodyBytes: Int
+    private let emptyBody = ByteBufferAllocator().buffer(
+        capacity: 0
+    )
 
     private var requestHead: HTTPRequestHead?
     private var requestBody: ByteBuffer?
@@ -62,12 +65,11 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
             let keepAlive = head.isKeepAlive
             let version = head.version
-            let method = HTTPMethod(head.method)
 
             if requestBodyTooLarge {
                 write(
                     .payloadTooLarge(),
-                    requestMethod: method,
+                    requestMethod: HTTPMethod(head.method),
                     version: version,
                     keepAlive: keepAlive,
                     context: context
@@ -76,13 +78,11 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 return
             }
 
-            let body = requestBody
-                ?? context.channel.allocator.buffer(capacity: 0)
-
             let request = Request(
                 head: head,
-                body: body
+                body: requestBody ?? emptyBody
             )
+            let method = request.method
 
             switch application.respondFast(
                 to: request,
@@ -193,13 +193,11 @@ final class HTTPServerHandler: ChannelInboundHandler {
         context: ChannelHandlerContext
     ) {
         var headers = response.headers
-        let buffer: ByteBuffer
+        let buffer: ByteBuffer?
 
         switch response.body {
         case .empty:
-            buffer = context.channel.allocator.buffer(
-                capacity: 0
-            )
+            buffer = nil
 
         case .text(let value):
             var valueBuffer = context.channel.allocator.buffer(
@@ -222,7 +220,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         if headers.first(name: "content-length") == nil {
             headers.add(
                 name: "content-length",
-                value: String(buffer.readableBytes)
+                value: String(buffer?.readableBytes ?? 0)
             )
         }
 
@@ -251,6 +249,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
         if
             requestMethod != .head,
+            let buffer,
             buffer.readableBytes > 0
         {
             context.write(
