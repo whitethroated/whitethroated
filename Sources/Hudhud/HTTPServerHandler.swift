@@ -20,10 +20,14 @@ final class HTTPServerHandler: ChannelInboundHandler {
         switch unwrapInboundIn(data) {
         case .head(let head):
             requestHead = head
-            requestBody = context.channel.allocator.buffer(capacity: 0)
+            requestBody = nil
 
         case .body(var body):
-            requestBody?.writeBuffer(&body)
+            if requestBody == nil {
+                requestBody = body
+            } else {
+                requestBody?.writeBuffer(&body)
+            }
 
         case .end:
             guard let head = requestHead else {
@@ -33,12 +37,25 @@ final class HTTPServerHandler: ChannelInboundHandler {
             let body = requestBody
                 ?? context.channel.allocator.buffer(capacity: 0)
 
-            let request = Request(head: head, body: body)
+            let request = Request(
+                head: head,
+                body: body
+            )
             let keepAlive = head.isKeepAlive
 
-            application
-                .respond(to: request, on: context.eventLoop)
-                .whenComplete { result in
+            switch application.respondFast(
+                to: request,
+                on: context.eventLoop
+            ) {
+            case .immediate(let response):
+                write(
+                    response,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+
+            case .future(let future):
+                future.whenComplete { result in
                     switch result {
                     case .success(let response):
                         self.write(
@@ -55,6 +72,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
                         )
                     }
                 }
+            }
 
             requestHead = nil
             requestBody = nil
@@ -71,7 +89,9 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
         switch response.body {
         case .empty:
-            buffer = context.channel.allocator.buffer(capacity: 0)
+            buffer = context.channel.allocator.buffer(
+                capacity: 0
+            )
 
         case .text(let value):
             var valueBuffer = context.channel.allocator.buffer(
