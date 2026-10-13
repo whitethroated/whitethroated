@@ -2,11 +2,16 @@ import NIOCore
 import NIOHTTP1
 import NIOPosix
 
+private enum MiddlewareEntry {
+    case asynchronous(Middleware)
+    case fast(FastMiddleware)
+}
+
 public final class Application: @unchecked Sendable {
     public let configuration: ServerConfiguration
 
     private let router = Router()
-    private var middleware: [Middleware] = []
+    private var middleware: [MiddlewareEntry] = []
     private var compiledResponder: InternalHandler?
     private var group: MultiThreadedEventLoopGroup?
     private var serverChannel: Channel?
@@ -18,7 +23,18 @@ public final class Application: @unchecked Sendable {
     }
 
     public func use(_ middleware: @escaping Middleware) {
-        self.middleware.append(middleware)
+        self.middleware.append(
+            .asynchronous(middleware)
+        )
+        compiledResponder = nil
+    }
+
+    public func useFast(
+        _ middleware: @escaping FastMiddleware
+    ) {
+        self.middleware.append(
+            .fast(middleware)
+        )
         compiledResponder = nil
     }
 
@@ -240,18 +256,41 @@ public final class Application: @unchecked Sendable {
             )
         }
 
-        for current in middleware.reversed() {
+        for entry in middleware.reversed() {
             let next = responder
 
-            responder = { request, context in
-                .future(
-                    current(request, context) { nextRequest in
-                        next(
-                            nextRequest,
+            switch entry {
+            case .fast(let current):
+                responder = { request, context in
+                    current(
+                        request,
+                        context
+                    ) { nextRequest in
+                        MiddlewareResult(
+                            next(
+                                nextRequest,
+                                context
+                            )
+                        )
+                    }.responderResult
+                }
+
+            case .asynchronous(let current):
+                responder = { request, context in
+                    .future(
+                        current(
+                            request,
                             context
-                        ).asFuture(on: context.eventLoop)
-                    }
-                )
+                        ) { nextRequest in
+                            next(
+                                nextRequest,
+                                context
+                            ).asFuture(
+                                on: context.eventLoop
+                            )
+                        }
+                    )
+                }
             }
         }
 
