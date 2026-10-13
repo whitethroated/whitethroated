@@ -35,6 +35,27 @@ final class RouterTests: XCTestCase {
         XCTAssertTextBody(response, equals: "root")
     }
 
+    func testDeepStaticRoute() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get(
+            "/a/b/c/d/e/f/g/h",
+            response: .text("deep")
+        )
+
+        let response = try app
+            .respond(
+                to: makeRequest(
+                    path: "/a/b/c/d/e/f/g/h"
+                ),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertTextBody(response, equals: "deep")
+    }
+
     func testPathParameter() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
@@ -217,6 +238,27 @@ final class RouterTests: XCTestCase {
         XCTAssertTextBody(response, equals: "matched")
     }
 
+    func testQueryAfterDeepStaticRouteDoesNotAffectRouting() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get(
+            "/a/b/c/d/e/f/g/h",
+            response: .text("deep")
+        )
+
+        let response = try app
+            .respond(
+                to: makeRequest(
+                    path: "/a/b/c/d/e/f/g/h?q=1"
+                ),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertTextBody(response, equals: "deep")
+    }
+
     func testMissingRouteReturnsNotFound() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
@@ -250,19 +292,33 @@ final class RouterTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard case .text(let body) = response.body else {
-            return XCTFail(
-                "Expected text response",
+        switch response.body {
+        case .text(let body):
+            XCTAssertEqual(
+                body,
+                expected,
+                file: file,
+                line: line
+            )
+
+        case .buffer(let buffer):
+            let body = buffer.getString(
+                at: buffer.readerIndex,
+                length: buffer.readableBytes
+            )
+            XCTAssertEqual(
+                body,
+                expected,
+                file: file,
+                line: line
+            )
+
+        default:
+            XCTFail(
+                "Expected text-compatible response",
                 file: file,
                 line: line
             )
         }
-
-        XCTAssertEqual(
-            body,
-            expected,
-            file: file,
-            line: line
-        )
     }
 }
