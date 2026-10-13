@@ -184,7 +184,21 @@ DURATION=30s \
 
 Each run is written beneath `benchmark-results/<timestamp>-<mode>/` together with `environment.txt`. Generated benchmark records are ignored by Git by default so experimental runs are not accidentally published.
 
-When reporting results, calculate summary statistics from all samples and preserve the raw records used to produce them.
+At the end of the suite, `Benchmarks/summarize.py` parses all raw `wrk` samples and writes:
+
+- `summary.md` — human-readable median throughput and latency table.
+- `summary.json` — raw parsed measurements plus machine-readable summaries.
+
+The summary reports median requests/sec, min/max requests/sec, and median p50/p90/p99 latency across samples.
+
+You can rerun the summarizer independently:
+
+```bash
+python3 Benchmarks/summarize.py \
+  benchmark-results/<result-directory>
+```
+
+Always preserve the raw sample files used to produce a published summary.
 
 ## Comparison protocol
 

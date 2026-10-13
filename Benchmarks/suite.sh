@@ -13,6 +13,11 @@ OUTPUT_DIR="${OUTPUT_DIR:-benchmark-results/${STAMP}-${MODE}}"
 
 mkdir -p "$OUTPUT_DIR"
 
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "python3 is required to summarize benchmark results." >&2
+  exit 1
+fi
+
 case "$MODE" in
   raw-nio)
     RUNNER="./Benchmarks/compare.sh"
@@ -73,5 +78,10 @@ for sample in $(seq 1 "$SAMPLES"); do
 done
 
 echo
-echo "Raw benchmark records:"
+python3 ./Benchmarks/summarize.py "$OUTPUT_DIR"
+
+echo
+echo "Benchmark records:"
 echo "$OUTPUT_DIR"
+echo "Summary:"
+echo "$OUTPUT_DIR/summary.md"
