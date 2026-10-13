@@ -121,52 +121,77 @@ final class Router: @unchecked Sendable {
         parameterValues: [String]
     )? {
         let bytes = path.utf8
-        var cursor = bytes.startIndex
-        var node = root
         var parameterValues: [String] = []
 
-        while cursor != bytes.endIndex {
-            while cursor != bytes.endIndex, bytes[cursor] == 47 {
-                bytes.formIndex(after: &cursor)
-            }
-
-            guard cursor != bytes.endIndex else {
-                break
-            }
-
-            let segmentStart = cursor
-
-            while cursor != bytes.endIndex, bytes[cursor] != 47 {
-                bytes.formIndex(after: &cursor)
-            }
-
-            let segment = bytes[segmentStart..<cursor]
-            let segmentHash = Self.hash(segment)
-
-            if let child = Self.findStaticChild(
-                in: node,
-                hash: segmentHash,
-                matching: segment
-            ) {
-                node = child
-                continue
-            }
-
-            guard let parameterChild = node.parameterChild else {
-                return nil
-            }
-
-            parameterValues.append(
-                String(decoding: segment, as: UTF8.self)
-            )
-            node = parameterChild
-        }
-
-        guard let endpoint = node.endpoint else {
+        guard let endpoint = matchNode(
+            root,
+            bytes: bytes,
+            cursor: bytes.startIndex,
+            parameterValues: &parameterValues
+        ) else {
             return nil
         }
 
         return (endpoint, parameterValues)
+    }
+
+    private func matchNode(
+        _ node: RouterNode,
+        bytes: String.UTF8View,
+        cursor initialCursor: String.UTF8View.Index,
+        parameterValues: inout [String]
+    ) -> RouteEndpoint? {
+        var cursor = initialCursor
+
+        while cursor != bytes.endIndex, bytes[cursor] == 47 {
+            bytes.formIndex(after: &cursor)
+        }
+
+        guard cursor != bytes.endIndex else {
+            return node.endpoint
+        }
+
+        let segmentStart = cursor
+
+        while cursor != bytes.endIndex, bytes[cursor] != 47 {
+            bytes.formIndex(after: &cursor)
+        }
+
+        let segment = bytes[segmentStart..<cursor]
+        let segmentHash = Self.hash(segment)
+
+        if let staticChild = Self.findStaticChild(
+            in: node,
+            hash: segmentHash,
+            matching: segment
+        ), let endpoint = matchNode(
+            staticChild,
+            bytes: bytes,
+            cursor: cursor,
+            parameterValues: &parameterValues
+        ) {
+            return endpoint
+        }
+
+        guard let parameterChild = node.parameterChild else {
+            return nil
+        }
+
+        parameterValues.append(
+            String(decoding: segment, as: UTF8.self)
+        )
+
+        if let endpoint = matchNode(
+            parameterChild,
+            bytes: bytes,
+            cursor: cursor,
+            parameterValues: &parameterValues
+        ) {
+            return endpoint
+        }
+
+        parameterValues.removeLast()
+        return nil
     }
 
     @inline(__always)

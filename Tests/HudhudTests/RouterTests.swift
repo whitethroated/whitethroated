@@ -89,6 +89,28 @@ final class RouterTests: XCTestCase {
         XCTAssertTextBody(response, equals: "static")
     }
 
+    func testRouterFallsBackToParameterWhenStaticBranchDeadEnds() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/users/me/settings") { _ in
+            .text("settings")
+        }
+
+        app.get("/users/:id/profile") { request in
+            .text(request.parameter("id") ?? "")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(path: "/users/me/profile"),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertTextBody(response, equals: "me")
+    }
+
     func testRoutesAreMethodAware() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
@@ -117,6 +139,24 @@ final class RouterTests: XCTestCase {
 
         XCTAssertTextBody(getResponse, equals: "get")
         XCTAssertTextBody(postResponse, equals: "post")
+    }
+
+    func testUnsupportedMethodDoesNotFallThroughToGet() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/resource") { _ in
+            .text("get")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(path: "/resource", method: .CONNECT),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertEqual(response.status, .notFound)
     }
 
     func testQueryStringDoesNotAffectRouting() throws {
