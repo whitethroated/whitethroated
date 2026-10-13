@@ -42,6 +42,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 body: body
             )
             let keepAlive = head.isKeepAlive
+            let version = head.version
+            let method = request.method
 
             switch application.respondFast(
                 to: request,
@@ -50,6 +52,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
             case .immediate(let response):
                 write(
                     response,
+                    requestMethod: method,
+                    version: version,
                     keepAlive: keepAlive,
                     context: context
                 )
@@ -60,6 +64,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     case .success(let response):
                         self.write(
                             response,
+                            requestMethod: method,
+                            version: version,
                             keepAlive: keepAlive,
                             context: context
                         )
@@ -67,6 +73,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     case .failure:
                         self.write(
                             .internalServerError(),
+                            requestMethod: method,
+                            version: version,
                             keepAlive: keepAlive,
                             context: context
                         )
@@ -81,6 +89,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
     private func write(
         _ response: Response,
+        requestMethod: HTTPMethod,
+        version: HTTPVersion,
         keepAlive: Bool,
         context: ChannelHandlerContext
     ) {
@@ -116,20 +126,20 @@ final class HTTPServerHandler: ChannelInboundHandler {
             value: String(buffer.readableBytes)
         )
 
-        if keepAlive {
-            headers.replaceOrAdd(
-                name: "connection",
-                value: "keep-alive"
-            )
-        } else {
+        if !keepAlive {
             headers.replaceOrAdd(
                 name: "connection",
                 value: "close"
             )
+        } else if version == .http1_0 {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "keep-alive"
+            )
         }
 
         let head = HTTPResponseHead(
-            version: .http1_1,
+            version: version,
             status: response.status,
             headers: headers
         )
@@ -139,7 +149,10 @@ final class HTTPServerHandler: ChannelInboundHandler {
             promise: nil
         )
 
-        if buffer.readableBytes > 0 {
+        if
+            requestMethod != .head,
+            buffer.readableBytes > 0
+        {
             context.write(
                 wrapOutboundOut(.body(.byteBuffer(buffer))),
                 promise: nil
