@@ -9,6 +9,12 @@ let port = Int(
 
 let app = Application()
 
+if environment["HUDHUD_FAST_MIDDLEWARE"] == "1" {
+    app.useFast { request, _, next in
+        next(request)
+    }
+}
+
 app.get(
     "/prepared",
     response: .text("Hello, World!")
