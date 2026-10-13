@@ -13,6 +13,12 @@ final class RequestTests: XCTestCase {
         XCTAssertEqual(request.path, "/search")
     }
 
+    func testPathWithoutQueryReturnsOriginalURI() {
+        let request = makeRequest(path: "/health")
+
+        XCTAssertEqual(request.path, "/health")
+    }
+
     func testRouteParameterIsDecodedOnAccess() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
@@ -61,6 +67,28 @@ final class RequestTests: XCTestCase {
         }
 
         XCTAssertEqual(body, "core:42")
+    }
+
+    func testQueryStartsImmediatelyAfterParameter() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/users/:id") { request in
+            .text(request.parameter("id") ?? "")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(path: "/users/abc?x=1"),
+                on: loop
+            )
+            .wait()
+
+        guard case .text(let body) = response.body else {
+            return XCTFail("Expected text response")
+        }
+
+        XCTAssertEqual(body, "abc")
     }
 
     private func makeRequest(path: String) -> Request {
