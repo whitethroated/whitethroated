@@ -15,9 +15,12 @@ if environment["HUDHUD_FAST_MIDDLEWARE"] == "1" {
     }
 }
 
+let hello = PreparedResponse.text("Hello, World!")
+let ok = PreparedResponse.text("ok")
+
 app.get(
     "/prepared",
-    response: .text("Hello, World!")
+    response: hello
 )
 
 app.get("/plaintext") { _ in
@@ -38,5 +41,35 @@ app.get("/users/:id/posts/:post") { request in
 
     return .text("\(id):\(post)")
 }
+
+for depth in [1, 4, 8, 16] {
+    let suffix = (1...depth)
+        .map { "s\($0)" }
+        .joined(separator: "/")
+
+    app.get(
+        "/depth/\(suffix)",
+        response: ok
+    )
+}
+
+for count in [16, 256, 4_096] {
+    for index in 0..<count {
+        app.get(
+            "/fanout/\(count)/r\(index)",
+            response: ok
+        )
+    }
+}
+
+app.get(
+    "/dynamic/a/:p1",
+    response: ok
+)
+
+app.get(
+    "/dynamic/a/:p1/b/:p2/c/:p3/d/:p4",
+    response: ok
+)
 
 try app.run(host: host, port: port)
