@@ -25,6 +25,18 @@ public final class Application: @unchecked Sendable {
     public func on(
         _ method: HTTPMethod,
         _ path: String,
+        response: PreparedResponse
+    ) {
+        router.add(
+            method: method,
+            path: path,
+            preparedResponse: response.response
+        )
+    }
+
+    public func on(
+        _ method: HTTPMethod,
+        _ path: String,
         use handler: @escaping @Sendable (Request) -> Response
     ) {
         route(method, path, use: handler)
@@ -36,6 +48,13 @@ public final class Application: @unchecked Sendable {
         use handler: @escaping Handler
     ) {
         route(method, path, use: handler)
+    }
+
+    public func get(
+        _ path: String,
+        response: PreparedResponse
+    ) {
+        on(.get, path, response: response)
     }
 
     public func get(

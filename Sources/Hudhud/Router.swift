@@ -5,8 +5,13 @@ public typealias Handler = @Sendable (
     Context
 ) -> EventLoopFuture<Response>
 
+private enum RouteResponder {
+    case handler(InternalHandler)
+    case prepared(Response)
+}
+
 private struct RouteEndpoint {
-    let handler: InternalHandler
+    let responder: RouteResponder
     let parameterNames: [String]
 }
 
@@ -31,6 +36,68 @@ final class Router: @unchecked Sendable {
         method: HTTPMethod,
         path: String,
         handler: @escaping InternalHandler
+    ) {
+        insert(
+            method: method,
+            path: path,
+            responder: .handler(handler)
+        )
+    }
+
+    func add(
+        method: HTTPMethod,
+        path: String,
+        preparedResponse: Response
+    ) {
+        insert(
+            method: method,
+            path: path,
+            responder: .prepared(preparedResponse)
+        )
+    }
+
+    func resolve(
+        _ request: Request,
+        context: Context
+    ) -> ResponderResult {
+        if
+            let root = roots[request.method],
+            let match = match(
+                uri: request.routingBytes,
+                from: root
+            )
+        {
+            return invoke(
+                match.endpoint,
+                parameterRanges: match.parameterRanges,
+                request: request,
+                context: context
+            )
+        }
+
+        if
+            request.method == .head,
+            let root = roots[.get],
+            let match = match(
+                uri: request.routingBytes,
+                from: root
+            )
+        {
+            return invoke(
+                match.endpoint,
+                parameterRanges: match.parameterRanges,
+                request: request,
+                context: context
+            )
+        }
+
+        return .immediate(.notFound())
+    }
+
+    private func insert(
+        method: HTTPMethod,
+        path: String,
+        responder: RouteResponder
     ) {
         let root = roots[method] ?? {
             let node = RouterNode()
@@ -88,47 +155,9 @@ final class Router: @unchecked Sendable {
         }
 
         node.endpoint = RouteEndpoint(
-            handler: handler,
+            responder: responder,
             parameterNames: parameterNames
         )
-    }
-
-    func resolve(
-        _ request: Request,
-        context: Context
-    ) -> ResponderResult {
-        if
-            let root = roots[request.method],
-            let match = match(
-                uri: request.routingBytes,
-                from: root
-            )
-        {
-            return invoke(
-                match.endpoint,
-                parameterRanges: match.parameterRanges,
-                request: request,
-                context: context
-            )
-        }
-
-        if
-            request.method == .head,
-            let root = roots[.get],
-            let match = match(
-                uri: request.routingBytes,
-                from: root
-            )
-        {
-            return invoke(
-                match.endpoint,
-                parameterRanges: match.parameterRanges,
-                request: request,
-                context: context
-            )
-        }
-
-        return .immediate(.notFound())
     }
 
     @inline(__always)
@@ -138,16 +167,22 @@ final class Router: @unchecked Sendable {
         request: Request,
         context: Context
     ) -> ResponderResult {
-        var matchedRequest = request
-        matchedRequest.routeParameterNames =
-            endpoint.parameterNames
-        matchedRequest.routeParameterRanges =
-            parameterRanges
+        switch endpoint.responder {
+        case .prepared(let response):
+            return .immediate(response)
 
-        return endpoint.handler(
-            matchedRequest,
-            context
-        )
+        case .handler(let handler):
+            var matchedRequest = request
+            matchedRequest.routeParameterNames =
+                endpoint.parameterNames
+            matchedRequest.routeParameterRanges =
+                parameterRanges
+
+            return handler(
+                matchedRequest,
+                context
+            )
+        }
     }
 
     private func match<C: Collection>(

@@ -166,10 +166,12 @@ final class HTTPServerHandler: ChannelInboundHandler {
             buffer = value
         }
 
-        headers.replaceOrAdd(
-            name: "content-length",
-            value: String(buffer.readableBytes)
-        )
+        if headers.first(name: "content-length") == nil {
+            headers.add(
+                name: "content-length",
+                value: String(buffer.readableBytes)
+            )
+        }
 
         if !keepAlive {
             headers.replaceOrAdd(

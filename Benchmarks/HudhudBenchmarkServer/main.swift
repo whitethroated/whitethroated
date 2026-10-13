@@ -9,6 +9,11 @@ let port = Int(
 
 let app = Application()
 
+app.get(
+    "/prepared",
+    response: .text("Hello, World!")
+)
+
 app.get("/plaintext") { _ in
     .text("Hello, World!")
 }
