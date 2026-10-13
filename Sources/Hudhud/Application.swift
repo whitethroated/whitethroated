@@ -30,7 +30,7 @@ public final class Application: @unchecked Sendable {
         router.add(
             method: method,
             path: path,
-            preparedResponse: response.response
+            preparedResponse: response
         )
     }
 

@@ -5,7 +5,7 @@ import NIOEmbedded
 import NIOHTTP1
 
 final class PreparedResponseTests: XCTestCase {
-    func testPreparedRouteUsesImmediateBufferResponse() {
+    func testPreparedRouteUsesPreparedFastPath() {
         let app = Application()
         let loop = EmbeddedEventLoop()
 
@@ -19,18 +19,20 @@ final class PreparedResponseTests: XCTestCase {
             on: loop
         )
 
-        guard case .immediate(let response) = result else {
+        guard case .prepared(let prepared) = result else {
             return XCTFail(
-                "Prepared route should use the immediate path"
+                "Prepared route should use the prepared path"
             )
         }
 
         XCTAssertEqual(
-            response.headers.first(name: "content-length"),
+            prepared.http11Head.headers.first(
+                name: "content-length"
+            ),
             "13"
         )
 
-        guard case .buffer(let buffer) = response.body else {
+        guard let buffer = prepared.bodyBuffer else {
             return XCTFail(
                 "Prepared response should store a ByteBuffer"
             )
@@ -42,6 +44,27 @@ final class PreparedResponseTests: XCTestCase {
                 length: buffer.readableBytes
             ),
             "Hello, World!"
+        )
+    }
+
+    func testPreparedResponseCanBridgeToFutureAPI() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get(
+            "/prepared",
+            response: .text("payload")
+        )
+
+        let response = try app.respond(
+            to: makeRequest(path: "/prepared"),
+            on: loop
+        ).wait()
+
+        XCTAssertEqual(response.status, .ok)
+        XCTAssertEqual(
+            response.headers.first(name: "content-length"),
+            "7"
         )
     }
 

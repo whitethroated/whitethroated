@@ -97,6 +97,15 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     context: context
                 )
 
+            case .prepared(let prepared):
+                writePrepared(
+                    prepared,
+                    requestMethod: method,
+                    version: version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+
             case .future(let future):
                 future.whenComplete { result in
                     switch result {
@@ -130,6 +139,50 @@ final class HTTPServerHandler: ChannelInboundHandler {
         requestBody = nil
         receivedBodyBytes = 0
         requestBodyTooLarge = false
+    }
+
+    @inline(__always)
+    private func writePrepared(
+        _ prepared: PreparedResponse,
+        requestMethod: HTTPMethod,
+        version: HTTPVersion,
+        keepAlive: Bool,
+        context: ChannelHandlerContext
+    ) {
+        guard
+            version == .http1_1,
+            keepAlive
+        else {
+            write(
+                prepared.response,
+                requestMethod: requestMethod,
+                version: version,
+                keepAlive: keepAlive,
+                context: context
+            )
+            return
+        }
+
+        context.write(
+            wrapOutboundOut(.head(prepared.http11Head)),
+            promise: nil
+        )
+
+        if
+            requestMethod != .head,
+            let body = prepared.bodyBuffer,
+            body.readableBytes > 0
+        {
+            context.write(
+                wrapOutboundOut(.body(.byteBuffer(body))),
+                promise: nil
+            )
+        }
+
+        context.writeAndFlush(
+            wrapOutboundOut(.end(nil)),
+            promise: nil
+        )
     }
 
     private func write(
