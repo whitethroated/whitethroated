@@ -160,6 +160,7 @@ Current trie behavior:
 - The first two dynamic parameter names and ranges are stored inline.
 - A third parameter promotes name/range storage to arrays.
 - Parameter strings are decoded only when application code reads them.
+- Parameter decoding reuses contiguous URI byte storage and integer ranges when available.
 - `HEAD` uses an explicit HEAD route first and falls back to GET.
 
 Catch-all parameters must be the final route segment.
