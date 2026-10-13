@@ -1,3 +1,4 @@
+import NIOCore
 import NIOHTTP1
 
 public struct Response: Sendable {
@@ -5,6 +6,7 @@ public struct Response: Sendable {
         case empty
         case text(String)
         case bytes([UInt8])
+        case buffer(ByteBuffer)
     }
 
     public var status: HTTPResponseStatus
@@ -26,9 +28,16 @@ public struct Response: Sendable {
         status: HTTPResponseStatus = .ok
     ) -> Response {
         var headers = HTTPHeaders()
-        headers.add(name: "content-type", value: "text/plain; charset=utf-8")
+        headers.add(
+            name: "content-type",
+            value: "text/plain; charset=utf-8"
+        )
 
-        return Response(status: status, headers: headers, body: .text(value))
+        return Response(
+            status: status,
+            headers: headers,
+            body: .text(value)
+        )
     }
 
     public static func json(
@@ -36,9 +45,34 @@ public struct Response: Sendable {
         status: HTTPResponseStatus = .ok
     ) -> Response {
         var headers = HTTPHeaders()
-        headers.add(name: "content-type", value: "application/json; charset=utf-8")
+        headers.add(
+            name: "content-type",
+            value: "application/json; charset=utf-8"
+        )
 
-        return Response(status: status, headers: headers, body: .text(value))
+        return Response(
+            status: status,
+            headers: headers,
+            body: .text(value)
+        )
+    }
+
+    public static func buffer(
+        _ value: ByteBuffer,
+        contentType: String? = nil,
+        status: HTTPResponseStatus = .ok
+    ) -> Response {
+        var headers = HTTPHeaders()
+
+        if let contentType {
+            headers.add(name: "content-type", value: contentType)
+        }
+
+        return Response(
+            status: status,
+            headers: headers,
+            body: .buffer(value)
+        )
     }
 
     public static func noContent() -> Response {
@@ -50,6 +84,9 @@ public struct Response: Sendable {
     }
 
     public static func internalServerError() -> Response {
-        Response.text("Internal Server Error", status: .internalServerError)
+        Response.text(
+            "Internal Server Error",
+            status: .internalServerError
+        )
     }
 }
