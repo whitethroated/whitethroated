@@ -38,6 +38,20 @@ app.get("/users/:id") { request in
 try app.run(port: 3000)
 ```
 
+## Catch-all routes
+
+A terminal catch-all captures the remaining path without changing static or single-segment parameter precedence.
+
+```swift
+app.get("/files/*path") { request in
+    .text(request.parameter("path") ?? "")
+}
+```
+
+`/files/images/2026/avatar.png` produces `images/2026/avatar.png`.
+
+Catch-all parameters must be the final route segment.
+
 ## Route groups
 
 Route prefixes are composed during application setup, so groups add no extra request-time routing layer.
@@ -136,7 +150,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Express-style route registration and zero-overhead route groups.
 - Direct method roots for common HTTP methods.
 - UTF-8 trie routing.
-- Static route priority with dynamic-parameter fallback.
+- Route precedence: static segment, dynamic `:param`, then terminal `*catchAll`.
 - Routing directly over the URI UTF-8 view.
 - Lazy route parameter decoding from byte ranges.
 - Inline parameter-range storage for the first two dynamic parameters.

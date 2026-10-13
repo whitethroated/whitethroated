@@ -86,6 +86,7 @@ private enum StaticBucket {
 private final class RouterNode {
     var staticChildren: [UInt64: StaticBucket] = [:]
     var parameterChild: RouterNode?
+    var catchAllChild: RouterNode?
     var endpoint: RouteEndpoint?
 }
 
@@ -298,11 +299,37 @@ final class Router: @unchecked Sendable {
 
         var node = root
         var parameterNames: [String] = []
-
-        for segment in path.split(
+        let segments = path.split(
             separator: "/",
             omittingEmptySubsequences: true
-        ) {
+        )
+
+        for (index, segment) in segments.enumerated() {
+            if segment.first == "*" {
+                let name = String(segment.dropFirst())
+
+                precondition(
+                    !name.isEmpty,
+                    "Catch-all parameter name cannot be empty"
+                )
+                precondition(
+                    index == segments.index(before: segments.endIndex),
+                    "Catch-all parameter must be the final route segment"
+                )
+
+                parameterNames.append(name)
+
+                if let child = node.catchAllChild {
+                    node = child
+                } else {
+                    let child = RouterNode()
+                    node.catchAllChild = child
+                    node = child
+                }
+
+                continue
+            }
+
             if segment.first == ":" {
                 let name = String(segment.dropFirst())
 
@@ -563,26 +590,47 @@ final class Router: @unchecked Sendable {
             return endpoint
         }
 
-        guard let parameterChild = node.parameterChild else {
+        if let parameterChild = node.parameterChild {
+            parameterRanges.append(
+                segmentStartOffset..<cursorOffset
+            )
+
+            if let endpoint = matchNode(
+                parameterChild,
+                bytes: bytes,
+                cursor: cursor,
+                cursorOffset: cursorOffset,
+                parameterRanges: &parameterRanges
+            ) {
+                return endpoint
+            }
+
+            parameterRanges.removeLast()
+        }
+
+        guard
+            let catchAllChild = node.catchAllChild,
+            let endpoint = catchAllChild.endpoint
+        else {
             return nil
         }
 
-        parameterRanges.append(
-            segmentStartOffset..<cursorOffset
-        )
+        var catchAllCursor = cursor
+        var catchAllOffset = cursorOffset
 
-        if let endpoint = matchNode(
-            parameterChild,
-            bytes: bytes,
-            cursor: cursor,
-            cursorOffset: cursorOffset,
-            parameterRanges: &parameterRanges
-        ) {
-            return endpoint
+        while
+            catchAllCursor != bytes.endIndex,
+            bytes[catchAllCursor] != Self.query
+        {
+            bytes.formIndex(after: &catchAllCursor)
+            catchAllOffset += 1
         }
 
-        parameterRanges.removeLast()
-        return nil
+        parameterRanges.append(
+            segmentStartOffset..<catchAllOffset
+        )
+
+        return endpoint
     }
 
     @inline(__always)
