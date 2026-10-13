@@ -12,7 +12,7 @@ public struct Request: @unchecked Sendable {
     public let headers: HTTPHeaders
     public let body: ByteBuffer
 
-    internal var routeParameterNames: [String]
+    internal var routeParameterNames: RouteParameterNames
     internal var routeParameterRanges: RouteParameterRanges
 
     init(head: HTTPRequestHead, body: ByteBuffer) {
@@ -32,7 +32,7 @@ public struct Request: @unchecked Sendable {
         self.uri = head.uri
         self.headers = head.headers
         self.body = body
-        self.routeParameterNames = []
+        self.routeParameterNames = .none
         self.routeParameterRanges = .none
     }
 
@@ -72,7 +72,7 @@ public struct Request: @unchecked Sendable {
         var values: [String: String] = [:]
         values.reserveCapacity(routeParameterNames.count)
 
-        for index in routeParameterNames.indices {
+        for index in 0..<routeParameterNames.count {
             values[routeParameterNames[index]] = decodeParameter(
                 in: routeParameterRanges[index]
             )
@@ -102,7 +102,7 @@ public struct Request: @unchecked Sendable {
     }
 
     public func parameter(_ name: String) -> String? {
-        for index in routeParameterNames.indices
+        for index in 0..<routeParameterNames.count
         where routeParameterNames[index] == name {
             return decodeParameter(
                 in: routeParameterRanges[index]
