@@ -204,6 +204,54 @@ python3 Benchmarks/summarize.py \
 
 Always preserve the raw sample files used to produce a published summary.
 
+## Linux CPU and ARC profiling
+
+On Linux, use `perf stat` to capture hardware/runtime counters while applying the same `wrk` load:
+
+```bash
+ROUTE=/plaintext \
+WORKERS=8 \
+THREADS=8 \
+CONNECTIONS=256 \
+DURATION=20s \
+PROFILE_MODE=stat \
+./Benchmarks/profile-linux.sh
+```
+
+The stat mode records:
+
+- task clock.
+- CPU cycles.
+- instructions.
+- branches and branch misses.
+- cache references and misses.
+- context switches.
+- CPU migrations.
+- page faults.
+
+For sampled call stacks:
+
+```bash
+ROUTE=/plaintext \
+PROFILE_MODE=record \
+./Benchmarks/profile-linux.sh
+```
+
+Record mode writes `perf.data`, a text `perf-report.txt`, and an `arc-symbols.txt` extraction for Swift retain/release symbols when they are visible in the profile.
+
+Run the profiler separately for at least:
+
+```text
+/prepared
+/plaintext
+/concurrent
+/users/42
+```
+
+Do not run `perf stat` and `perf record` simultaneously when collecting publishable numbers. Profiling changes the workload and should be used to explain benchmark deltas, not as the throughput result itself.
+
+Linux kernel perf permissions may require adjusting `kernel.perf_event_paranoid` or using an environment where hardware counters are available.
+
 ## Comparison protocol
 
 When comparing Hudhud with raw SwiftNIO, Hummingbird, Vapor, Actix Web, or another server:
