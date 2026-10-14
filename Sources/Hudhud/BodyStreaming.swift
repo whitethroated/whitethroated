@@ -61,12 +61,20 @@ public struct BodyStreamConsumer: @unchecked Sendable {
     public typealias EndHandler = @Sendable ()
         -> EventLoopFuture<Response>
 
+    public typealias SyncEndHandler = @Sendable ()
+        -> Response
+
     public typealias ErrorHandler = @Sendable (
         Error
     ) -> Void
 
+    internal enum EndResponder: @unchecked Sendable {
+        case synchronous(SyncEndHandler)
+        case asynchronous(EndHandler)
+    }
+
     internal let chunkHandler: ChunkHandler
-    internal let endHandler: EndHandler
+    internal let endResponder: EndResponder
     internal let errorHandler: ErrorHandler?
 
     public init(
@@ -75,7 +83,17 @@ public struct BodyStreamConsumer: @unchecked Sendable {
         onError: ErrorHandler? = nil
     ) {
         self.chunkHandler = onChunk
-        self.endHandler = onEnd
+        self.endResponder = .asynchronous(onEnd)
+        self.errorHandler = onError
+    }
+
+    public init(
+        onChunk: @escaping ChunkHandler,
+        onEnd: @escaping SyncEndHandler,
+        onError: ErrorHandler? = nil
+    ) {
+        self.chunkHandler = onChunk
+        self.endResponder = .synchronous(onEnd)
         self.errorHandler = onError
     }
 }
@@ -126,9 +144,18 @@ internal final class BodyStreamSession: @unchecked Sendable {
         }
 
         finished = true
-        responsePromise.completeWith(
-            consumer.endHandler()
-        )
+
+        switch consumer.endResponder {
+        case .synchronous(let handler):
+            responsePromise.succeed(
+                handler()
+            )
+
+        case .asynchronous(let handler):
+            responsePromise.completeWith(
+                handler()
+            )
+        }
     }
 
     func fail(_ error: Error) {
