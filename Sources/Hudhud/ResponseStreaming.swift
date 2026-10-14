@@ -3,6 +3,7 @@ import NIOHTTP1
 
 public enum ResponseStreamError: Error, Sendable, Equatable {
     case invalidContentLength(String)
+    case ambiguousContentLength([String])
     case contentLengthExceeded(
         expected: Int,
         attempted: Int
