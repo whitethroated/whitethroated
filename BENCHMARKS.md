@@ -84,6 +84,24 @@ Compare a streaming endpoint against an otherwise equivalent aggregated-body end
 
 Do not claim a streaming win from requests/sec alone; the primary expected benefit is bounded memory growth and explicit backpressure under slow consumers.
 
+Run the paired upload benchmark:
+
+```bash
+UPLOAD_BYTES=65536 \
+WORKERS=4 \
+THREADS=4 \
+CONNECTIONS=64 \
+DURATION=20s \
+./Benchmarks/streaming.sh
+```
+
+The benchmark sends the same generated binary request body to:
+
+- `/aggregate-upload` — ordinary Hudhud body aggregation.
+- `/stream-upload` — synchronous chunk streaming with no per-chunk future.
+
+Repeat with larger payloads, for example `UPLOAD_BYTES=1048576` and `UPLOAD_BYTES=8388608`, while recording process RSS externally.
+
 ## Benchmark servers
 
 The repository contains two release benchmark servers.

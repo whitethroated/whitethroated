@@ -298,6 +298,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Reproducible `wrk` comparison harness.
 - Raw SwiftNIO and pinned Actix Web controls.
 - Multi-sample benchmark summaries and Linux perf profiling.
+- Paired aggregated-vs-streaming upload benchmark.
 
 ## Request lifecycle
 
@@ -397,6 +398,12 @@ Run in-process dispatch and writer diagnostics:
 ```bash
 ./Benchmarks/core.sh
 ./Benchmarks/writer-core.sh
+```
+
+Compare aggregated and streaming request bodies:
+
+```bash
+UPLOAD_BYTES=65536 ./Benchmarks/streaming.sh
 ```
 
 Validate benchmark tooling without starting a server:
