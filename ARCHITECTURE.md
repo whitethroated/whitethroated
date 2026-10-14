@@ -346,7 +346,7 @@ The parser's internal staging buffer can grow to the size of an inbound chunk pl
 ETag support is opt-in.
 
 - `EntityTag` validates opaque tag bytes at construction time.
-- `request.matchesIfNoneMatch(...)` scans original header field values directly and does not use canonical comma splitting, because commas are valid inside quoted entity-tag opaque values.
+- `request.matchesIfNoneMatch(...)` scans the original HTTP header block directly with an ASCII case-insensitive field-name comparison. It allocates no intermediate header-value array and does not use canonical comma splitting, because commas are valid inside quoted entity-tag opaque values.
 - Matching follows weak `If-None-Match` comparison semantics: `W/"tag"` matches `"tag"`.
 - Wildcard `*` is supported.
 - `Response.notModified(etag:)` emits a bodyless 304 response.

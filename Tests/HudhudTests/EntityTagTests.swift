@@ -15,6 +15,58 @@ final class EntityTagTests: XCTestCase {
         )
     }
 
+    func testIfNoneMatchHeaderNameIsCaseInsensitive() {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/resource"
+        )
+        head.headers.add(
+            name: "If-NoNe-MaTcH",
+            value: #""abc123""#
+        )
+
+        let request = Request(
+            head: head,
+            body: ByteBufferAllocator()
+                .buffer(capacity: 0)
+        )
+
+        XCTAssertTrue(
+            request.matchesIfNoneMatch(
+                EntityTag("abc123")
+            )
+        )
+    }
+
+    func testIfNoneMatchScansMultipleHeaderFieldsWithoutCanonicalSplit() {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/resource"
+        )
+        head.headers.add(
+            name: "if-none-match",
+            value: #""first""#
+        )
+        head.headers.add(
+            name: "if-none-match",
+            value: #"W/"second""#
+        )
+
+        let request = Request(
+            head: head,
+            body: ByteBufferAllocator()
+                .buffer(capacity: 0)
+        )
+
+        XCTAssertTrue(
+            request.matchesIfNoneMatch(
+                EntityTag("second")
+            )
+        )
+    }
+
     func testIfNoneMatchStrongMatch() {
         let request = makeRequest(
             ifNoneMatch: #""abc123""#

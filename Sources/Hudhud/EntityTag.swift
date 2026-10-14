@@ -65,7 +65,11 @@ internal enum IfNoneMatchMatcher {
     ) -> Bool {
         let expected = tag.opaqueValue.utf8
 
-        for value in headers["if-none-match"] {
+        for (name, value) in headers {
+            guard isIfNoneMatchHeader(name) else {
+                continue
+            }
+
             if matches(
                 value.utf8,
                 expected: expected
@@ -75,6 +79,39 @@ internal enum IfNoneMatchMatcher {
         }
 
         return false
+    }
+
+    @inline(__always)
+    private static func isIfNoneMatchHeader(
+        _ name: String
+    ) -> Bool {
+        let expected: [UInt8] = [
+            105, 102, 45, 110, 111, 110, 101,
+            45, 109, 97, 116, 99, 104
+        ]
+        let bytes = name.utf8
+
+        guard bytes.count == expected.count else {
+            return false
+        }
+
+        var index = bytes.startIndex
+
+        for expectedByte in expected {
+            let byte = bytes[index]
+            let folded =
+                byte >= 65 && byte <= 90
+                ? byte + 32
+                : byte
+
+            guard folded == expectedByte else {
+                return false
+            }
+
+            bytes.formIndex(after: &index)
+        }
+
+        return true
     }
 
     private static func matches<
