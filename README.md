@@ -710,10 +710,10 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Configurable event-loop thread count and listen backlog.
 - Release benchmark server.
 - Raw SwiftNIO control benchmark server.
-- Reproducible `wrk` comparison harness.
-- Raw SwiftNIO and pinned Actix Web controls.
-- Multi-sample benchmark summaries and Linux perf profiling.
-- Paired aggregated-vs-streaming upload benchmark.
+- Swift-only benchmark implementation sources.
+- Raw SwiftNIO control benchmark server written in Swift.
+- Opt-in Swift benchmark routes for streaming, multipart, router stress, and conditional responses.
+- External cross-framework controls kept outside the Hudhud repository.
 
 ## Request lifecycle
 
@@ -792,54 +792,50 @@ swift test -c release
 
 ## Benchmark
 
-Run Hudhud:
+Hudhud keeps benchmark implementation code in Swift.
+
+Run the in-process dispatch benchmark:
 
 ```bash
-./Benchmarks/run.sh
+HUDHUD_CORE_BENCHMARK=1 \
+HUDHUD_CORE_ITERATIONS=5000000 \
+swift test -c release \
+  --filter CoreBenchmarkTests/testCoreDispatchBenchmark
 ```
 
-Compare the prepared-response path with a minimal raw SwiftNIO control server:
+Run the router-only diagnostic:
 
 ```bash
-./Benchmarks/compare.sh
+HUDHUD_ROUTER_CORE_BENCHMARK=1 \
+HUDHUD_ROUTER_CORE_ITERATIONS=10000000 \
+swift test -c release \
+  --filter CoreBenchmarkTests/testRouterLookupBenchmark
 ```
 
-Measure pass-through fast middleware layers:
+Run the transport writer diagnostic:
 
 ```bash
-FAST_MIDDLEWARE_LAYERS=4 ./Benchmarks/run.sh
+HUDHUD_TRANSPORT_BENCHMARK=1 \
+HUDHUD_TRANSPORT_ITERATIONS=500000 \
+swift test -c release \
+  --filter CoreBenchmarkTests/testTransportWriterBenchmark
 ```
 
-Run in-process dispatch and writer diagnostics:
+Start the Hudhud release benchmark server:
 
 ```bash
-./Benchmarks/core.sh
-./Benchmarks/writer-core.sh
+HUDHUD_THREADS=4 \
+swift run -c release hudhud-benchmark-server
 ```
 
-Compare aggregated and streaming request bodies:
+Start the raw SwiftNIO control separately with the same worker count:
 
 ```bash
-./Benchmarks/upload.sh
+HUDHUD_THREADS=4 \
+swift run -c release raw-nio-benchmark-server
 ```
 
-Measure incremental multipart parsing against a raw streaming control using identical multipart wire bytes:
-
-```bash
-./Benchmarks/multipart.sh
-```
-
-Compare peak RSS with the same multipart payload:
-
-```bash
-./Benchmarks/multipart-memory.sh
-```
-
-Validate benchmark tooling without starting a server:
-
-```bash
-./Benchmarks/check.sh
-```
+Use the same external load generator and identical settings for both servers. Actix and other non-Swift controls intentionally live outside this repository so Hudhud remains a Swift-only codebase.
 
 See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.md](ARCHITECTURE.md) for runtime invariants.
 
