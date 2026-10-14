@@ -44,6 +44,10 @@ final class CoreBenchmarkTests: XCTestCase {
             .text(request.query("q") ?? "")
         }
 
+        app.post("/form") { request in
+            .text(request.form("q") ?? "")
+        }
+
         app.get("/method") { request in
             .text(
                 request.method == .get
