@@ -7,6 +7,7 @@ import NIOHTTP1
 private final class StreamCounter: @unchecked Sendable {
     var bytes = 0
     var errors = 0
+    var sessions = 0
     var chunks: [String] = []
     var gate: EventLoopPromise<Void>?
 }
@@ -150,6 +151,59 @@ final class BodyStreamingTests: XCTestCase {
         )
     }
 
+    func testDeclaredOversizedStreamingBodyNeverCreatesConsumer() throws {
+        let app = Application()
+        let counter = StreamCounter()
+
+        app.postStream(
+            "/upload",
+            maxBodyBytes: 4
+        ) { _, context in
+            counter.sessions += 1
+
+            return BodyStreamConsumer(
+                onChunk: { _ in nil },
+                onEnd: {
+                    context.eventLoop.makeSucceededFuture(
+                        .text("unexpected")
+                    )
+                },
+                onError: { _ in
+                    counter.errors += 1
+                }
+            )
+        }
+
+        let channel = try makeChannel(app)
+        var head = makeHead("/upload")
+        head.headers.add(
+            name: "content-length",
+            value: "8"
+        )
+
+        try write(
+            .head(head),
+            to: channel
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .payloadTooLarge
+        )
+        XCTAssertEqual(
+            counter.sessions,
+            0
+        )
+        XCTAssertEqual(
+            counter.errors,
+            0
+        )
+    }
+
     func testStreamingRouteSpecificBodyLimitReturns413() throws {
         let app = Application()
         let counter = StreamCounter()
@@ -180,14 +234,6 @@ final class BodyStreamingTests: XCTestCase {
 
         try write(
             .head(head),
-            to: channel
-        )
-        try writeBody(
-            "12345678",
-            to: channel
-        )
-        try write(
-            .end(nil),
             to: channel
         )
 

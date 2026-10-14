@@ -603,6 +603,14 @@ public final class Application: @unchecked Sendable {
             return nil
         }
 
+        let maxBodyBytes =
+            routeMaxBodyBytes
+            ?? configuration.maxRequestBodyBytes
+        let declaredBodyTooLarge =
+            Self.declaredBodyExceedsLimit(
+                head,
+                maxBodyBytes: maxBodyBytes
+            )
         let registration = StreamingRegistration(
             eventLoop: eventLoop
         )
@@ -617,21 +625,32 @@ public final class Application: @unchecked Sendable {
             routeParameterRanges: parameterRanges
         )
 
-        let terminal: InternalHandler = {
-            request,
-            context in
+        let terminal: InternalHandler
 
-            let consumer = handler(
-                StreamRequest(request),
-                context
-            )
-            let session = BodyStreamSession(
-                consumer: consumer,
-                eventLoop: context.eventLoop
-            )
-            registration.register(session)
+        if declaredBodyTooLarge {
+            terminal = { _, _ in
+                registration.bypassIfPending()
+                return .immediate(
+                    .payloadTooLarge()
+                )
+            }
+        } else {
+            terminal = {
+                request,
+                context in
 
-            return .streaming(session)
+                let consumer = handler(
+                    StreamRequest(request),
+                    context
+                )
+                let session = BodyStreamSession(
+                    consumer: consumer,
+                    eventLoop: context.eventLoop
+                )
+                registration.register(session)
+
+                return .streaming(session)
+            }
         }
 
         let result = runStreamingMiddleware(
@@ -657,10 +676,27 @@ public final class Application: @unchecked Sendable {
         return StreamingTransportStart(
             result: result,
             registration: registration,
-            maxBodyBytes:
-                routeMaxBodyBytes
-                ?? configuration.maxRequestBodyBytes
+            maxBodyBytes: maxBodyBytes,
+            declaredBodyTooLarge:
+                declaredBodyTooLarge
         )
+    }
+
+    @inline(__always)
+    private static func declaredBodyExceedsLimit(
+        _ head: HTTPRequestHead,
+        maxBodyBytes: Int
+    ) -> Bool {
+        guard
+            let value = head.headers.first(
+                name: "content-length"
+            ),
+            let contentLength = Int(value)
+        else {
+            return false
+        }
+
+        return contentLength > maxBodyBytes
     }
 
     private func runStreamingMiddleware(
