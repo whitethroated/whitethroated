@@ -23,6 +23,8 @@ public final class Application: @unchecked Sendable {
     ]
 
     private let router = Router()
+    private let emptyRequestBody =
+        ByteBufferAllocator().buffer(capacity: 0)
     private var middleware: [MiddlewareEntry] = []
     private var errorHandler: ErrorHandlerEntry?
     private var compiledResponder: InternalHandler?
@@ -623,9 +625,9 @@ public final class Application: @unchecked Sendable {
             routeMaxBodyBytes
             ?? configuration.maxRequestBodyBytes
         let declaredBodyTooLarge =
-            Self.declaredBodyExceedsLimit(
-                head,
-                maxBodyBytes: maxBodyBytes
+            HTTPContentLength.declaredExceedsLimit(
+                head.headers,
+                limit: maxBodyBytes
             )
         let registration = StreamingRegistration(
             eventLoop: eventLoop
@@ -698,22 +700,6 @@ public final class Application: @unchecked Sendable {
         )
     }
 
-    @inline(__always)
-    private static func declaredBodyExceedsLimit(
-        _ head: HTTPRequestHead,
-        maxBodyBytes: Int
-    ) -> Bool {
-        guard
-            let value = head.headers.first(
-                name: "content-length"
-            ),
-            let contentLength = Int(value)
-        else {
-            return false
-        }
-
-        return contentLength > maxBodyBytes
-    }
 
     private func runStreamingMiddleware(
         index: Int,
@@ -1014,7 +1000,7 @@ public final class Application: @unchecked Sendable {
         ):
             let request = Request(
                 head: head,
-                body: emptyBodyForStreaming(),
+                body: emptyRequestBody,
                 routeParameterNames: parameterNames,
                 routeParameterRanges: parameterRanges
             )
@@ -1069,12 +1055,6 @@ public final class Application: @unchecked Sendable {
         }
     }
 
-    @inline(__always)
-    private func emptyBodyForStreaming() -> ByteBuffer {
-        ByteBufferAllocator().buffer(
-            capacity: 0
-        )
-    }
 
     private func buildMiddlewarePipeline() -> InternalHandler {
         var responder: InternalHandler = {
