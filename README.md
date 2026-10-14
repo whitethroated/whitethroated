@@ -542,6 +542,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - SwiftNIO-based HTTP/1.1 transport.
 - Express-style route registration and zero-overhead route groups.
 - Direct method roots for common HTTP methods.
+- Exact full-path static route table before trie fallback.
 - UTF-8 trie routing.
 - Route precedence: static segment, dynamic `:param`, then terminal `*catchAll`.
 - Routing directly over the URI UTF-8 view with a contiguous-byte fast path.

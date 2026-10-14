@@ -233,14 +233,19 @@ Multipart benchmark routes are registered only when `HUDHUD_MULTIPART_BENCHMARKS
 
 The benchmark server also registers dedicated route shapes for measuring router scaling.
 
-Static depth:
+The matrix begins with:
+
+- `/prepared` — canonical exact-static lookup.
+- `/prepared/` — the same route resolved through trie fallback because of the trailing slash.
+
+Static trie depth is then measured with trailing-slash requests so the exact-static table intentionally misses:
 
 - 1 segment after the prefix.
 - 4 segments.
 - 8 segments.
 - 16 segments.
 
-Static fan-out:
+Static trie fan-out is measured the same way:
 
 - 16 sibling routes.
 - 256 sibling routes.
@@ -262,7 +267,7 @@ The matrix runs against one warmed release server so machine and process setup r
 
 Router-matrix routes are registered only when `HUDHUD_ROUTER_BENCHMARKS=1`; `router.sh` sets it automatically. The normal prepared/raw-NIO/Actix baseline therefore does not inherit the router stress-test route table.
 
-Interpret the matrix by comparing each case to `/prepared`. The response path is intentionally the same prepared response for static depth and fan-out cases, so most of the delta should come from routing.
+Interpret exact-static cost by comparing `/prepared` with `/prepared/`. Interpret trie depth/fan-out using the trailing-slash cases. The response endpoint is intentionally the same prepared response, so most of the delta should come from route lookup rather than serialization.
 
 ### Wire contract verification
 
@@ -453,6 +458,7 @@ Record at minimum:
 
 Completed:
 
+- Exact full-path static route table with trie fallback.
 - Direct roots for common HTTP methods.
 - Method-aware UTF-8 trie routing.
 - Static-route priority with parameter fallback.
