@@ -1045,3 +1045,22 @@ private enum MultipartHeaderValue {
         return end
     }
 }
+
+
+extension StreamRequest {
+    public func multipartParser(
+        limits: MultipartFormDataLimits =
+            MultipartFormDataLimits()
+    ) throws -> MultipartFormDataParser {
+        try MultipartFormDataParser(
+            request: self,
+            limits: limits
+        )
+    }
+}
+
+extension MultipartPart {
+    public var isFile: Bool {
+        filename != nil
+    }
+}

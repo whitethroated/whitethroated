@@ -277,6 +277,23 @@ For `Expect: 100-continue`:
 
 Streaming therefore avoids whole-body aggregation while preserving middleware semantics and backpressure.
 
+## Multipart request bodies
+
+Multipart parsing is an opt-in layer over request-body streaming. It does not change the ordinary aggregated request path or router hot path.
+
+Runtime invariants:
+
+- The complete multipart request body is never intentionally accumulated.
+- Part headers are buffered only until `\r\n\r\n` and are capped by `maxHeaderBytesPerPart`.
+- Part count and header count are independently bounded.
+- While scanning part bodies, the parser emits completed body bytes incrementally and retains only enough unread data to recognize a boundary split across network chunks.
+- Boundary matching requires the RFC delimiter suffix (`\r\n` for another part or `--` for the closing delimiter), so boundary-like byte sequences inside file content are preserved.
+- The parser accepts binary part bodies and does not decode part payload bytes as text.
+- `Content-Disposition: form-data; name=...` is required for every part.
+- Parser state is expected to remain confined to the request event-loop flow. The parser is marked `@unchecked Sendable` only so it can be captured by Hudhud's `@Sendable` streaming closures without introducing locking on every chunk.
+
+The parser's internal staging buffer can grow to the size of an inbound chunk plus multipart framing state, but it is not a whole-upload accumulator.
+
 ## Responses
 
 Ordinary text and byte responses may allocate or serialize per request.

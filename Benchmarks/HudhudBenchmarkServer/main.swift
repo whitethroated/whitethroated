@@ -173,6 +173,55 @@ if environment["HUDHUD_UPLOAD_BENCHMARKS"] == "1" {
     }
 }
 
+if environment["HUDHUD_MULTIPART_BENCHMARKS"] == "1" {
+    app.postStream(
+        "/upload-multipart",
+        maxBodyBytes: 8 * 1024 * 1024
+    ) { request, context in
+        let parser: MultipartFormDataParser
+
+        do {
+            parser = try request.multipartParser()
+        } catch {
+            return BodyStreamConsumer(
+                onChunk: { _ in },
+                onEnd: {
+                    .text(
+                        "invalid multipart",
+                        status: .badRequest
+                    )
+                }
+            )
+        }
+
+        return BodyStreamConsumer(
+            onChunk: { chunk in
+                do {
+                    try parser.receive(
+                        chunk,
+                        onEvent: { _ in }
+                    )
+                    return nil
+                } catch {
+                    return context.eventLoop
+                        .makeFailedFuture(error)
+                }
+            },
+            onEnd: {
+                do {
+                    try parser.finish()
+                    return .text("ok")
+                } catch {
+                    return .text(
+                        "invalid multipart",
+                        status: .badRequest
+                    )
+                }
+            }
+        )
+    }
+}
+
 app.get("/users/:id") { request in
     .text(request.parameter("id") ?? "")
 }
