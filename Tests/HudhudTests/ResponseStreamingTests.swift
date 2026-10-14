@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import Hudhud
 import NIOCore
@@ -471,6 +472,91 @@ final class ResponseStreamingTests: XCTestCase {
             )
         )
         XCTAssertFalse(channel.isActive)
+    }
+
+    func testResponseStreamCanWriteFileRegionChunk() throws {
+        let url = FileManager.default
+            .temporaryDirectory
+            .appendingPathComponent(
+                UUID().uuidString
+            )
+
+        try Data("file".utf8).write(
+            to: url
+        )
+
+        let handle = try NIOFileHandle(
+            _deprecatedPath: url.path
+        )
+
+        defer {
+            try? handle.close()
+            try? FileManager.default
+                .removeItem(at: url)
+        }
+
+        let region = FileRegion(
+            fileHandle: handle,
+            readerIndex: 0,
+            endIndex: 4
+        )
+
+        let app = Application()
+
+        app.get("/stream") { _ in
+            Response
+                .stream(
+                    contentType: "application/octet-stream"
+                ) { writer in
+                    writer.writeFileRegion(region)
+                }
+                .header(
+                    "content-length",
+                    "4"
+                )
+        }
+
+        let channel = try makeChannel(app)
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+
+        guard case .head? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response head")
+        }
+
+        guard case .body(let data)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response body")
+        }
+
+        guard case .fileRegion(let writtenRegion) = data else {
+            return XCTFail(
+                "Expected streamed IOData.fileRegion"
+            )
+        }
+
+        XCTAssertEqual(
+            writtenRegion.readableBytes,
+            4
+        )
+
+        guard case .end? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response end")
+        }
     }
 
     func testStreamProducerCanFlushIndividualChunk() throws {
