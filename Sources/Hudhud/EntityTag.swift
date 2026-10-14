@@ -59,26 +59,69 @@ public struct EntityTag: Sendable, Equatable, Hashable {
 }
 
 internal enum IfNoneMatchMatcher {
+    private enum FieldResult {
+        case wildcard
+        case matched
+        case notMatched
+        case invalid
+    }
+
     static func matches(
         headers: HTTPHeaders,
         tag: EntityTag
     ) -> Bool {
         let expected = tag.opaqueValue.utf8
+        var sawHeader = false
+        var sawWildcard = false
+        var sawTagList = false
+        var sawMatch = false
 
         for (name, value) in headers {
             guard isIfNoneMatchHeader(name) else {
                 continue
             }
 
-            if matches(
+            sawHeader = true
+
+            switch parse(
                 value.utf8,
                 expected: expected
             ) {
-                return true
+            case .wildcard:
+                guard
+                    !sawWildcard,
+                    !sawTagList
+                else {
+                    return false
+                }
+
+                sawWildcard = true
+
+            case .matched:
+                guard !sawWildcard else {
+                    return false
+                }
+
+                sawTagList = true
+                sawMatch = true
+
+            case .notMatched:
+                guard !sawWildcard else {
+                    return false
+                }
+
+                sawTagList = true
+
+            case .invalid:
+                return false
             }
         }
 
-        return false
+        guard sawHeader else {
+            return false
+        }
+
+        return sawWildcard || sawMatch
     }
 
     @inline(__always)
@@ -114,18 +157,41 @@ internal enum IfNoneMatchMatcher {
         return true
     }
 
-    private static func matches<
+    private static func parse<
         C: Collection,
         E: Collection
     >(
         _ bytes: C,
         expected: E
-    ) -> Bool
+    ) -> FieldResult
     where
         C.Element == UInt8,
         E.Element == UInt8
     {
         var cursor = bytes.startIndex
+        var matched = false
+        var parsedTag = false
+
+        skipOWS(
+            bytes,
+            cursor: &cursor
+        )
+
+        guard cursor != bytes.endIndex else {
+            return .invalid
+        }
+
+        if bytes[cursor] == 42 {
+            bytes.formIndex(after: &cursor)
+            skipOWS(
+                bytes,
+                cursor: &cursor
+            )
+
+            return cursor == bytes.endIndex
+                ? .wildcard
+                : .invalid
+        }
 
         while true {
             skipOWS(
@@ -134,24 +200,9 @@ internal enum IfNoneMatchMatcher {
             )
 
             guard cursor != bytes.endIndex else {
-                return false
-            }
-
-            if bytes[cursor] == 42 {
-                bytes.formIndex(after: &cursor)
-                skipOWS(
-                    bytes,
-                    cursor: &cursor
-                )
-
-                if
-                    cursor == bytes.endIndex
-                    || bytes[cursor] == 44
-                {
-                    return true
-                }
-
-                return false
+                return parsedTag
+                    ? (matched ? .matched : .notMatched)
+                    : .invalid
             }
 
             if bytes[cursor] == 87 {
@@ -163,7 +214,7 @@ internal enum IfNoneMatchMatcher {
                     afterW != bytes.endIndex,
                     bytes[afterW] == 47
                 else {
-                    return false
+                    return .invalid
                 }
 
                 cursor = bytes.index(
@@ -175,7 +226,7 @@ internal enum IfNoneMatchMatcher {
                 cursor != bytes.endIndex,
                 bytes[cursor] == 34
             else {
-                return false
+                return .invalid
             }
 
             bytes.formIndex(after: &cursor)
@@ -188,23 +239,27 @@ internal enum IfNoneMatchMatcher {
                 guard isEntityTagByte(
                     bytes[cursor]
                 ) else {
-                    return false
+                    return .invalid
                 }
 
                 bytes.formIndex(after: &cursor)
             }
 
             guard cursor != bytes.endIndex else {
-                return false
+                return .invalid
             }
 
             let opaqueEnd = cursor
             bytes.formIndex(after: &cursor)
 
-            let matched = equals(
+            parsedTag = true
+
+            if equals(
                 bytes[opaqueStart..<opaqueEnd],
                 expected
-            )
+            ) {
+                matched = true
+            }
 
             skipOWS(
                 bytes,
@@ -213,17 +268,24 @@ internal enum IfNoneMatchMatcher {
 
             if cursor == bytes.endIndex {
                 return matched
+                    ? .matched
+                    : .notMatched
             }
 
             guard bytes[cursor] == 44 else {
-                return false
-            }
-
-            if matched {
-                return true
+                return .invalid
             }
 
             bytes.formIndex(after: &cursor)
+
+            skipOWS(
+                bytes,
+                cursor: &cursor
+            )
+
+            guard cursor != bytes.endIndex else {
+                return .invalid
+            }
         }
     }
 
