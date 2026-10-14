@@ -326,6 +326,17 @@ Runtime invariants:
 
 The parser's internal staging buffer can grow to the size of an inbound chunk plus multipart framing state, but it is not a whole-upload accumulator.
 
+## Byte ranges
+
+Byte-range parsing is opt-in and header-only.
+
+- `request.byteRange(totalLength:)` parses one `bytes` range only when application code asks for it.
+- Parsing is byte-oriented and does not split the header into intermediate strings.
+- Closed, open-ended, and suffix ranges are supported.
+- Multiple ranges are surfaced as `.unsupportedMultiple`; Hudhud does not implicitly allocate a multipart/byteranges response.
+- `Response.partialFileRegion` constructs a sliced `FileRegion`, preserving zero-copy transport behavior.
+- 206 and 416 helpers set the required `Content-Range` and `Accept-Ranges` metadata without filesystem I/O.
+
 ## Responses
 
 Ordinary text and byte responses may allocate or serialize per request.
