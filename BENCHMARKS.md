@@ -218,6 +218,23 @@ DURATION=30s \
 
 This benchmark is primarily useful together with process RSS/allocation profiling. Streaming can intentionally trade some per-chunk dispatch overhead for bounded request-body memory.
 
+For an isolated peak-RSS comparison, restart the server for each route:
+
+```bash
+./Benchmarks/upload-memory.sh
+```
+
+The default memory workload sends 1 MiB bodies with 64 concurrent connections and reports baseline RSS, peak RSS, and RSS growth for the aggregated and streaming routes separately. Override load settings when needed:
+
+```bash
+CONNECTIONS=128 \
+DURATION=30s \
+BYTES=1048576 \
+./Benchmarks/upload-memory.sh
+```
+
+The aggregated benchmark route uses the default 1 MiB application body limit, so this runner intentionally caps `BYTES` at 1,048,576.
+
 ### Router scaling benchmark
 
 The benchmark server also registers dedicated route shapes for measuring router scaling.
