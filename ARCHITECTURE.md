@@ -308,7 +308,7 @@ For `Expect: 100-continue`:
 
 - Valid HTTP/1.1 expectations receive an informational 100 head before body processing.
 - A declared body that already exceeds its limit receives a final 413 response and connection close immediately.
-- Declared Content-Length is compared against the configured body limit with an overflow-safe decimal scan; values larger than Swift `Int.max` still trigger early 413 instead of falling through the `100 Continue` path.
+- Ordinary and streaming routes share the same overflow-safe declared Content-Length comparator. Values larger than Swift `Int.max` still trigger early 413 instead of falling through the `100 Continue` path.
 - Unsupported expectations receive 417 and connection close.
 - Early rejection never waits for a request-body end marker that the client may intentionally withhold.
 

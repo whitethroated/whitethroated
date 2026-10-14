@@ -191,6 +191,62 @@ final class ExpectContinueTests: XCTestCase {
         )
     }
 
+    func testHugeStreamingDeclaredLengthGets413WithoutConsumer()
+        throws
+    {
+        final class ConsumerCounter:
+            @unchecked Sendable
+        {
+            var calls = 0
+        }
+
+        let app = Application()
+        let counter = ConsumerCounter()
+
+        app.postStream(
+            "/upload",
+            maxBodyBytes: 4
+        ) { _, _ in
+            counter.calls += 1
+
+            return BodyStreamConsumer(
+                onChunk: { _ in },
+                onEnd: {
+                    .text("unexpected")
+                }
+            )
+        }
+
+        let channel = try makeChannel(app)
+        var head = makeHead()
+        head.headers.add(
+            name: "expect",
+            value: "100-continue"
+        )
+        head.headers.add(
+            name: "content-length",
+            value:
+                "999999999999999999999999999999999999"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        let response = try readFinalResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .payloadTooLarge
+        )
+        XCTAssertEqual(
+            counter.calls,
+            0
+        )
+    }
+
     func testUnsupportedExpectationGets417() throws {
         let app = Application()
         app.post("/upload") { _ in
