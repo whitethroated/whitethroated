@@ -795,26 +795,39 @@ final class HTTPServerHandler: ChannelInboundHandler {
         keepAlive: Bool,
         context: ChannelHandlerContext
     ) {
-        if !storage.response.status.mayHaveResponseBody {
+        if
+            version == .http1_1,
+            keepAlive
+        {
+            context.write(
+                wrapOutboundOut(
+                    .head(storage.http11Head)
+                ),
+                promise: nil
+            )
+
             if
-                version == .http1_1,
-                keepAlive,
-                let bodylessHead =
-                    storage.bodylessHTTP11Head
+                storage.response.status.mayHaveResponseBody,
+                !isHeadRequest,
+                let body = storage.bodyBuffer,
+                body.readableBytes > 0
             {
                 context.write(
                     wrapOutboundOut(
-                        .head(bodylessHead)
+                        .body(.byteBuffer(body))
                     ),
                     promise: nil
                 )
-                context.writeAndFlush(
-                    wrapOutboundOut(.end(nil)),
-                    promise: nil
-                )
-                return
             }
 
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
+
+        guard storage.response.status.mayHaveResponseBody else {
             writeBodylessStatus(
                 storage.response,
                 version: version,
@@ -824,43 +837,12 @@ final class HTTPServerHandler: ChannelInboundHandler {
             return
         }
 
-        guard
-            version == .http1_1,
-            keepAlive
-        else {
-            write(
-                storage.response,
-                isHeadRequest: isHeadRequest,
-                version: version,
-                keepAlive: keepAlive,
-                context: context
-            )
-            return
-        }
-
-        context.write(
-            wrapOutboundOut(
-                .head(storage.http11Head)
-            ),
-            promise: nil
-        )
-
-        if
-            !isHeadRequest,
-            let body = storage.bodyBuffer,
-            body.readableBytes > 0
-        {
-            context.write(
-                wrapOutboundOut(
-                    .body(.byteBuffer(body))
-                ),
-                promise: nil
-            )
-        }
-
-        context.writeAndFlush(
-            wrapOutboundOut(.end(nil)),
-            promise: nil
+        write(
+            storage.response,
+            isHeadRequest: isHeadRequest,
+            version: version,
+            keepAlive: keepAlive,
+            context: context
         )
     }
 
