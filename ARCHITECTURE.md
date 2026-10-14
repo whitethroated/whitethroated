@@ -243,6 +243,12 @@ Queries are not parsed during request construction.
 
 Percent decoding is implemented without Foundation URL parsing in the route/query hot path.
 
+## Cookies
+
+Targeted cookie lookup is lazy. `request.cookie(name)` scans only the Cookie header when called and stops on the first matching name.
+
+Targeted cookie lookup uses contiguous UTF-8 storage with integer-indexed bytes when available, falling back to the zero-copy string UTF-8 view otherwise. Only the matched cookie value is materialized as a `String`.
+
 ## URL-encoded forms
 
 URL-encoded form parsing is opt-in and operates directly on the aggregated request `ByteBuffer` view.
