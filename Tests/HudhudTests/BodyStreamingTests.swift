@@ -6,6 +6,7 @@ import NIOHTTP1
 
 private final class StreamCounter: @unchecked Sendable {
     var bytes = 0
+    var errors = 0
     var chunks: [String] = []
     var gate: EventLoopPromise<Void>?
 }
@@ -255,6 +256,149 @@ final class BodyStreamingTests: XCTestCase {
         XCTAssertEqual(
             counter.bytes,
             3
+        )
+    }
+
+    func testStreamingErrorHookRunsOnChunkFailure() throws {
+        enum ConsumerError: Error {
+            case failed
+        }
+
+        let app = Application()
+        let counter = StreamCounter()
+        let loop = EmbeddedEventLoop()
+
+        app.postStream("/upload") { _, context in
+            BodyStreamConsumer(
+                onChunk: { _ in
+                    context.eventLoop.makeFailedFuture(
+                        ConsumerError.failed
+                    )
+                },
+                onEnd: {
+                    counter.bytes = -1
+
+                    return context.eventLoop
+                        .makeSucceededFuture(
+                            .text("unexpected")
+                        )
+                },
+                onError: { error in
+                    if error is ConsumerError {
+                        counter.errors += 1
+                    }
+                }
+            )
+        }
+
+        let channel = EmbeddedChannel(
+            loop: loop
+        )
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        try write(
+            .head(makeHead("/upload")),
+            to: channel
+        )
+        try writeBody(
+            "abc",
+            to: channel
+        )
+        loop.run()
+
+        try write(
+            .end(nil),
+            to: channel
+        )
+        loop.run()
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .internalServerError
+        )
+        XCTAssertEqual(
+            counter.errors,
+            1
+        )
+        XCTAssertEqual(
+            counter.bytes,
+            0
+        )
+    }
+
+    func testStreamingErrorHookRunsOnceWhenBodyLimitIsExceeded() throws {
+        let app = Application()
+        let counter = StreamCounter()
+
+        app.postStream(
+            "/upload",
+            maxBodyBytes: 4
+        ) { _, context in
+            BodyStreamConsumer(
+                onChunk: { buffer in
+                    counter.bytes += buffer.readableBytes
+                    return nil
+                },
+                onEnd: {
+                    context.eventLoop.makeSucceededFuture(
+                        .text("unexpected")
+                    )
+                },
+                onError: { error in
+                    if
+                        let streamError =
+                            error as? BodyStreamError,
+                        case .payloadTooLarge = streamError
+                    {
+                        counter.errors += 1
+                    }
+                }
+            )
+        }
+
+        let channel = try makeChannel(app)
+
+        try write(
+            .head(makeHead("/upload")),
+            to: channel
+        )
+        try writeBody(
+            "123",
+            to: channel
+        )
+        try writeBody(
+            "456",
+            to: channel
+        )
+        try write(
+            .end(nil),
+            to: channel
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .payloadTooLarge
+        )
+        XCTAssertEqual(
+            counter.bytes,
+            3
+        )
+        XCTAssertEqual(
+            counter.errors,
+            1
         )
     }
 
