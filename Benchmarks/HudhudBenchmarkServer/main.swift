@@ -232,6 +232,14 @@ if environment["HUDHUD_ROUTER_BENCHMARKS"] == "1" {
         }
     }
 
+    app.get("/dynamic-control/:id") { _ in
+        .text("ok")
+    }
+
+    app.put("/dynamic-control/:id") { _ in
+        .text("ok")
+    }
+
     app.get(
         "/dynamic/a/:p1",
         response: ok

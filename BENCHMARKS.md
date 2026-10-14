@@ -283,7 +283,9 @@ Run the full router matrix with an explicit server worker count:
 WORKERS=4 ./Benchmarks/router.sh
 ```
 
-The matrix runs against one warmed release server so machine and process setup remain constant across the route cases.
+The matrix runs against one warmed release server so machine and process setup remain constant across the route cases. Static depth and fan-out are each measured twice: canonical paths hit the exact full-path table, while a trailing slash intentionally misses the exact table and exercises trie fallback semantics.
+
+The matrix also registers the same single-parameter route for GET and PUT. GET shares a method table containing thousands of exact static benchmark routes; PUT has no exact static entry. Their delta isolates the cost of an exact-table miss before dynamic trie lookup.
 
 Router-matrix routes are registered only when `HUDHUD_ROUTER_BENCHMARKS=1`; `router.sh` sets it automatically. The normal prepared/raw-NIO/Actix baseline therefore does not inherit the router stress-test route table.
 
