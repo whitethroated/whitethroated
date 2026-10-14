@@ -230,6 +230,25 @@ DURATION=30s \
 
 Multipart benchmark routes are registered only when `HUDHUD_MULTIPART_BENCHMARKS=1`; the runner sets the flag automatically.
 
+For peak-RSS comparison, restart the process between the raw-stream and multipart-parser cases:
+
+```bash
+./Benchmarks/multipart-memory.sh
+```
+
+The default workload uses a 4 MiB file payload with 32 concurrent connections. Both cases receive the same multipart wire bytes, so the reported RSS growth helps distinguish parser staging from the base request-streaming transport cost.
+
+Override the workload when needed:
+
+```bash
+BYTES=7340032 \
+CONNECTIONS=16 \
+DURATION=30s \
+./Benchmarks/multipart-memory.sh
+```
+
+The file payload is capped below the benchmark route's 8 MiB total request limit to leave room for multipart framing bytes.
+
 ### Router scaling benchmark
 
 The benchmark server also registers dedicated route shapes for measuring router scaling.

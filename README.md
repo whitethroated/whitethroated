@@ -656,6 +656,12 @@ Measure incremental multipart parsing against a raw streaming control using iden
 ./Benchmarks/multipart.sh
 ```
 
+Compare peak RSS with the same multipart payload:
+
+```bash
+./Benchmarks/multipart-memory.sh
+```
+
 Validate benchmark tooling without starting a server:
 
 ```bash
