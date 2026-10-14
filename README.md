@@ -297,6 +297,53 @@ Error handling is not inserted into the successful request pipeline. Prepared, s
 
 Only one global handler is active; the most recent `onError` registration replaces the previous one. Error handlers receive the error and event-loop `Context`, not mutable request state.
 
+## Streaming request bodies
+
+Ordinary routes keep the simple aggregated-body model:
+
+```swift
+app.post("/upload") { request in
+    .text("bytes: \(request.body.readableBytes)")
+}
+```
+
+For large uploads or incremental processing, streaming is opt-in:
+
+```swift
+app.postStream(
+    "/upload",
+    maxBodyBytes: 64 * 1024 * 1024
+) { request, context in
+    BodyStreamConsumer(
+        onChunk: { chunk in
+            // Process or persist this chunk.
+            // Return nil when consumption completed synchronously.
+            nil
+        },
+        onEnd: {
+            context.eventLoop.makeSucceededFuture(
+                .noContent()
+            )
+        },
+        onError: { error in
+            // Clean up partial files or other request resources.
+        }
+    )
+}
+```
+
+Streaming routes:
+
+- Do not aggregate the full body into `Request.body`.
+- Preserve route parameters, query access, headers, and cookies through `StreamRequest`.
+- Apply backpressure when `onChunk` returns an unfinished `EventLoopFuture<Void>`.
+- Support per-route body limits.
+- Reject a declared oversized body before creating the consumer.
+- Invoke the optional `onError` hook exactly once after a started stream fails.
+- Keep ordinary routes on the existing aggregation path.
+
+A synchronous chunk consumer should return `nil` rather than allocating an already-succeeded future.
+
 ## Middleware
 
 The regular middleware API supports asynchronous NIO work:
@@ -355,6 +402,8 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Opt-in request-body streaming with per-route limits and async backpressure.
 - Streaming middleware compatibility without whole-body aggregation.
 - Configurable request-body limits.
+- Opt-in streaming request bodies with per-route limits and backpressure.
+- Early rejection of declared oversized streaming bodies before consumer creation.
 - HTTP keep-alive and pipelining assistance.
 - `Expect: 100-continue` handling with early 413/417 rejection.
 - Express-style `HEAD` fallback to matching `GET` routes.
