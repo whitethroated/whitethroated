@@ -106,7 +106,8 @@ public final class Application: @unchecked Sendable {
     @inline(__always)
     internal func respondError(
         _ error: Error,
-        on eventLoop: EventLoop
+        on eventLoop: EventLoop,
+        channel: Channel? = nil
     ) -> ErrorResponderResult {
         guard let errorHandler else {
             return .immediate(
@@ -115,7 +116,9 @@ public final class Application: @unchecked Sendable {
         }
 
         let context = Context(
-            eventLoop: eventLoop
+            eventLoop: eventLoop,
+            remoteAddress:
+                channel?.remoteAddress
         )
 
         switch errorHandler {
@@ -610,7 +613,8 @@ public final class Application: @unchecked Sendable {
         head: HTTPRequestHead,
         emptyBody: ByteBuffer,
         match: RouterMatch,
-        on eventLoop: EventLoop
+        on eventLoop: EventLoop,
+        channel: Channel? = nil
     ) -> StreamingTransportStart? {
         guard case .streaming(
             let handler,
@@ -634,6 +638,8 @@ public final class Application: @unchecked Sendable {
         )
         let context = Context(
             eventLoop: eventLoop,
+            remoteAddress:
+                channel?.remoteAddress,
             streamingRegistration: registration
         )
         let request = Request(
@@ -866,7 +872,8 @@ public final class Application: @unchecked Sendable {
 
     func respondFast(
         to request: Request,
-        on eventLoop: EventLoop
+        on eventLoop: EventLoop,
+        channel: Channel? = nil
     ) -> ResponderResult {
         let responder: InternalHandler
 
@@ -880,7 +887,11 @@ public final class Application: @unchecked Sendable {
 
         return responder(
             request,
-            Context(eventLoop: eventLoop)
+            Context(
+                eventLoop: eventLoop,
+                remoteAddress:
+                    channel?.remoteAddress
+            )
         )
     }
 
@@ -888,7 +899,8 @@ public final class Application: @unchecked Sendable {
     func respondTransport(
         head: HTTPRequestHead,
         body: ByteBuffer,
-        on eventLoop: EventLoop
+        on eventLoop: EventLoop,
+        channel: Channel? = nil
     ) -> ResponderResult {
         guard middleware.isEmpty else {
             let request = Request(
@@ -898,7 +910,8 @@ public final class Application: @unchecked Sendable {
 
             return respondFast(
                 to: request,
-                on: eventLoop
+                on: eventLoop,
+                channel: channel
             )
         }
 
@@ -908,7 +921,8 @@ public final class Application: @unchecked Sendable {
             ),
             head: head,
             body: body,
-            on: eventLoop
+            on: eventLoop,
+            channel: channel
         )
     }
 
@@ -917,7 +931,8 @@ public final class Application: @unchecked Sendable {
         match: RouterMatch,
         head: HTTPRequestHead,
         body: ByteBuffer,
-        on eventLoop: EventLoop
+        on eventLoop: EventLoop,
+        channel: Channel? = nil
     ) -> ResponderResult {
         switch match {
         case .prepared(let prepared):
@@ -968,7 +983,11 @@ public final class Application: @unchecked Sendable {
             return .future(
                 handler(
                     request,
-                    Context(eventLoop: eventLoop)
+                    Context(
+                        eventLoop: eventLoop,
+                        remoteAddress:
+                            channel?.remoteAddress
+                    )
                 )
             )
 
@@ -1005,7 +1024,9 @@ public final class Application: @unchecked Sendable {
                 routeParameterRanges: parameterRanges
             )
             let context = Context(
-                eventLoop: eventLoop
+                eventLoop: eventLoop,
+                remoteAddress:
+                    channel?.remoteAddress
             )
             let consumer = handler(
                 StreamRequest(request),
