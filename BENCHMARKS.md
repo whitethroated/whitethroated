@@ -79,7 +79,13 @@ swift test -c release \
   --filter CoreBenchmarkTests/testTransportWriterBenchmark
 ```
 
-This compares the prepared writer with an ordinary synchronous plaintext response through `EmbeddedChannel`.
+This compares three transport paths through `EmbeddedChannel`:
+
+- prepared 200 with a cached HTTP/1.1 head and body buffer.
+- conditional prepared 304 with a cached normalized bodyless HTTP/1.1 head.
+- ordinary synchronous 200, which constructs the response head from the dynamic response.
+
+The prepared 304 case specifically measures the bodyless writer path after setup-time removal of forbidden framing headers.
 
 Treat these in-process measurements as diagnostic ns/op data. They are not substitutes for network measurements.
 
