@@ -72,7 +72,12 @@ for bytes in 1024 65536; do
     "$bytes"
 
   run_case \
-    "Streaming body" \
+    "Streaming body synchronous consumer" \
     "/upload-stream" \
+    "$bytes"
+
+  run_case \
+    "Streaming body future consumer" \
+    "/upload-stream-future" \
     "$bytes"
 done

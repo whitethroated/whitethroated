@@ -148,9 +148,24 @@ if environment["HUDHUD_UPLOAD_BENCHMARKS"] == "1" {
     app.postStream(
         "/upload-stream",
         maxBodyBytes: 8 * 1024 * 1024
-    ) { _, context in
+    ) { _, _ in
         BodyStreamConsumer(
             onChunk: { _ in },
+            onEnd: {
+                .text("ok")
+            }
+        )
+    }
+
+    app.postStream(
+        "/upload-stream-future",
+        maxBodyBytes: 8 * 1024 * 1024
+    ) { _, context in
+        BodyStreamConsumer(
+            onChunk: { _ in
+                context.eventLoop
+                    .makeSucceededVoidFuture()
+            },
             onEnd: {
                 .text("ok")
             }
