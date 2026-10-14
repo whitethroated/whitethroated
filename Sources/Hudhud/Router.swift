@@ -173,6 +173,167 @@ private enum ExactStaticBucket {
     }
 }
 
+private struct ExactStaticSlot {
+    let hash: UInt64
+    var bucket: ExactStaticBucket
+}
+
+private final class ExactStaticTable {
+    private var slots:
+        [ExactStaticSlot?]
+    private var occupiedSlots = 0
+
+    init(initialCapacity: Int = 8) {
+        let capacity = Self.powerOfTwoCapacity(
+            atLeast: max(8, initialCapacity)
+        )
+
+        self.slots = Array(
+            repeating: nil,
+            count: capacity
+        )
+    }
+
+    var isEmpty: Bool {
+        occupiedSlots == 0
+    }
+
+    func upsert(
+        _ edge: ExactStaticEdge,
+        hash: UInt64
+    ) {
+        if
+            (occupiedSlots + 1) * 4
+            >= slots.count * 3
+        {
+            resize()
+        }
+
+        insert(
+            edge,
+            hash: hash
+        )
+    }
+
+    @inline(__always)
+    func matching<C: Collection>(
+        hash: UInt64,
+        bytes: C
+    ) -> RouteEndpoint?
+    where C.Element == UInt8 {
+        guard occupiedSlots > 0 else {
+            return nil
+        }
+
+        let mask = slots.count - 1
+        var index =
+            Int(truncatingIfNeeded: hash)
+            & mask
+
+        for _ in 0..<slots.count {
+            guard let slot = slots[index] else {
+                return nil
+            }
+
+            if slot.hash == hash {
+                return slot.bucket.matching(
+                    bytes
+                )
+            }
+
+            index = (index + 1) & mask
+        }
+
+        return nil
+    }
+
+    private func insert(
+        _ edge: ExactStaticEdge,
+        hash: UInt64
+    ) {
+        let mask = slots.count - 1
+        var index =
+            Int(truncatingIfNeeded: hash)
+            & mask
+
+        while true {
+            if var slot = slots[index] {
+                if slot.hash == hash {
+                    slot.bucket =
+                        slot.bucket.upserting(
+                            edge
+                        )
+                    slots[index] = slot
+                    return
+                }
+
+                index = (index + 1) & mask
+                continue
+            }
+
+            slots[index] = ExactStaticSlot(
+                hash: hash,
+                bucket: .single(edge)
+            )
+            occupiedSlots += 1
+            return
+        }
+    }
+
+    private func resize() {
+        let oldSlots = slots
+
+        slots = Array(
+            repeating: nil,
+            count: oldSlots.count * 2
+        )
+        occupiedSlots = 0
+
+        for slot in oldSlots {
+            guard let slot else {
+                continue
+            }
+
+            insert(
+                slot.bucket,
+                hash: slot.hash
+            )
+        }
+    }
+
+    private func insert(
+        _ bucket: ExactStaticBucket,
+        hash: UInt64
+    ) {
+        let mask = slots.count - 1
+        var index =
+            Int(truncatingIfNeeded: hash)
+            & mask
+
+        while slots[index] != nil {
+            index = (index + 1) & mask
+        }
+
+        slots[index] = ExactStaticSlot(
+            hash: hash,
+            bucket: bucket
+        )
+        occupiedSlots += 1
+    }
+
+    private static func powerOfTwoCapacity(
+        atLeast minimum: Int
+    ) -> Int {
+        var capacity = 1
+
+        while capacity < minimum {
+            capacity <<= 1
+        }
+
+        return capacity
+    }
+}
+
 private final class RouterNode {
     var staticChildren: [UInt64: StaticBucket] = [:]
     var parameterChild: RouterNode?
@@ -211,26 +372,17 @@ final class Router: @unchecked Sendable {
     private var traceRoot: RouterNode?
     private var otherRoots: [String: RouterNode] = [:]
 
-    private var getExact:
-        [UInt64: ExactStaticBucket] = [:]
-    private var postExact:
-        [UInt64: ExactStaticBucket] = [:]
-    private var putExact:
-        [UInt64: ExactStaticBucket] = [:]
-    private var patchExact:
-        [UInt64: ExactStaticBucket] = [:]
-    private var deleteExact:
-        [UInt64: ExactStaticBucket] = [:]
-    private var headExact:
-        [UInt64: ExactStaticBucket] = [:]
-    private var optionsExact:
-        [UInt64: ExactStaticBucket] = [:]
-    private var connectExact:
-        [UInt64: ExactStaticBucket] = [:]
-    private var traceExact:
-        [UInt64: ExactStaticBucket] = [:]
+    private let getExact = ExactStaticTable()
+    private let postExact = ExactStaticTable()
+    private let putExact = ExactStaticTable()
+    private let patchExact = ExactStaticTable()
+    private let deleteExact = ExactStaticTable()
+    private let headExact = ExactStaticTable()
+    private let optionsExact = ExactStaticTable()
+    private let connectExact = ExactStaticTable()
+    private let traceExact = ExactStaticTable()
     private var otherExact:
-        [String: [UInt64: ExactStaticBucket]] = [:]
+        [String: ExactStaticTable] = [:]
 
     func add(
         method: HTTPMethod,
@@ -568,11 +720,22 @@ final class Router: @unchecked Sendable {
             )
 
         case .other(let value):
-            return lookup(
-                exact: otherExact[value] ?? [:],
+            if let exact = otherExact[value] {
+                return lookup(
+                    exact: exact,
+                    root: otherRoots[value],
+                    uri: uri
+                )
+            }
+
+            if let match = trieMatch(
                 root: otherRoots[value],
                 uri: uri
-            )
+            ) {
+                return makeMatch(match)
+            }
+
+            return .notFound
         }
     }
 
@@ -692,7 +855,7 @@ final class Router: @unchecked Sendable {
 
     @inline(__always)
     private func lookup(
-        exact: [UInt64: ExactStaticBucket],
+        exact: ExactStaticTable,
         root: RouterNode?,
         uri: String.UTF8View
     ) -> RouterMatch {
@@ -926,100 +1089,58 @@ final class Router: @unchecked Sendable {
         )
         let hash = Self.hash(bytes)
 
+        let table: ExactStaticTable
+
         switch method {
         case .get:
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &getExact
-            )
+            table = getExact
 
         case .post:
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &postExact
-            )
+            table = postExact
 
         case .put:
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &putExact
-            )
+            table = putExact
 
         case .patch:
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &patchExact
-            )
+            table = patchExact
 
         case .delete:
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &deleteExact
-            )
+            table = deleteExact
 
         case .head:
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &headExact
-            )
+            table = headExact
 
         case .options:
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &optionsExact
-            )
+            table = optionsExact
 
         case .connect:
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &connectExact
-            )
+            table = connectExact
 
         case .trace:
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &traceExact
-            )
+            table = traceExact
 
         case .other(let value):
-            var table = otherExact[value] ?? [:]
-
-            Self.upsertExact(
-                edge,
-                hash: hash,
-                into: &table
-            )
-
-            otherExact[value] = table
+            if let existing =
+                otherExact[value]
+            {
+                table = existing
+            } else {
+                let created =
+                    ExactStaticTable()
+                otherExact[value] = created
+                table = created
+            }
         }
-    }
 
-    private static func upsertExact(
-        _ edge: ExactStaticEdge,
-        hash: UInt64,
-        into table:
-            inout [UInt64: ExactStaticBucket]
-    ) {
-        if let bucket = table[hash] {
-            table[hash] =
-                bucket.upserting(edge)
-        } else {
-            table[hash] = .single(edge)
-        }
+        table.upsert(
+            edge,
+            hash: hash
+        )
     }
 
     @inline(__always)
     private func exactMatch(
-        _ table: [UInt64: ExactStaticBucket],
+        _ table: ExactStaticTable,
         uri: String.UTF8View
     ) -> RouteEndpoint? {
         guard !table.isEmpty else {
@@ -1047,7 +1168,7 @@ final class Router: @unchecked Sendable {
 
     @inline(__always)
     private func exactMatch<C: Collection>(
-        _ table: [UInt64: ExactStaticBucket],
+        _ table: ExactStaticTable,
         bytes: C
     ) -> RouteEndpoint?
     where C.Element == UInt8 {
@@ -1066,12 +1187,12 @@ final class Router: @unchecked Sendable {
             bytes.formIndex(after: &cursor)
         }
 
-        guard let bucket = table[hash] else {
-            return nil
-        }
-
-        return bucket.matching(
-            bytes[bytes.startIndex..<cursor]
+        return table.matching(
+            hash: hash,
+            bytes:
+                bytes[
+                    bytes.startIndex..<cursor
+                ]
         )
     }
 
