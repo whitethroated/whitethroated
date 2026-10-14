@@ -121,11 +121,13 @@ public struct Response: Sendable {
 
     public static func sse(
         status: HTTPResponseStatus = .ok,
+        onError: ResponseStream.ErrorHandler? = nil,
         produce: @escaping ResponseStream.Producer
     ) -> Response {
         var response = stream(
             contentType: "text/event-stream; charset=utf-8",
             status: status,
+            onError: onError,
             produce: produce
         )
         response.headers.add(
@@ -139,6 +141,7 @@ public struct Response: Sendable {
     public static func stream(
         contentType: String? = nil,
         status: HTTPResponseStatus = .ok,
+        onError: ResponseStream.ErrorHandler? = nil,
         produce: @escaping ResponseStream.Producer
     ) -> Response {
         var headers = HTTPHeaders()
@@ -155,7 +158,8 @@ public struct Response: Sendable {
             headers: headers,
             body: .stream(
                 ResponseStream(
-                    producer: produce
+                    producer: produce,
+                    errorHandler: onError
                 )
             )
         )
