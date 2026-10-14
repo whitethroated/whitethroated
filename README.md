@@ -502,6 +502,27 @@ app.get("/events") { _ in
 
 `writeSSE` flushes each event by default for low delivery latency. Pass `flush: false` when several events should be batched before an explicit `writer.flush()`.
 
+## Connection metadata
+
+Handlers that already receive `Context` can read the raw peer socket address:
+
+```swift
+app.get("/peer") { _, context in
+    let peer =
+        context.remoteAddress?.description
+        ?? "unknown"
+
+    return context.eventLoop
+        .makeSucceededFuture(
+            .text(peer)
+        )
+}
+```
+
+`remoteAddress` is the transport peer reported by SwiftNIO. Hudhud does not automatically trust or parse `X-Forwarded-For` or similar proxy headers. Applications behind a trusted reverse proxy should apply their own explicit proxy-trust policy.
+
+Prepared and ordinary synchronous routes do not construct `Context`, so this metadata does not add address lookup work to those fast paths.
+
 ## Middleware
 
 The regular middleware API supports asynchronous NIO work:

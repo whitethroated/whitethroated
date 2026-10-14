@@ -132,6 +132,14 @@ An `AsyncHandler` is an opt-in Swift concurrency path. Hudhud bridges it through
 
 This path intentionally creates a Swift `Task` for that request. It must never become an implicit wrapper around synchronous, prepared, or NIO-future handlers.
 
+## Connection metadata
+
+`Context.remoteAddress` exposes SwiftNIO's raw peer `SocketAddress`.
+
+The transport passes its `Channel` internally, but reads `channel.remoteAddress` only when a `Context` is actually constructed. Prepared and synchronous routes therefore retain their context-free fast paths.
+
+Middleware, NIO-future handlers, streaming handlers, and application error handlers receive the peer address through their existing `Context`. No reverse-DNS lookup or forwarded-header parsing occurs.
+
 ## Error paths
 
 Application error handling is a failure-only facility.

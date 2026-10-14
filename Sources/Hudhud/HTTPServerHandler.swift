@@ -119,7 +119,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     head: head,
                     emptyBody: emptyBody,
                     match: match,
-                    on: context.eventLoop
+                    on: context.eventLoop,
+                    channel: context.channel
                 )
             {
                 streamingStart = start
@@ -278,13 +279,15 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 match: preResolvedMatch,
                 head: head,
                 body: requestBody ?? emptyBody,
-                on: context.eventLoop
+                on: context.eventLoop,
+                channel: context.channel
             )
         } else {
             result = application.respondTransport(
                 head: head,
                 body: requestBody ?? emptyBody,
-                on: context.eventLoop
+                on: context.eventLoop,
+                channel: context.channel
             )
         }
 
@@ -932,7 +935,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
     ) {
         switch application.respondError(
             error,
-            on: context.eventLoop
+            on: context.eventLoop,
+            channel: context.channel
         ) {
         case .immediate(let response):
             write(
