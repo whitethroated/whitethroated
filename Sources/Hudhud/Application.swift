@@ -34,6 +34,10 @@ public final class Application: @unchecked Sendable {
         router.hasStreamingRoutes
     }
 
+    internal var hasMiddleware: Bool {
+        !middleware.isEmpty
+    }
+
     @inline(__always)
     internal func hasStreamingRoute(
         for method: NIOHTTP1.HTTPMethod
@@ -574,9 +578,20 @@ public final class Application: @unchecked Sendable {
     }
 
     @inline(__always)
+    internal func lookupTransport(
+        head: HTTPRequestHead
+    ) -> RouterMatch {
+        router.lookup(
+            method: head.method,
+            uri: head.uri.utf8
+        )
+    }
+
+    @inline(__always)
     func beginStreamingTransport(
         head: HTTPRequestHead,
         emptyBody: ByteBuffer,
+        match: RouterMatch,
         on eventLoop: EventLoop
     ) -> StreamingTransportStart? {
         guard case .streaming(
@@ -584,10 +599,7 @@ public final class Application: @unchecked Sendable {
             let routeMaxBodyBytes,
             let parameterNames,
             let parameterRanges
-        ) = router.lookup(
-            method: head.method,
-            uri: head.uri.utf8
-        ) else {
+        ) = match else {
             return nil
         }
 
@@ -852,10 +864,24 @@ public final class Application: @unchecked Sendable {
             )
         }
 
-        switch router.lookup(
-            method: head.method,
-            uri: head.uri.utf8
-        ) {
+        return respondTransport(
+            match: lookupTransport(
+                head: head
+            ),
+            head: head,
+            body: body,
+            on: eventLoop
+        )
+    }
+
+    @inline(__always)
+    internal func respondTransport(
+        match: RouterMatch,
+        head: HTTPRequestHead,
+        body: ByteBuffer,
+        on eventLoop: EventLoop
+    ) -> ResponderResult {
+        switch match {
         case .prepared(let prepared):
             return .prepared(prepared)
 
