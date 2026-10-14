@@ -140,6 +140,116 @@ final class MultipartFormDataTests: XCTestCase {
         )
     }
 
+    func testBodyWithoutBoundaryPrefixRetainsNoStagingTail()
+        throws
+    {
+        let parser = try MultipartFormDataParser(
+            boundary: "copy-test"
+        )
+        let collector = MultipartCollector()
+        let prefix =
+            "--copy-test\r\n"
+            + "Content-Disposition: form-data; name=\"file\"\r\n"
+            + "\r\n"
+        let payload = String(
+            repeating: "a",
+            count: 4096
+        )
+
+        var first = ByteBufferAllocator()
+            .buffer(
+                capacity:
+                    prefix.utf8.count
+                    + payload.utf8.count
+            )
+        first.writeString(prefix)
+        first.writeString(payload)
+
+        try parser.receive(
+            first,
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].bytes.count,
+            4096
+        )
+        XCTAssertEqual(
+            parser.bufferedByteCount,
+            0
+        )
+
+        var final = ByteBufferAllocator()
+            .buffer(capacity: 32)
+        final.writeString(
+            "\r\n--copy-test--\r\n"
+        )
+
+        try parser.receive(
+            final,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertTrue(parser.isFinished)
+    }
+
+    func testPartialBoundaryPrefixIsRetainedAcrossChunks()
+        throws
+    {
+        let parser = try MultipartFormDataParser(
+            boundary: "split"
+        )
+        let collector = MultipartCollector()
+        let first =
+            "--split\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "\r\n"
+            + "hello\r\n--sp"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: first.utf8.count)
+        chunk.writeString(first)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+
+        XCTAssertGreaterThan(
+            parser.bufferedByteCount,
+            0
+        )
+        XCTAssertLessThanOrEqual(
+            parser.bufferedByteCount,
+            "\r\n--split".utf8.count - 1
+        )
+
+        var rest = ByteBufferAllocator()
+            .buffer(capacity: 16)
+        rest.writeString(
+            "lit--\r\n"
+        )
+
+        try parser.receive(
+            rest,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            "hello"
+        )
+    }
+
     func testFalseBoundaryPrefixRemainsPartBody() throws {
         let boundary = "boundary"
         let payload =

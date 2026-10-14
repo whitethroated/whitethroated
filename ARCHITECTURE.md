@@ -287,7 +287,8 @@ Runtime invariants:
 - The complete multipart request body is never intentionally accumulated.
 - Part headers are buffered only until `\r\n\r\n` and are capped by `maxHeaderBytesPerPart`.
 - Part count and header count are independently bounded.
-- While scanning part bodies, the parser emits completed body bytes incrementally and retains only enough unread data to recognize a boundary split across network chunks.
+- While scanning part bodies, the parser emits completed body bytes incrementally and retains only the longest trailing byte sequence that is an actual prefix of the multipart boundary.
+- For ordinary payload chunks that do not end in a possible boundary prefix, no body tail is retained; the next inbound `ByteBuffer` can become parser input directly instead of being appended behind a fixed boundary-sized tail.
 - Boundary matching requires the RFC delimiter suffix (`\r\n` for another part or `--` for the closing delimiter), so boundary-like byte sequences inside file content are preserved.
 - The parser accepts binary part bodies and does not decode part payload bytes as text.
 - `Content-Disposition: form-data; name=...` is required for every part.

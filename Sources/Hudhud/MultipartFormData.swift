@@ -171,6 +171,10 @@ public final class MultipartFormDataParser:
         ] + boundaryBytes
     }
 
+    internal var bufferedByteCount: Int {
+        buffer.readableBytes
+    }
+
     public var isFinished: Bool {
         if case .finished = state {
             return true
@@ -487,7 +491,7 @@ public final class MultipartFormDataParser:
 
         case .none:
             let retainedBytes =
-                bodyBoundary.count + 1
+                partialBoundarySuffixLength()
             let bodyBytes =
                 buffer.readableBytes
                 - retainedBytes
@@ -716,6 +720,52 @@ public final class MultipartFormDataParser:
         }
 
         return .none
+    }
+
+    private func partialBoundarySuffixLength() -> Int {
+        let bytes = buffer.readableBytesView
+        let maximum = min(
+            bodyBoundary.count - 1,
+            bytes.count
+        )
+
+        guard maximum > 0 else {
+            return 0
+        }
+
+        for length in stride(
+            from: maximum,
+            through: 1,
+            by: -1
+        ) {
+            let start =
+                bytes.endIndex - length
+
+            guard
+                bytes[start]
+                == bodyBoundary[0]
+            else {
+                continue
+            }
+
+            var matchesPrefix = true
+
+            for offset in 1..<length {
+                if
+                    bytes[start + offset]
+                    != bodyBoundary[offset]
+                {
+                    matchesPrefix = false
+                    break
+                }
+            }
+
+            if matchesPrefix {
+                return length
+            }
+        }
+
+        return 0
     }
 
     @inline(__always)
