@@ -65,6 +65,78 @@ final class RouterHotPathTests: XCTestCase {
         )
     }
 
+    func testTrieStaticChildTableResizesAcrossLargeFanOut()
+        throws
+    {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        for index in 0..<4_096 {
+            app.get(
+                "/fanout/r\(index)",
+                response: .text(
+                    String(index)
+                )
+            )
+        }
+
+        for index in [
+            0,
+            15,
+            255,
+            1_023,
+            4_095
+        ] {
+            let response = try app
+                .respond(
+                    to: makeRequest(
+                        path:
+                            "/fanout/r\(index)/"
+                    ),
+                    on: loop
+                )
+                .wait()
+
+            XCTAssertTextBody(
+                response,
+                equals: String(index)
+            )
+        }
+    }
+
+    func testTrieStaticChildTablePreservesStaticPriorityOverParameter()
+        throws
+    {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/users/:id") { request in
+            .text(
+                "dynamic:"
+                + (request.parameter("id") ?? "")
+            )
+        }
+
+        app.get(
+            "/users/me",
+            response: .text("static")
+        )
+
+        let response = try app
+            .respond(
+                to: makeRequest(
+                    path: "/users/me/"
+                ),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertTextBody(
+            response,
+            equals: "static"
+        )
+    }
+
     func testCatchAllOnlyBranchCapturesRemainingPathAndQueryStopsCapture() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()

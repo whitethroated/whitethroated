@@ -479,6 +479,7 @@ Record at minimum:
 Completed:
 
 - Custom open-addressed exact full-path static route table with trie fallback.
+- Open-addressed trie static-child tables keyed directly by segment FNV hashes.
 - Direct roots for common HTTP methods.
 - Method-aware UTF-8 trie routing.
 - Static-route priority with parameter fallback.
