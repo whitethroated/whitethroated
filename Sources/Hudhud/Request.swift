@@ -307,6 +307,11 @@ public struct Request: @unchecked Sendable {
         )
     }
 
+    @inline(__always)
+    internal var routingMethod: NIOHTTP1.HTTPMethod {
+        nioMethod
+    }
+
     internal var routingBytes: String.UTF8View {
         uri.utf8
     }
