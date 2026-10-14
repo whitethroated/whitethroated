@@ -19,6 +19,14 @@ internal final class PreparedResponseStorage: Sendable {
 }
 
 public struct PreparedResponse: Sendable {
+    internal static let defaultNotFoundStorage =
+        PreparedResponse
+            .text(
+                "Not Found",
+                status: .notFound
+            )
+            .storage
+
     internal let storage: PreparedResponseStorage
 
     internal init(
@@ -170,9 +178,24 @@ public struct PreparedResponse: Sendable {
         _ value: String
     ) -> PreparedResponse {
         var headers = response.headers
+        let normalizedValue: String
+
+        if
+            name.compare(
+                "content-length",
+                options: .caseInsensitive
+            ) == .orderedSame
+        {
+            normalizedValue = String(
+                bodyBuffer?.readableBytes ?? 0
+            )
+        } else {
+            normalizedValue = value
+        }
+
         headers.replaceOrAdd(
             name: name,
-            value: value
+            value: normalizedValue
         )
 
         var response = response
@@ -184,6 +207,23 @@ public struct PreparedResponse: Sendable {
                 version: .http1_1,
                 status: response.status,
                 headers: headers
+            ),
+            bodyBuffer: bodyBuffer
+        )
+    }
+
+    public func etag(
+        _ tag: EntityTag
+    ) -> PreparedResponse {
+        var response = response
+        response.setETag(tag)
+
+        return PreparedResponse(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
+                status: response.status,
+                headers: response.headers
             ),
             bodyBuffer: bodyBuffer
         )
@@ -249,6 +289,33 @@ public struct PreparedResponse: Sendable {
                 headers: response.headers
             ),
             bodyBuffer: bodyBuffer
+        )
+    }
+
+    internal var notModifiedStorage:
+        PreparedResponseStorage
+    {
+        var response = response
+        response.status = .notModified
+        response.body = .empty
+
+        return PreparedResponseStorage(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
+                status: .notModified,
+                headers: response.headers
+            ),
+            bodyBuffer: nil
+        )
+    }
+
+    public static func notFound()
+        -> PreparedResponse
+    {
+        text(
+            "Not Found",
+            status: .notFound
         )
     }
 
