@@ -1105,14 +1105,10 @@ final class HTTPServerHandler: ChannelInboundHandler {
             )
         }
 
-        if headers.first(
-            name: "content-length"
-        ) == nil {
-            headers.add(
-                name: "content-length",
-                value: String(bodyLength)
-            )
-        }
+        headers.replaceOrAdd(
+            name: "content-length",
+            value: String(bodyLength)
+        )
 
         if !keepAlive {
             headers.replaceOrAdd(
