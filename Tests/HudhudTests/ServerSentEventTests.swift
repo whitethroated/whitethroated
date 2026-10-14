@@ -23,6 +23,20 @@ final class ServerSentEventTests: XCTestCase {
         )
     }
 
+    func testSSENormalizesCRLFAndLoneCRInSinglePass() {
+        let event = ServerSentEvent(
+            data: "one\r\ntwo\rthree\n"
+        )
+
+        XCTAssertEqual(
+            event.serialized(),
+            "data: one\n"
+                + "data: two\n"
+                + "data: three\n"
+                + "data: \n\n"
+        )
+    }
+
     func testSSEPreservesEmptyDataLines() {
         let event = ServerSentEvent(
             data: "one\n\ntwo"
@@ -33,6 +47,71 @@ final class ServerSentEventTests: XCTestCase {
             "data: one\n"
                 + "data: \n"
                 + "data: two\n\n"
+        )
+    }
+
+    func testStreamWriterCreatesChannelAllocatorBuffer() throws {
+        let app = Application()
+
+        app.get("/buffer") { _ in
+            Response.stream { writer in
+                var buffer = writer.makeBuffer(
+                    capacity: 16
+                )
+                buffer.writeString("allocated")
+                return writer.write(buffer)
+            }
+        }
+
+        let channel = EmbeddedChannel()
+
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                HTTPRequestHead(
+                    version: .http1_1,
+                    method: .GET,
+                    uri: "/buffer"
+                )
+            )
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        guard case .head? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected response head"
+            )
+        }
+
+        guard case .body(let data)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            ),
+            case .byteBuffer(let buffer) = data
+        else {
+            return XCTFail(
+                "Expected response ByteBuffer"
+            )
+        }
+
+        XCTAssertEqual(
+            buffer.getString(
+                at: buffer.readerIndex,
+                length: buffer.readableBytes
+            ),
+            "allocated"
         )
     }
 

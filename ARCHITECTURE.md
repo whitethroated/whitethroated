@@ -386,6 +386,18 @@ Before adding a hot-path optimization, prefer evidence from:
 
 A code change that makes source code more complex without moving a measured bottleneck should not be treated as a performance win.
 
+## Server-sent events
+
+SSE serialization writes directly into a channel-allocator `ByteBuffer`.
+
+- Event/id fields are appended directly without response-string concatenation.
+- Data is scanned once as UTF-8.
+- LF, CRLF, and lone CR are normalized while bytes are copied into the outbound buffer.
+- Multiline data does not allocate an intermediate normalized `String` or line array.
+- `writeSSE(..., flush: true)` retains the latency-oriented explicit-flush behavior.
+
+This path is opt-in and has no effect on ordinary responses.
+
 ## Benchmark hierarchy
 
 Performance work should proceed in this order:
