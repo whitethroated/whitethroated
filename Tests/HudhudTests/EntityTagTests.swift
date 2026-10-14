@@ -114,6 +114,114 @@ final class EntityTagTests: XCTestCase {
         )
     }
 
+    func testIfNoneMatchRejectsWildcardInsideList() {
+        let request = makeRequest(
+            ifNoneMatch: #"*, "abc123""#
+        )
+
+        XCTAssertFalse(
+            request.matchesIfNoneMatch(
+                EntityTag("abc123")
+            )
+        )
+    }
+
+    func testIfNoneMatchRejectsTrailingComma() {
+        let request = makeRequest(
+            ifNoneMatch: #""abc123","#
+        )
+
+        XCTAssertFalse(
+            request.matchesIfNoneMatch(
+                EntityTag("abc123")
+            )
+        )
+    }
+
+    func testIfNoneMatchRejectsMalformedDuplicateFieldEvenWhenAnotherMatches() {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/resource"
+        )
+        head.headers.add(
+            name: "if-none-match",
+            value: #""abc123""#
+        )
+        head.headers.add(
+            name: "if-none-match",
+            value: "invalid"
+        )
+
+        let request = Request(
+            head: head,
+            body: ByteBufferAllocator()
+                .buffer(capacity: 0)
+        )
+
+        XCTAssertFalse(
+            request.matchesIfNoneMatch(
+                EntityTag("abc123")
+            )
+        )
+    }
+
+    func testIfNoneMatchRejectsWildcardAfterNonMatchingDuplicateField() {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/resource"
+        )
+        head.headers.add(
+            name: "if-none-match",
+            value: #""other""#
+        )
+        head.headers.add(
+            name: "if-none-match",
+            value: "*"
+        )
+
+        let request = Request(
+            head: head,
+            body: ByteBufferAllocator()
+                .buffer(capacity: 0)
+        )
+
+        XCTAssertFalse(
+            request.matchesIfNoneMatch(
+                EntityTag("abc123")
+            )
+        )
+    }
+
+    func testIfNoneMatchRejectsWildcardAcrossDuplicateFields() {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/resource"
+        )
+        head.headers.add(
+            name: "if-none-match",
+            value: "*"
+        )
+        head.headers.add(
+            name: "if-none-match",
+            value: #""abc123""#
+        )
+
+        let request = Request(
+            head: head,
+            body: ByteBufferAllocator()
+                .buffer(capacity: 0)
+        )
+
+        XCTAssertFalse(
+            request.matchesIfNoneMatch(
+                EntityTag("abc123")
+            )
+        )
+    }
+
     func testIfNoneMatchWildcard() {
         let request = makeRequest(
             ifNoneMatch: "*"
