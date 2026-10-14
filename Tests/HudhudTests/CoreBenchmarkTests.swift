@@ -102,6 +102,88 @@ final class CoreBenchmarkTests: XCTestCase {
         print("")
     }
 
+    func testRouterLookupBenchmark() throws {
+        let environment = ProcessInfo.processInfo.environment
+
+        try XCTSkipUnless(
+            environment["HUDHUD_ROUTER_CORE_BENCHMARK"] == "1",
+            "Set HUDHUD_ROUTER_CORE_BENCHMARK=1 to run router lookup benchmarks."
+        )
+
+        let iterations = Int(
+            environment["HUDHUD_ROUTER_CORE_ITERATIONS"]
+                ?? "2000000"
+        ) ?? 2_000_000
+
+        precondition(iterations > 0)
+
+        let router = Router()
+        let prepared = PreparedResponse.text("ok")
+
+        for index in 0..<4_096 {
+            router.add(
+                method: .get,
+                path: "/static/r\(index)",
+                preparedResponse: prepared
+            )
+        }
+
+        router.add(
+            method: .get,
+            path: "/dynamic-control/:id",
+            syncHandler: { _ in
+                .text("ok")
+            }
+        )
+
+        router.add(
+            method: .put,
+            path: "/dynamic-control/:id",
+            syncHandler: { _ in
+                .text("ok")
+            }
+        )
+
+        let cases = [
+            RouterBenchmarkCase(
+                name: "exact-hit",
+                method: NIOHTTP1.HTTPMethod.GET,
+                uri: "/static/r4095"
+            ),
+            RouterBenchmarkCase(
+                name: "dynamic-exact-miss",
+                method: NIOHTTP1.HTTPMethod.GET,
+                uri: "/dynamic-control/42"
+            ),
+            RouterBenchmarkCase(
+                name: "dynamic-empty-exact",
+                method: NIOHTTP1.HTTPMethod.PUT,
+                uri: "/dynamic-control/42"
+            ),
+            RouterBenchmarkCase(
+                name: "not-found-exact-miss",
+                method: NIOHTTP1.HTTPMethod.GET,
+                uri: "/missing/route"
+            )
+        ]
+
+        print("")
+        print(
+            "Hudhud router lookup benchmark "
+            + "iterations=\(iterations)"
+        )
+
+        for benchmarkCase in cases {
+            benchmarkRouter(
+                benchmarkCase,
+                iterations: iterations,
+                router: router
+            )
+        }
+
+        print("")
+    }
+
     func testTransportWriterBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
 
@@ -149,6 +231,85 @@ final class CoreBenchmarkTests: XCTestCase {
         )
 
         print("")
+    }
+
+    private func benchmarkRouter(
+        _ benchmarkCase: RouterBenchmarkCase,
+        iterations: Int,
+        router: Router
+    ) {
+        var checksum = 0
+
+        for _ in 0..<20_000 {
+            consumeRouterMatch(
+                router.lookup(
+                    method: benchmarkCase.method,
+                    uri: benchmarkCase.uri.utf8
+                ),
+                checksum: &checksum
+            )
+        }
+
+        let start = DispatchTime.now().uptimeNanoseconds
+
+        for _ in 0..<iterations {
+            consumeRouterMatch(
+                router.lookup(
+                    method: benchmarkCase.method,
+                    uri: benchmarkCase.uri.utf8
+                ),
+                checksum: &checksum
+            )
+        }
+
+        let end = DispatchTime.now().uptimeNanoseconds
+        let elapsed = end - start
+        let nanosecondsPerOperation =
+            Double(elapsed) / Double(iterations)
+        let operationsPerSecond =
+            1_000_000_000 / nanosecondsPerOperation
+
+        printBenchmarkLine(
+            name: benchmarkCase.name,
+            nanosecondsPerOperation:
+                nanosecondsPerOperation,
+            operationsPerSecond:
+                operationsPerSecond,
+            checksum: checksum
+        )
+    }
+
+    @inline(never)
+    private func consumeRouterMatch(
+        _ result: RouterMatch,
+        checksum: inout Int
+    ) {
+        switch result {
+        case .prepared:
+            checksum &+= 1
+
+        case .synchronous(
+            _,
+            let parameterNames,
+            let parameterRanges
+        ):
+            checksum &+=
+                parameterNames.count
+                + parameterRanges.count
+                + 2
+
+        case .asynchronous:
+            checksum &+= 3
+
+        case .concurrent:
+            checksum &+= 4
+
+        case .streaming:
+            checksum &+= 5
+
+        case .notFound:
+            checksum &+= 6
+        }
     }
 
     private func benchmark(
@@ -368,4 +529,10 @@ final class CoreBenchmarkTests: XCTestCase {
 private struct BenchmarkCase {
     let name: String
     let head: HTTPRequestHead
+}
+
+private struct RouterBenchmarkCase {
+    let name: String
+    let method: NIOHTTP1.HTTPMethod
+    let uri: String
 }
