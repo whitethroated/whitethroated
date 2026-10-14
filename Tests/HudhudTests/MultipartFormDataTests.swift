@@ -364,6 +364,118 @@ final class MultipartFormDataTests: XCTestCase {
         )
     }
 
+    func testQuotedDispositionParametersSupportSemicolonAndEscape()
+        throws
+    {
+        let body =
+            "--quoted\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"semi;quote\\\".txt\"\r\n"
+            + "Content-Type: text/plain\r\n"
+            + "\r\n"
+            + "x\r\n"
+            + "--quoted--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "quoted"
+        )
+        let collector = MultipartCollector()
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].filename,
+            "semi;quote\".txt"
+        )
+    }
+
+    func testObsoleteFoldedPartHeaderIsRejected() throws {
+        let body =
+            "--fold\r\n"
+            + "Content-Disposition: form-data; name=\"x\"\r\n"
+            + " continuation\r\n"
+            + "\r\n"
+            + "x\r\n"
+            + "--fold--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "fold"
+        )
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                chunk,
+                onEvent: { _ in }
+            )
+        ) { error in
+            guard
+                case .malformedHeader =
+                    error as? MultipartFormDataError
+            else {
+                return XCTFail(
+                    "Expected malformed header"
+                )
+            }
+        }
+    }
+
+    func testControlByteInPartHeaderValueIsRejected()
+        throws
+    {
+        let prefix =
+            "--control\r\n"
+            + "Content-Disposition: form-data; name=\"x\"\r\n"
+            + "X-Test: good"
+        let suffix =
+            "bad\r\n\r\n"
+            + "x\r\n"
+            + "--control--\r\n"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(
+                capacity:
+                    prefix.utf8.count
+                    + 1
+                    + suffix.utf8.count
+            )
+        chunk.writeString(prefix)
+        chunk.writeInteger(
+            UInt8(10)
+        )
+        chunk.writeString(suffix)
+
+        let parser = try MultipartFormDataParser(
+            boundary: "control"
+        )
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                chunk,
+                onEvent: { _ in }
+            )
+        ) { error in
+            guard
+                case .malformedHeader =
+                    error as? MultipartFormDataError
+            else {
+                return XCTFail(
+                    "Expected malformed header"
+                )
+            }
+        }
+    }
+
     func testHeaderLimitRejectsOversizedPartHeaders() throws {
         let limits = MultipartFormDataLimits(
             maxParts: 2,

@@ -286,6 +286,8 @@ Runtime invariants:
 
 - The complete multipart request body is never intentionally accumulated.
 - Part headers are buffered only until `\r\n\r\n` and are capped by `maxHeaderBytesPerPart`.
+- Part headers are scanned directly from `ByteBufferView`; Hudhud does not construct a full header-block `String` or split it into an intermediate line array.
+- Obsolete folded headers and unsafe control bytes in header values are rejected.
 - Part count and header count are independently bounded.
 - While scanning part bodies, the parser emits completed body bytes incrementally and retains only the longest trailing byte sequence that is an actual prefix of the multipart boundary.
 - For ordinary payload chunks that do not end in a possible boundary prefix, no body tail is retained; the next inbound `ByteBuffer` can become parser input directly instead of being appended behind a fixed boundary-sized tail.
