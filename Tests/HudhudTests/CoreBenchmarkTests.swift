@@ -57,6 +57,12 @@ final class CoreBenchmarkTests: XCTestCase {
             .text(request.form("q") ?? "")
         }
 
+        app.get("/cookie") { request in
+            .text(
+                request.cookie("session") ?? ""
+            )
+        }
+
         app.get("/method") { request in
             .text(
                 request.method == .get
@@ -99,6 +105,14 @@ final class CoreBenchmarkTests: XCTestCase {
             BenchmarkCase(
                 name: "sync-query",
                 head: makeHead("/query?q=hudhud")
+            ),
+            BenchmarkCase(
+                name: "sync-cookie",
+                head: makeHead(
+                    "/cookie",
+                    cookie:
+                        "theme=dark; session=abc123; locale=en"
+                )
             ),
             BenchmarkCase(
                 name: "sync-method",
@@ -543,7 +557,8 @@ final class CoreBenchmarkTests: XCTestCase {
 
     private func makeHead(
         _ uri: String,
-        ifNoneMatch: String? = nil
+        ifNoneMatch: String? = nil,
+        cookie: String? = nil
     ) -> HTTPRequestHead {
         var head = HTTPRequestHead(
             version: .http1_1,
@@ -555,6 +570,13 @@ final class CoreBenchmarkTests: XCTestCase {
             head.headers.add(
                 name: "if-none-match",
                 value: ifNoneMatch
+            )
+        }
+
+        if let cookie {
+            head.headers.add(
+                name: "cookie",
+                value: cookie
             )
         }
 

@@ -4,6 +4,37 @@ import NIOCore
 import NIOHTTP1
 
 final class CookieTests: XCTestCase {
+    func testTargetedCookieLookupAcrossSeveralPairs() {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/"
+        )
+        head.headers.add(
+            name: "cookie",
+            value:
+                "theme=dark; session=abc123; locale=en"
+        )
+
+        let request = Request(
+            head: head,
+            body: ByteBufferAllocator()
+                .buffer(capacity: 0)
+        )
+
+        XCTAssertEqual(
+            request.cookie("session"),
+            "abc123"
+        )
+        XCTAssertEqual(
+            request.cookie("theme"),
+            "dark"
+        )
+        XCTAssertNil(
+            request.cookie("missing")
+        )
+    }
+
     func testRequestReadsCookieLazily() {
         var head = HTTPRequestHead(
             version: .http1_1,
