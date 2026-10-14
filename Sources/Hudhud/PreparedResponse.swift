@@ -170,9 +170,24 @@ public struct PreparedResponse: Sendable {
         _ value: String
     ) -> PreparedResponse {
         var headers = response.headers
+        let normalizedValue: String
+
+        if
+            name.compare(
+                "content-length",
+                options: .caseInsensitive
+            ) == .orderedSame
+        {
+            normalizedValue = String(
+                bodyBuffer?.readableBytes ?? 0
+            )
+        } else {
+            normalizedValue = value
+        }
+
         headers.replaceOrAdd(
             name: name,
-            value: value
+            value: normalizedValue
         )
 
         var response = response

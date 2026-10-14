@@ -393,6 +393,10 @@ If a streaming producer fails after headers have started, Hudhud invokes the opt
 
 SSE is implemented as a formatting/header convenience over the same response-stream path. It does not introduce a separate transport abstraction.
 
+Hudhud normalizes `Content-Length` from the actual `Response.Body` for every ordinary non-stream response. User-supplied values cannot desynchronize the HTTP/1 keep-alive stream. Prepared-response header mutation applies the same invariant at setup time, so its cached head cannot advertise a length different from its cached body.
+
+304 remains the intentional exception: its body is suppressed while Content-Length may describe the selected representation, as allowed by HTTP semantics. Streaming responses use their separate declared-length tracker.
+
 A response writer must preserve:
 
 - Correct `Content-Length`.
