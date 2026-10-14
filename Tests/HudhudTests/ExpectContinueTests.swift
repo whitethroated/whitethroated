@@ -110,6 +110,87 @@ final class ExpectContinueTests: XCTestCase {
         )
     }
 
+    func testHugeDeclaredLengthGets413Without100Continue() throws {
+        let app = Application(
+            configuration: ServerConfiguration(
+                maxRequestBodyBytes: 4
+            )
+        )
+
+        app.post("/upload") { _ in
+            .text("unexpected")
+        }
+
+        let channel = try makeChannel(app)
+        var head = makeHead()
+        head.headers.add(
+            name: "expect",
+            value: "100-continue"
+        )
+        head.headers.add(
+            name: "content-length",
+            value:
+                "999999999999999999999999999999999999"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        let response = try readFinalResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .payloadTooLarge
+        )
+    }
+
+    func testContentLengthAtLimitStillGets100Continue() throws {
+        let app = Application(
+            configuration: ServerConfiguration(
+                maxRequestBodyBytes: 4
+            )
+        )
+
+        app.post("/upload") { request in
+            .text(
+                String(request.body.readableBytes)
+            )
+        }
+
+        let channel = try makeChannel(app)
+        var head = makeHead()
+        head.headers.add(
+            name: "expect",
+            value: "100-continue"
+        )
+        head.headers.add(
+            name: "content-length",
+            value: "0004"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        guard case .head(let informational)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected informational response head"
+            )
+        }
+
+        XCTAssertEqual(
+            informational.status,
+            .continue
+        )
+    }
+
     func testUnsupportedExpectationGets417() throws {
         let app = Application()
         app.post("/upload") { _ in
