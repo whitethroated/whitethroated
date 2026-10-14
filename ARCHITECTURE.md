@@ -268,6 +268,14 @@ Codable JSON support is opt-in.
 
 JSON convenience must never add encoding or Foundation parsing to requests that do not use it.
 
+## HTTP/1 framing validation
+
+Hudhud uses SwiftNIO's production HTTP/1 server pipeline with protocol error handling enabled. Framing validation remains in the decoder rather than being duplicated in Hudhud's request hot path.
+
+Regression tests feed raw HTTP bytes through the same configured pipeline and verify that ambiguous request framing such as simultaneous `Content-Length` plus `Transfer-Encoding`, or invalid duplicate Content-Length syntax, produces a 400 response before a Hudhud route is invoked.
+
+Hudhud adds only framework-specific body-limit logic after decoding. Its early declared-length comparison is overflow-safe so extremely large decimal Content-Length values can still be rejected before `100 Continue`.
+
 ## Request bodies
 
 Bodyless ordinary requests reuse an empty buffer owned by the channel handler.
