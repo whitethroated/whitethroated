@@ -272,6 +272,8 @@ app.postStream(
 
 The parser emits `partBegin`, `partBody`, and `partEnd` events. File contents are emitted incrementally as `ByteBuffer` chunks. Multipart boundaries may be split across arbitrary network chunks.
 
+The event callback may throw. When multipart parsing runs inside `onChunkThrowing:`, synchronous validation or sink failures propagate through Hudhud's normal streaming error path without allocating a future on successful chunks.
+
 Default multipart safety limits are:
 
 - 128 parts.

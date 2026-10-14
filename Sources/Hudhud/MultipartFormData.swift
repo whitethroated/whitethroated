@@ -81,7 +81,7 @@ public final class MultipartFormDataParser:
 {
     public typealias EventHandler = (
         MultipartFormDataEvent
-    ) -> Void
+    ) throws -> Void
 
     private enum State {
         case openingBoundary
@@ -428,7 +428,7 @@ public final class MultipartFormDataParser:
             headerBuffer
         )
 
-        onEvent(.partBegin(part))
+        try onEvent(.partBegin(part))
         state = .body
         return true
     }
@@ -453,14 +453,14 @@ public final class MultipartFormDataParser:
                     return false
                 }
 
-                onEvent(.partBody(slice))
+                try onEvent(.partBody(slice))
             }
 
             buffer.moveReaderIndex(
                 forwardBy: bodyBoundary.count + 2
             )
 
-            onEvent(.partEnd)
+            try onEvent(.partEnd)
 
             state =
                 isFinal
@@ -482,7 +482,7 @@ public final class MultipartFormDataParser:
                     return false
                 }
 
-                onEvent(.partBody(slice))
+                try onEvent(.partBody(slice))
             }
 
             compactTail()
@@ -507,7 +507,7 @@ public final class MultipartFormDataParser:
                 return false
             }
 
-            onEvent(.partBody(slice))
+            try onEvent(.partBody(slice))
             compactTail()
             return false
         }

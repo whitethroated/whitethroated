@@ -543,6 +543,36 @@ final class MultipartFormDataTests: XCTestCase {
         }
     }
 
+    func testEventHandlerCanThrowWithoutFutureAllocation() throws {
+        enum SinkError: Error {
+            case rejected
+        }
+
+        let body =
+            "--events\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "\r\n"
+            + "payload\r\n"
+            + "--events--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "events"
+        )
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        XCTAssertThrowsError(
+            try parser.receive(chunk) { event in
+                if case .partBody = event {
+                    throw SinkError.rejected
+                }
+            }
+        ) { error in
+            XCTAssertTrue(error is SinkError)
+        }
+    }
+
     func testFinishRejectsMissingClosingBoundary() throws {
         let parser = try MultipartFormDataParser(
             boundary: "missing"
