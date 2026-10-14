@@ -198,6 +198,85 @@ Ordinary routes keep the existing aggregation behavior and do not pay a streamin
 
 Hudhud also handles `Expect: 100-continue` for large uploads. Accepted HTTP/1.1 requests receive an informational `100 Continue` immediately. If a declared `Content-Length` already exceeds the configured limit, Hudhud returns `413 Payload Too Large` and closes the connection without waiting for a body the client has not sent. Unsupported expectations receive `417 Expectation Failed`.
 
+
+### Streaming multipart/form-data
+
+Multipart uploads reuse the request-streaming path and do not require whole-body aggregation:
+
+```swift
+app.postStream(
+    "/upload",
+    maxBodyBytes: 100 * 1024 * 1024
+) { request, context in
+    let parser: MultipartFormDataParser
+
+    do {
+        parser = try request.multipartParser()
+    } catch {
+        return BodyStreamConsumer(
+            onChunk: { _ in },
+            onEnd: {
+                .text(
+                    "Invalid multipart request",
+                    status: .badRequest
+                )
+            }
+        )
+    }
+
+    return BodyStreamConsumer(
+        onChunk: { chunk in
+            do {
+                try parser.receive(chunk) { event in
+                    switch event {
+                    case .partBegin(let part):
+                        print(
+                            part.name,
+                            part.filename ?? ""
+                        )
+
+                    case .partBody(let bytes):
+                        // Incrementally persist or process bytes.
+
+                    case .partEnd:
+                        break
+                    }
+                }
+
+                return nil
+            } catch {
+                return context.eventLoop
+                    .makeFailedFuture(error)
+            }
+        },
+        onEnd: {
+            do {
+                try parser.finish()
+                return .noContent()
+            } catch {
+                return .text(
+                    "Invalid multipart body",
+                    status: .badRequest
+                )
+            }
+        }
+    )
+}
+```
+
+The parser emits `partBegin`, `partBody`, and `partEnd` events. File contents are emitted incrementally as `ByteBuffer` chunks. Multipart boundaries may be split across arbitrary network chunks.
+
+Default multipart safety limits are:
+
+- 128 parts.
+- 32 headers per part.
+- 16 KiB of headers per part.
+- Boundary length up to 70 bytes.
+
+Override them with `MultipartFormDataLimits`. The overall request size still uses the route's `maxBodyBytes`.
+
+`MultipartPart` exposes the parsed field `name`, optional `filename`, headers, `contentType`, and `isFile`.
+
 ## Prepared responses
 
 For immutable responses, Hudhud can prebuild the body, content length, and HTTP/1.1 response head during application setup.
@@ -479,6 +558,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Bodyless-request empty-buffer reuse.
 - First request-body chunk reuse instead of unconditional copying.
 - Opt-in request-body streaming with per-route limits and async backpressure.
+- Streaming multipart/form-data parsing with bounded part/header limits.
 - Streaming middleware compatibility without whole-body aggregation.
 - Configurable request-body limits.
 - Opt-in streaming request bodies with per-route limits and backpressure.
@@ -598,7 +678,13 @@ Run in-process dispatch and writer diagnostics:
 Compare aggregated and streaming request bodies:
 
 ```bash
-UPLOAD_BYTES=65536 ./Benchmarks/streaming.sh
+./Benchmarks/upload.sh
+```
+
+Measure incremental multipart parsing against a raw streaming control using identical multipart wire bytes:
+
+```bash
+./Benchmarks/multipart.sh
 ```
 
 Validate benchmark tooling without starting a server:

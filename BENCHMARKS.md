@@ -86,6 +86,7 @@ Feature-specific benchmark routes are registered only by their dedicated runners
 - request streaming: `HUDHUD_UPLOAD_BENCHMARKS=1`.
 - response streaming: `HUDHUD_RESPONSE_STREAM_BENCHMARKS=1`.
 - router stress matrix: `HUDHUD_ROUTER_BENCHMARKS=1`.
+- multipart parser: `HUDHUD_MULTIPART_BENCHMARKS=1`.
 
 The prepared route precomputes:
 
@@ -200,6 +201,33 @@ BYTES=1048576 \
 ```
 
 The aggregated benchmark route uses the default 1 MiB application body limit, so this runner intentionally caps `BYTES` at 1,048,576.
+
+### Multipart parsing benchmark
+
+Measure multipart parser overhead independently from request streaming:
+
+```bash
+./Benchmarks/multipart.sh
+```
+
+For each 1 KiB, 64 KiB, and 1 MiB file payload, the runner sends the **same multipart/form-data wire body** to:
+
+1. `/upload-stream` — raw synchronous streaming control that discards chunks.
+2. `/upload-multipart` — the streaming multipart parser with emitted events discarded.
+
+Because both cases receive identical multipart headers, boundaries, body bytes, worker count, connection count, and HTTP settings, most of the delta isolates multipart parsing/state-machine cost.
+
+Override the load when profiling:
+
+```bash
+WORKERS=8 \
+THREADS=8 \
+CONNECTIONS=64 \
+DURATION=30s \
+./Benchmarks/multipart.sh
+```
+
+Multipart benchmark routes are registered only when `HUDHUD_MULTIPART_BENCHMARKS=1`; the runner sets the flag automatically.
 
 ### Router scaling benchmark
 
