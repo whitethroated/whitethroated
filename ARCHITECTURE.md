@@ -128,6 +128,22 @@ An `AsyncHandler` is an opt-in Swift concurrency path. Hudhud bridges it through
 
 This path intentionally creates a Swift `Task` for that request. It must never become an implicit wrapper around synchronous, prepared, or NIO-future handlers.
 
+## Error paths
+
+Application error handling is a failure-only facility.
+
+A configured error handler may be:
+
+- synchronous, returning `Response`.
+- event-loop-native, returning `EventLoopFuture<Response>`.
+- Swift async/await, bridged through a task only after a failure occurs.
+
+Successful prepared, synchronous, NIO-future, and async/await responses do not query or wrap through the error handler.
+
+Future failures from routes and middleware, async/await throws, streaming chunk failures, and failed streaming completion futures are converted through the global error handler. If the custom error handler fails, the transport writes the built-in 500 response directly. It must never recursively invoke the custom handler for an error produced by that same handler.
+
+The error handler receives `Error` plus `Context`. It intentionally does not depend on mutable transport request state, because asynchronous failures may complete after the handler has reset per-request channel state for pipelining.
+
 ## Middleware paths
 
 `use` is the asynchronous middleware API and intentionally returns NIO futures.
@@ -335,6 +351,8 @@ Before merging a hot-path change, ask:
 - Does it add a dictionary or String conversion to every request?
 - Does it construct `Request` for an endpoint that does not need one?
 - Does it force a synchronous path into a future?
+- Does error handling add work to successful requests?
+- Can an error-handler failure recurse indefinitely?
 - Does it introduce a `Task`?
 - Does it copy a ByteBuffer unnecessarily?
 - Could a file download use `FileRegion` instead of reading the file into memory?
