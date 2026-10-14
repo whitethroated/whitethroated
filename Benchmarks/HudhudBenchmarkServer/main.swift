@@ -75,13 +75,13 @@ if environment["HUDHUD_RESPONSE_STREAM_BENCHMARKS"] == "1" {
     app.get("/response-stream-known") { _ in
         Response
             .stream(
-                contentType: "text/plain; charset=utf-8"
+                contentType: "text/plain; charset=utf-8",
+                contentLength: 13
             ) { writer in
                 writer.writeString("Hello, ").flatMap {
                     writer.writeString("World!")
                 }
             }
-            .header("content-length", "13")
             .header("date", benchmarkDate)
     }
 

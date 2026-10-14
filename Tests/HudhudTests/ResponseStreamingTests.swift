@@ -205,22 +205,34 @@ final class ResponseStreamingTests: XCTestCase {
         )
     }
 
+    func testStreamContentLengthParameterSetsHeader() {
+        let response = Response.stream(
+            contentType: "text/plain",
+            contentLength: 5
+        ) { writer in
+            writer.writeString("hello")
+        }
+
+        XCTAssertEqual(
+            response.headers.first(
+                name: "content-length"
+            ),
+            "5"
+        )
+    }
+
     func testHTTP11KnownLengthStreamAvoidsChunkedWireFraming() throws {
         let app = Application()
 
         app.get("/stream") { _ in
-            Response
-                .stream(
-                    contentType: "text/plain"
-                ) { writer in
-                    writer.writeString("hello").flatMap {
-                        writer.writeString(" world")
-                    }
+            Response.stream(
+                contentType: "text/plain",
+                contentLength: 11
+            ) { writer in
+                writer.writeString("hello").flatMap {
+                    writer.writeString(" world")
                 }
-                .header(
-                    "content-length",
-                    "11"
-                )
+            }
         }
 
         let channel = try makeEncodedChannel(app)
