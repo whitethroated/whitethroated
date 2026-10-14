@@ -61,6 +61,29 @@ app.get(
     etag: EntityTag("benchmark-v1")
 )
 
+
+if environment["HUDHUD_CONDITIONAL_BENCHMARKS"] == "1" {
+    let largeConditionalBody = String(
+        repeating: "a",
+        count: 64 * 1024
+    )
+
+    let largePrepared = PreparedResponse
+        .text(largeConditionalBody)
+        .header("date", benchmarkDate)
+
+    app.get(
+        "/prepared-large",
+        response: largePrepared
+    )
+
+    app.get(
+        "/conditional-large",
+        response: largePrepared,
+        etag: EntityTag("benchmark-large-v1")
+    )
+}
+
 app.get("/plaintext") { _ in
     Response
         .text("Hello, World!")

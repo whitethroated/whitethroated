@@ -422,6 +422,8 @@ Measure the route-specific cost of `If-None-Match` while preserving the prepared
 
 ```bash
 ./Benchmarks/conditional.sh
+
+The conditional-response runner measures both the 13-byte control and a 64 KiB prepared representation. For each size it compares an unconditional prepared response, a conditional 200 without a validator match, and a conditional 304 with a matching `If-None-Match`. The larger payload makes body-write and bandwidth savings visible separately from validator parsing overhead.
 ```
 
 This compares ordinary prepared 200, conditional prepared 200, and conditional prepared 304. The 304 variant uses cached bodyless storage; the middleware-free path constructs no `Request`, invokes no handler closure, and serializes no body.

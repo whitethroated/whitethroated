@@ -21,6 +21,7 @@ swift build -c release --product hudhud-benchmark-server
 HUDHUD_HOST="$HOST" \
 HUDHUD_PORT="$PORT" \
 HUDHUD_THREADS="$WORKERS" \
+HUDHUD_CONDITIONAL_BENCHMARKS=1 \
   .build/release/hudhud-benchmark-server \
   >/tmp/hudhud-conditional-benchmark.log 2>&1 &
 
@@ -77,3 +78,11 @@ run_case \
   "Conditional prepared 304" \
   "/conditional-prepared" \
   'If-None-Match: "benchmark-v1"'
+
+
+run_case "Prepared 64 KiB baseline" "/prepared-large"
+run_case "Conditional 64 KiB 200" "/conditional-large"
+run_case \
+  "Conditional 64 KiB 304" \
+  "/conditional-large" \
+  'If-None-Match: "benchmark-large-v1"'
