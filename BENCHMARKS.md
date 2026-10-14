@@ -66,6 +66,24 @@ The writer benchmark compares prepared and ordinary synchronous text responses w
 
 Treat all in-process numbers as diagnostic ns/op measurements, not as substitutes for the repeated `wrk` network suite.
 
+## Request-body streaming measurements
+
+Streaming performance should be measured separately from tiny plaintext response throughput.
+
+For upload benchmarks, record at least:
+
+- request body size.
+- chunk count when known.
+- requests/sec.
+- p50/p99 latency.
+- CPU utilization.
+- peak RSS.
+- total allocated bytes when tooling is available.
+
+Compare a streaming endpoint against an otherwise equivalent aggregated-body endpoint. Use payload sizes large enough for body-copy and RSS behavior to dominate routing noise.
+
+Do not claim a streaming win from requests/sec alone; the primary expected benefit is bounded memory growth and explicit backpressure under slow consumers.
+
 ## Benchmark servers
 
 The repository contains two release benchmark servers.

@@ -3,6 +3,7 @@ import NIOCore
 enum ResponderResult {
     case immediate(Response)
     case prepared(PreparedResponseStorage)
+    case streaming(BodyStreamSession)
     case future(EventLoopFuture<Response>)
 
     @inline(__always)
@@ -17,6 +18,9 @@ enum ResponderResult {
             return eventLoop.makeSucceededFuture(
                 prepared.response
             )
+
+        case .streaming(let session):
+            return session.responseFuture
 
         case .future(let future):
             return future

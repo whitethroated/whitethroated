@@ -44,6 +44,11 @@ public enum MiddlewareResult: @unchecked Sendable {
                 PreparedResponse(storage: storage)
             )
 
+        case .streaming(let session):
+            self = .future(
+                session.responseFuture
+            )
+
         case .future(let future):
             self = .future(future)
         }

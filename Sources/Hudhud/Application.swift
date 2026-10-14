@@ -29,6 +29,19 @@ public final class Application: @unchecked Sendable {
     private var serverChannel: Channel?
     private var configurationFrozen = false
 
+    internal var hasStreamingRoutes: Bool {
+        router.hasStreamingRoutes
+    }
+
+    @inline(__always)
+    internal func hasStreamingRoute(
+        for method: NIOHTTP1.HTTPMethod
+    ) -> Bool {
+        router.hasStreamingRoute(
+            for: method
+        )
+    }
+
     public init(
         configuration: ServerConfiguration = ServerConfiguration()
     ) {
@@ -123,6 +136,29 @@ public final class Application: @unchecked Sendable {
         }
     }
 
+    public func onStream(
+        _ method: HTTPMethod,
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        requireConfigurationPhase()
+
+        if let maxBodyBytes {
+            precondition(
+                maxBodyBytes >= 0,
+                "maxBodyBytes must be zero or greater"
+            )
+        }
+
+        router.add(
+            method: method,
+            path: path,
+            streamingHandler: handler,
+            maxBodyBytes: maxBodyBytes
+        )
+    }
+
     public func on(
         _ method: HTTPMethod,
         _ path: String,
@@ -189,6 +225,19 @@ public final class Application: @unchecked Sendable {
         route(.get, path, use: handler)
     }
 
+    public func postStream(
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        onStream(
+            .post,
+            path,
+            maxBodyBytes: maxBodyBytes,
+            use: handler
+        )
+    }
+
     public func post(
         _ path: String,
         response: PreparedResponse
@@ -215,6 +264,19 @@ public final class Application: @unchecked Sendable {
         use handler: @escaping AsyncHandler
     ) {
         route(.post, path, use: handler)
+    }
+
+    public func putStream(
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        onStream(
+            .put,
+            path,
+            maxBodyBytes: maxBodyBytes,
+            use: handler
+        )
     }
 
     public func put(
@@ -245,6 +307,19 @@ public final class Application: @unchecked Sendable {
         route(.put, path, use: handler)
     }
 
+    public func patchStream(
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        onStream(
+            .patch,
+            path,
+            maxBodyBytes: maxBodyBytes,
+            use: handler
+        )
+    }
+
     public func patch(
         _ path: String,
         response: PreparedResponse
@@ -271,6 +346,19 @@ public final class Application: @unchecked Sendable {
         use handler: @escaping AsyncHandler
     ) {
         route(.patch, path, use: handler)
+    }
+
+    public func deleteStream(
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        onStream(
+            .delete,
+            path,
+            maxBodyBytes: maxBodyBytes,
+            use: handler
+        )
     }
 
     public func delete(
@@ -411,6 +499,136 @@ public final class Application: @unchecked Sendable {
         use handler: @escaping AsyncHandler
     ) {
         route(.trace, path, use: handler)
+    }
+
+    @inline(__always)
+    func beginStreamingTransport(
+        head: HTTPRequestHead,
+        emptyBody: ByteBuffer,
+        on eventLoop: EventLoop
+    ) -> StreamingTransportStart? {
+        guard case .streaming(
+            let handler,
+            let routeMaxBodyBytes,
+            let parameterNames,
+            let parameterRanges
+        ) = router.lookup(
+            method: head.method,
+            uri: head.uri.utf8
+        ) else {
+            return nil
+        }
+
+        let registration = StreamingRegistration(
+            eventLoop: eventLoop
+        )
+        let context = Context(
+            eventLoop: eventLoop,
+            streamingRegistration: registration
+        )
+        let request = Request(
+            head: head,
+            body: emptyBody,
+            routeParameterNames: parameterNames,
+            routeParameterRanges: parameterRanges
+        )
+
+        let terminal: InternalHandler = {
+            request,
+            context in
+
+            let consumer = handler(
+                StreamRequest(request),
+                context
+            )
+            let session = BodyStreamSession(
+                consumer: consumer,
+                eventLoop: context.eventLoop
+            )
+            registration.register(session)
+
+            return .streaming(session)
+        }
+
+        let result = runStreamingMiddleware(
+            index: 0,
+            request: request,
+            context: context,
+            terminal: terminal
+        )
+
+        switch result {
+        case .immediate, .prepared:
+            registration.bypassIfPending()
+
+        case .streaming:
+            break
+
+        case .future(let future):
+            future.whenComplete { _ in
+                registration.bypassIfPending()
+            }
+        }
+
+        return StreamingTransportStart(
+            result: result,
+            registration: registration,
+            maxBodyBytes:
+                routeMaxBodyBytes
+                ?? configuration.maxRequestBodyBytes
+        )
+    }
+
+    private func runStreamingMiddleware(
+        index: Int,
+        request: Request,
+        context: Context,
+        terminal: @escaping InternalHandler
+    ) -> ResponderResult {
+        guard index < middleware.count else {
+            return terminal(
+                request,
+                context
+            )
+        }
+
+        let entry = middleware[index]
+
+        switch entry {
+        case .fast(let current):
+            return current(
+                request,
+                context
+            ) { nextRequest in
+                MiddlewareResult(
+                    self.runStreamingMiddleware(
+                        index: index + 1,
+                        request: nextRequest,
+                        context: context,
+                        terminal: terminal
+                    )
+                )
+            }.responderResult
+
+        case .asynchronous(let current):
+            return .future(
+                current(
+                    request,
+                    context
+                ) { nextRequest in
+                    self.runStreamingMiddleware(
+                        index: index + 1,
+                        request: nextRequest,
+                        context: context,
+                        terminal: terminal
+                    ).asFuture(
+                        on: context.eventLoop
+                    )
+                }.hop(
+                    to: context.eventLoop
+                )
+            )
+        }
     }
 
     @discardableResult
@@ -624,9 +842,66 @@ public final class Application: @unchecked Sendable {
 
             return .future(promise.futureResult)
 
+        case .streaming(
+            let handler,
+            _,
+            let parameterNames,
+            let parameterRanges
+        ):
+            let request = Request(
+                head: head,
+                body: emptyBodyForStreaming(),
+                routeParameterNames: parameterNames,
+                routeParameterRanges: parameterRanges
+            )
+            let context = Context(
+                eventLoop: eventLoop
+            )
+            let consumer = handler(
+                StreamRequest(request),
+                context
+            )
+            let session = BodyStreamSession(
+                consumer: consumer,
+                eventLoop: eventLoop
+            )
+
+            if body.readableBytes > 0 {
+                if let chunkFuture =
+                    session.receive(body)
+                {
+                    let responseFuture =
+                        chunkFuture.hop(
+                            to: eventLoop
+                        ).flatMap {
+                            session.finish()
+                            return session.responseFuture
+                        }.flatMapError { error in
+                            session.fail(error)
+                            return eventLoop.makeFailedFuture(
+                                error
+                            )
+                        }
+
+                    return .future(responseFuture)
+                }
+            }
+
+            session.finish()
+            return .future(
+                session.responseFuture
+            )
+
         case .notFound:
             return .immediate(.notFound())
         }
+    }
+
+    @inline(__always)
+    private func emptyBodyForStreaming() -> ByteBuffer {
+        ByteBufferAllocator().buffer(
+            capacity: 0
+        )
     }
 
     private func buildMiddlewarePipeline() -> InternalHandler {

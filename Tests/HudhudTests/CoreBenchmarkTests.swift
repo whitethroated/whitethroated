@@ -306,6 +306,9 @@ final class CoreBenchmarkTests: XCTestCase {
                 checksum &+= value.readableBytes
             }
 
+        case .streaming:
+            checksum &+= 1
+
         case .future:
             checksum &+= 1
         }

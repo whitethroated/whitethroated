@@ -57,6 +57,20 @@ public struct RouteGroup: Sendable {
         )
     }
 
+    public func onStream(
+        _ method: HTTPMethod,
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        application.onStream(
+            method,
+            joined(path),
+            maxBodyBytes: maxBodyBytes,
+            use: handler
+        )
+    }
+
     public func on(
         _ method: HTTPMethod,
         _ path: String,
@@ -145,6 +159,18 @@ public struct RouteGroup: Sendable {
         )
     }
 
+    public func postStream(
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        application.postStream(
+            joined(path),
+            maxBodyBytes: maxBodyBytes,
+            use: handler
+        )
+    }
+
     public func post(
         _ path: String,
         response: PreparedResponse
@@ -185,6 +211,18 @@ public struct RouteGroup: Sendable {
         )
     }
 
+    public func putStream(
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        application.putStream(
+            joined(path),
+            maxBodyBytes: maxBodyBytes,
+            use: handler
+        )
+    }
+
     public func put(
         _ path: String,
         response: PreparedResponse
@@ -225,6 +263,18 @@ public struct RouteGroup: Sendable {
         )
     }
 
+    public func patchStream(
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        application.patchStream(
+            joined(path),
+            maxBodyBytes: maxBodyBytes,
+            use: handler
+        )
+    }
+
     public func patch(
         _ path: String,
         response: PreparedResponse
@@ -261,6 +311,18 @@ public struct RouteGroup: Sendable {
     ) {
         application.patch(
             joined(path),
+            use: handler
+        )
+    }
+
+    public func deleteStream(
+        _ path: String,
+        maxBodyBytes: Int? = nil,
+        use handler: @escaping StreamingHandler
+    ) {
+        application.deleteStream(
+            joined(path),
+            maxBodyBytes: maxBodyBytes,
             use: handler
         )
     }
