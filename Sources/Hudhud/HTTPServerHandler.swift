@@ -795,7 +795,26 @@ final class HTTPServerHandler: ChannelInboundHandler {
         keepAlive: Bool,
         context: ChannelHandlerContext
     ) {
-        guard storage.response.status.mayHaveResponseBody else {
+        if !storage.response.status.mayHaveResponseBody {
+            if
+                version == .http1_1,
+                keepAlive,
+                let bodylessHead =
+                    storage.bodylessHTTP11Head
+            {
+                context.write(
+                    wrapOutboundOut(
+                        .head(bodylessHead)
+                    ),
+                    promise: nil
+                )
+                context.writeAndFlush(
+                    wrapOutboundOut(.end(nil)),
+                    promise: nil
+                )
+                return
+            }
+
             writeBodylessStatus(
                 storage.response,
                 version: version,
