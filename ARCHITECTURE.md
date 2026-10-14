@@ -253,6 +253,7 @@ Streaming invariants:
 - Client disconnects and channel errors fail the active streaming session.
 - Ordinary routes never become streaming implicitly.
 - Streaming-route detection is tracked per HTTP method so unrelated methods avoid an extra route lookup.
+- On a middleware-free method that mixes streaming and ordinary routes, the head-time route match is cached and reused after ordinary body aggregation. The request therefore does not traverse the trie twice.
 
 For `Expect: 100-continue`:
 

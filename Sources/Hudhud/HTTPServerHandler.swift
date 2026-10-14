@@ -15,6 +15,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
     private var requestBody: ByteBuffer?
     private var receivedBodyBytes = 0
     private var requestBodyTooLarge = false
+    private var preResolvedMatch: RouterMatch?
 
     private var streamingStart: StreamingTransportStart?
     private var streamingPendingChunks =
@@ -91,6 +92,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         requestBody = nil
         receivedBodyBytes = 0
         requestBodyTooLarge = false
+        preResolvedMatch = nil
         streamingFailure = nil
         streamingEndReceived = false
         rejectingRequestEarly = false
@@ -99,43 +101,52 @@ final class HTTPServerHandler: ChannelInboundHandler {
         )
         streamingChunkFuture = nil
 
-        if
-            application.hasStreamingRoute(
-                for: head.method
-            ),
-            let start = application
-            .beginStreamingTransport(
-                head: head,
-                emptyBody: emptyBody,
-                on: context.eventLoop
+        if application.hasStreamingRoute(
+            for: head.method
+        ) {
+            let match = application.lookupTransport(
+                head: head
             )
-        {
-            streamingStart = start
-            requestBodyTooLarge =
-                declaredBodyExceedsLimit(
+
+            if let start = application
+                .beginStreamingTransport(
+                    head: head,
+                    emptyBody: emptyBody,
+                    match: match,
+                    on: context.eventLoop
+                )
+            {
+                streamingStart = start
+                requestBodyTooLarge =
+                    declaredBodyExceedsLimit(
+                        head,
+                        maxBodyBytes:
+                            start.maxBodyBytes
+                    )
+
+                if requestBodyTooLarge {
+                    start.registration.cancel(
+                        BodyStreamError.payloadTooLarge
+                    )
+                }
+
+                if handleExpectation(
                     head,
-                    maxBodyBytes:
-                        start.maxBodyBytes
-                )
+                    context: context
+                ) {
+                    return
+                }
 
-            if requestBodyTooLarge {
-                start.registration.cancel(
-                    BodyStreamError.payloadTooLarge
+                observeStreamingRegistration(
+                    start.registration,
+                    context: context
                 )
-            }
-
-            if handleExpectation(
-                head,
-                context: context
-            ) {
                 return
             }
 
-            observeStreamingRegistration(
-                start.registration,
-                context: context
-            )
-            return
+            if !application.hasMiddleware {
+                preResolvedMatch = match
+            }
         }
 
         streamingStart = nil
@@ -247,11 +258,22 @@ final class HTTPServerHandler: ChannelInboundHandler {
             return
         }
 
-        let result = application.respondTransport(
-            head: head,
-            body: requestBody ?? emptyBody,
-            on: context.eventLoop
-        )
+        let result: ResponderResult
+
+        if let preResolvedMatch {
+            result = application.respondTransport(
+                match: preResolvedMatch,
+                head: head,
+                body: requestBody ?? emptyBody,
+                on: context.eventLoop
+            )
+        } else {
+            result = application.respondTransport(
+                head: head,
+                body: requestBody ?? emptyBody,
+                on: context.eventLoop
+            )
+        }
 
         write(
             result,
@@ -597,6 +619,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         requestBody = nil
         receivedBodyBytes = 0
         requestBodyTooLarge = false
+        preResolvedMatch = nil
         rejectingRequestEarly = false
     }
 
@@ -726,6 +749,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         requestBody = nil
         receivedBodyBytes = 0
         requestBodyTooLarge = false
+        preResolvedMatch = nil
         rejectingRequestEarly = false
     }
 
