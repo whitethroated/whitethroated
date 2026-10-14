@@ -72,12 +72,17 @@ public struct BodyStreamConsumer: @unchecked Sendable {
         Error
     ) -> Void
 
+    internal enum ChunkResponder: @unchecked Sendable {
+        case synchronous(SyncChunkHandler)
+        case asynchronous(ChunkHandler)
+    }
+
     internal enum EndResponder: @unchecked Sendable {
         case synchronous(SyncEndHandler)
         case asynchronous(EndHandler)
     }
 
-    internal let chunkHandler: ChunkHandler
+    internal let chunkResponder: ChunkResponder
     internal let endResponder: EndResponder
     internal let errorHandler: ErrorHandler?
 
@@ -86,10 +91,7 @@ public struct BodyStreamConsumer: @unchecked Sendable {
         onEnd: @escaping EndHandler,
         onError: ErrorHandler? = nil
     ) {
-        self.chunkHandler = { buffer in
-            onChunk(buffer)
-            return nil
-        }
+        self.chunkResponder = .synchronous(onChunk)
         self.endResponder = .asynchronous(onEnd)
         self.errorHandler = onError
     }
@@ -99,10 +101,7 @@ public struct BodyStreamConsumer: @unchecked Sendable {
         onEnd: @escaping SyncEndHandler,
         onError: ErrorHandler? = nil
     ) {
-        self.chunkHandler = { buffer in
-            onChunk(buffer)
-            return nil
-        }
+        self.chunkResponder = .synchronous(onChunk)
         self.endResponder = .synchronous(onEnd)
         self.errorHandler = onError
     }
@@ -112,7 +111,7 @@ public struct BodyStreamConsumer: @unchecked Sendable {
         onEnd: @escaping EndHandler,
         onError: ErrorHandler? = nil
     ) {
-        self.chunkHandler = onChunk
+        self.chunkResponder = .asynchronous(onChunk)
         self.endResponder = .asynchronous(onEnd)
         self.errorHandler = onError
     }
@@ -122,7 +121,7 @@ public struct BodyStreamConsumer: @unchecked Sendable {
         onEnd: @escaping SyncEndHandler,
         onError: ErrorHandler? = nil
     ) {
-        self.chunkHandler = onChunk
+        self.chunkResponder = .asynchronous(onChunk)
         self.endResponder = .synchronous(onEnd)
         self.errorHandler = onError
     }
@@ -165,7 +164,14 @@ internal final class BodyStreamSession: @unchecked Sendable {
             return nil
         }
 
-        return consumer.chunkHandler(buffer)
+        switch consumer.chunkResponder {
+        case .synchronous(let handler):
+            handler(buffer)
+            return nil
+
+        case .asynchronous(let handler):
+            return handler(buffer)
+        }
     }
 
     func finish() {
