@@ -103,6 +103,129 @@ private enum StaticBucket {
     }
 }
 
+private struct StaticChildSlot {
+    let hash: UInt64
+    var bucket: StaticBucket
+}
+
+private struct StaticChildTable {
+    private var slots: [StaticChildSlot?] = []
+    private var occupiedSlots = 0
+
+    var isEmpty: Bool {
+        occupiedSlots == 0
+    }
+
+    @inline(__always)
+    func matching<C: Collection>(
+        hash: UInt64,
+        bytes: C
+    ) -> RouterNode?
+    where C.Element == UInt8 {
+        guard occupiedSlots > 0 else {
+            return nil
+        }
+
+        let mask = slots.count - 1
+        var index =
+            Int(truncatingIfNeeded: hash)
+            & mask
+
+        for _ in 0..<slots.count {
+            guard let slot = slots[index] else {
+                return nil
+            }
+
+            if slot.hash == hash {
+                return slot.bucket.matching(
+                    bytes
+                )
+            }
+
+            index = (index + 1) & mask
+        }
+
+        return nil
+    }
+
+    mutating func insert(
+        _ edge: StaticEdge,
+        hash: UInt64
+    ) {
+        if slots.isEmpty {
+            slots = Array(
+                repeating: nil,
+                count: 4
+            )
+        } else if
+            (occupiedSlots + 1) * 4
+            >= slots.count * 3
+        {
+            resize()
+        }
+
+        let mask = slots.count - 1
+        var index =
+            Int(truncatingIfNeeded: hash)
+            & mask
+
+        while true {
+            if var slot = slots[index] {
+                if slot.hash == hash {
+                    slot.bucket =
+                        slot.bucket.appending(edge)
+                    slots[index] = slot
+                    return
+                }
+
+                index = (index + 1) & mask
+                continue
+            }
+
+            slots[index] = StaticChildSlot(
+                hash: hash,
+                bucket: .single(edge)
+            )
+            occupiedSlots += 1
+            return
+        }
+    }
+
+    private mutating func resize() {
+        let oldSlots = slots
+
+        slots = Array(
+            repeating: nil,
+            count: oldSlots.count * 2
+        )
+        occupiedSlots = 0
+
+        for slot in oldSlots {
+            guard let slot else {
+                continue
+            }
+
+            insertExisting(slot)
+        }
+    }
+
+    private mutating func insertExisting(
+        _ slot: StaticChildSlot
+    ) {
+        let mask = slots.count - 1
+        var index =
+            Int(truncatingIfNeeded: slot.hash)
+            & mask
+
+        while slots[index] != nil {
+            index = (index + 1) & mask
+        }
+
+        slots[index] = slot
+        occupiedSlots += 1
+    }
+}
+
 private struct ExactStaticEdge {
     let bytes: [UInt8]
     let endpoint: RouteEndpoint
@@ -335,7 +458,7 @@ private final class ExactStaticTable {
 }
 
 private final class RouterNode {
-    var staticChildren: [UInt64: StaticBucket] = [:]
+    var staticChildren = StaticChildTable()
     var parameterChild: RouterNode?
     var catchAllChild: RouterNode?
     var endpoint: RouteEndpoint?
@@ -812,9 +935,11 @@ final class Router: @unchecked Sendable {
             let bytes = Array(segment.utf8)
             let hash = Self.hash(bytes)
 
-            if
-                let bucket = node.staticChildren[hash],
-                let child = bucket.matching(bytes)
+            if let child =
+                node.staticChildren.matching(
+                    hash: hash,
+                    bytes: bytes
+                )
             {
                 node = child
                 continue
@@ -826,14 +951,10 @@ final class Router: @unchecked Sendable {
                 node: child
             )
 
-            if let bucket = node.staticChildren[hash] {
-                node.staticChildren[hash] =
-                    bucket.appending(edge)
-            } else {
-                node.staticChildren[hash] =
-                    .single(edge)
-            }
-
+            node.staticChildren.insert(
+                edge,
+                hash: hash
+            )
             node = child
         }
 
@@ -1333,9 +1454,11 @@ final class Router: @unchecked Sendable {
 
             let segment = bytes[segmentStart..<cursor]
 
-            if
-                let bucket = node.staticChildren[segmentHash],
-                let staticChild = bucket.matching(segment)
+            if let staticChild =
+                node.staticChildren.matching(
+                    hash: segmentHash,
+                    bytes: segment
+                )
             {
                 if
                     cursor == bytes.endIndex
