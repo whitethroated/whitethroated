@@ -131,6 +131,7 @@ public final class MultipartFormDataParser:
     private var buffer =
         ByteBufferAllocator().buffer(capacity: 0)
     private var partCount = 0
+    private var headerSearchOffset = 0
 
     public convenience init(
         request: StreamRequest,
@@ -386,6 +387,11 @@ public final class MultipartFormDataParser:
                 isFinal
                 ? .finished
                 : .headers
+
+            if !isFinal {
+                headerSearchOffset = 0
+            }
+
             return true
 
         case .incomplete:
@@ -497,6 +503,10 @@ public final class MultipartFormDataParser:
                 isFinal
                 ? .finished
                 : .headers
+
+            if !isFinal {
+                headerSearchOffset = 0
+            }
 
             return true
 
@@ -726,10 +736,18 @@ public final class MultipartFormDataParser:
         let bytes = buffer.readableBytesView
 
         guard bytes.count >= 4 else {
+            headerSearchOffset = 0
             return nil
         }
 
-        var index = bytes.startIndex
+        let maximumStartOffset =
+            bytes.count - 4
+        let startOffset = min(
+            headerSearchOffset,
+            maximumStartOffset
+        )
+        var index =
+            bytes.startIndex + startOffset
         let finalStart = bytes.endIndex - 3
 
         while index < finalStart {
@@ -743,11 +761,17 @@ public final class MultipartFormDataParser:
                 bytes[index + 3]
                     == Self.lineFeed
             {
+                headerSearchOffset = 0
                 return index
             }
 
             index += 1
         }
+
+        headerSearchOffset = max(
+            0,
+            bytes.count - 3
+        )
 
         return nil
     }
