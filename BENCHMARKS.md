@@ -66,61 +66,26 @@ The writer benchmark compares prepared and ordinary synchronous text responses w
 
 Treat all in-process numbers as diagnostic ns/op measurements, not as substitutes for the repeated `wrk` network suite.
 
-## Request-body streaming measurements
-
-Streaming performance should be measured separately from tiny plaintext response throughput.
-
-For upload benchmarks, record at least:
-
-- request body size.
-- chunk count when known.
-- requests/sec.
-- p50/p99 latency.
-- CPU utilization.
-- peak RSS.
-- total allocated bytes when tooling is available.
-
-Compare a streaming endpoint against an otherwise equivalent aggregated-body endpoint. Use payload sizes large enough for body-copy and RSS behavior to dominate routing noise.
-
-Do not claim a streaming win from requests/sec alone; the primary expected benefit is bounded memory growth and explicit backpressure under slow consumers.
-
-Run the paired upload benchmark:
-
-```bash
-UPLOAD_BYTES=65536 \
-WORKERS=4 \
-THREADS=4 \
-CONNECTIONS=64 \
-DURATION=20s \
-./Benchmarks/streaming.sh
-```
-
-The benchmark sends the same generated binary request body to:
-
-- `/aggregate-upload` — ordinary Hudhud body aggregation.
-- `/stream-upload` — synchronous chunk streaming with no per-chunk future.
-
-Repeat with larger payloads, for example `UPLOAD_BYTES=1048576` and `UPLOAD_BYTES=8388608`.
-
-On Linux, `streaming.sh` samples `/proc/<pid>/status` during each isolated server run and prints `peak_rss_kib`. On other platforms, collect peak RSS with the platform's native process profiler.
-
 ## Benchmark servers
 
 The repository contains two release benchmark servers.
 
 ### Hudhud server
 
-Core routes:
+Core routes registered in the default benchmark server:
 
 - `/prepared` — prepared immutable plaintext response.
 - `/plaintext` — ordinary synchronous plaintext handler.
 - `/json` — ordinary synchronous JSON handler.
 - `/concurrent` — Swift async/await handler, isolating per-request Task bridge overhead.
-- `/response-stream-known` — two body parts with explicit Content-Length.
-- `/response-stream` — two-chunk unknown-length response using NIO HTTP/1.1 chunked framing.
-- `/response-stream-flush` — unknown-length stream with an intermediate flush, approximating latency-sensitive SSE-style writes.
 - `/users/:id` — one dynamic route parameter.
 - `/users/:id/posts/:post` — two dynamic route parameters.
+
+Feature-specific benchmark routes are registered only by their dedicated runners so they do not contaminate the core route table:
+
+- request streaming: `HUDHUD_UPLOAD_BENCHMARKS=1`.
+- response streaming: `HUDHUD_RESPONSE_STREAM_BENCHMARKS=1`.
+- router stress matrix: `HUDHUD_ROUTER_BENCHMARKS=1`.
 
 The prepared route precomputes:
 

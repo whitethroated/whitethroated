@@ -600,8 +600,8 @@ See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.
 
 1. Run the repeated Hudhud-to-raw-NIO suite on pinned hardware and record median/p99 deltas.
 2. Run the core dispatch and writer benchmarks before changing NIO response-part boxing.
-3. Profile ARC retain/release traffic for prepared, synchronous, dynamic-parameter, and async/await routes.
+3. Profile ARC retain/release traffic for prepared, synchronous, dynamic-parameter, async/await, and streaming routes.
 4. Quantify route depth/fan-out and middleware scaling with the committed matrices.
-5. Benchmark streaming versus aggregated uploads across 64 KiB, 1 MiB, and larger payloads while recording peak RSS.
-6. Add response-body streaming/file-region APIs without forcing ordinary responses off the current fast paths.
+5. Measure aggregated versus streaming uploads with both throughput and peak-RSS runners.
+6. Measure known-length, chunked, and flush-heavy response streams independently.
 7. Compare the pinned Actix Web control only after Hudhud's raw-NIO framework overhead is measured and explained.
