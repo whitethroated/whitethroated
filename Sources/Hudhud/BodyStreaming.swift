@@ -61,15 +61,22 @@ public struct BodyStreamConsumer: @unchecked Sendable {
     public typealias EndHandler = @Sendable ()
         -> EventLoopFuture<Response>
 
+    public typealias ErrorHandler = @Sendable (
+        Error
+    ) -> Void
+
     internal let chunkHandler: ChunkHandler
     internal let endHandler: EndHandler
+    internal let errorHandler: ErrorHandler?
 
     public init(
         onChunk: @escaping ChunkHandler,
-        onEnd: @escaping EndHandler
+        onEnd: @escaping EndHandler,
+        onError: ErrorHandler? = nil
     ) {
         self.chunkHandler = onChunk
         self.endHandler = onEnd
+        self.errorHandler = onError
     }
 }
 
@@ -130,6 +137,7 @@ internal final class BodyStreamSession: @unchecked Sendable {
         }
 
         finished = true
+        consumer.errorHandler?(error)
         responsePromise.fail(error)
     }
 }
