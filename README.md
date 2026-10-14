@@ -344,6 +344,52 @@ Streaming routes:
 
 A synchronous chunk consumer should return `nil` rather than allocating an already-succeeded future.
 
+## Streaming responses
+
+For generated output that should not be buffered into one large body, return a response stream:
+
+```swift
+app.get("/events") { _ in
+    Response.stream(
+        contentType: "text/event-stream"
+    ) { writer in
+        writer.writeStringAndFlush(
+            "data: ready\n\n"
+        )
+    }
+}
+```
+
+The producer returns an `EventLoopFuture<Void>`. Hudhud writes the final HTTP `end` part automatically after that future succeeds.
+
+Multiple chunks can be chained without flushing each chunk:
+
+```swift
+app.get("/stream") { _ in
+    Response.stream(
+        contentType: "text/plain"
+    ) { writer in
+        writer.writeString("hello").flatMap {
+            writer.writeString(" world")
+        }
+    }
+}
+```
+
+`ResponseStreamWriter` exposes:
+
+- `write(_:)` and `writeString(_:)` for buffered writes.
+- `writeAndFlush(_:)` and `writeStringAndFlush(_:)` for latency-sensitive output such as SSE.
+- `flush()` to flush previously queued chunks.
+- `eventLoop` for scheduling NIO-native asynchronous work.
+- `closeFuture` to observe client disconnects.
+
+Stream writes must be serialized on the writer's event loop. If a stream producer fails after response headers have started, Hudhud closes the connection rather than attempting to send a second HTTP response.
+
+For HTTP/1.1 responses without a declared `Content-Length`, SwiftNIO's response encoder owns chunked transfer framing. For HTTP/1.0, Hudhud closes the connection after an unknown-length stream unless the response explicitly provides a content length.
+
+HEAD requests suppress the stream producer entirely.
+
 ## Middleware
 
 The regular middleware API supports asynchronous NIO work:
@@ -396,6 +442,8 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Synchronous `useFast` middleware pipeline.
 - Opt-in async/await route handlers through SwiftNIO's Task bridge.
 - Direct `ByteBuffer` response support.
+- Direct `FileRegion` response support through NIO `IOData.fileRegion`.
+- Opt-in streaming responses with framework-owned HTTP termination.
 - Direct SwiftNIO `FileRegion` response support without ByteBuffer copying.
 - Bodyless-request empty-buffer reuse.
 - First request-body chunk reuse instead of unconditional copying.
