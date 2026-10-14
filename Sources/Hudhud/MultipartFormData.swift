@@ -1265,9 +1265,7 @@ private enum MultipartHeaderValue {
         }
 
         return Parsed(
-            token: token.trimmingCharacters(
-                in: .whitespaces
-            ),
+            token: token,
             parameters: parameters
         )
     }

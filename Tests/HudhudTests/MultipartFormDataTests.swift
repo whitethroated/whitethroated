@@ -53,6 +53,18 @@ final class MultipartFormDataTests: XCTestCase {
         )
     }
 
+    func testBoundaryParsingTrimsASCIIWhitespaceWithoutFoundation()
+        throws
+    {
+        XCTAssertEqual(
+            try MultipartFormDataParser.boundary(
+                from:
+                    "  multipart/form-data  ; boundary = \"trimmed\""
+            ),
+            "trimmed"
+        )
+    }
+
     func testBoundaryParsingRejectsWrongMediaType() {
         XCTAssertThrowsError(
             try MultipartFormDataParser.boundary(
