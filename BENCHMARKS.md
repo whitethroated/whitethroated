@@ -70,6 +70,25 @@ swift test -c release \
 
 This bypasses transport writes and isolates route lookup behavior, including exact-table hits and misses before trie fallback.
 
+## Middleware scaling benchmark
+
+The middleware matrix is implemented in Swift and shares one zero-layer baseline across both middleware types:
+
+```bash
+HUDHUD_MIDDLEWARE_BENCHMARK=1 \
+HUDHUD_MIDDLEWARE_ITERATIONS=1000000 \
+swift test -c release \
+  --filter CoreBenchmarkTests/testMiddlewareScalingBenchmark
+```
+
+It measures:
+
+- 0 middleware layers.
+- 1, 4, and 8 synchronous `useFast` pass-through layers.
+- 1, 4, and 8 future-based `use` pass-through layers.
+
+The endpoint is the same synchronous plaintext route in every case, so the delta isolates middleware dispatch, `Context` construction, and the future bridge introduced by asynchronous middleware.
+
 ## Transport writer benchmark
 
 ```bash
