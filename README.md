@@ -280,8 +280,9 @@ Default multipart safety limits are:
 - 32 headers per part.
 - 16 KiB of headers per part.
 - Boundary length up to 70 bytes.
+- 1 KiB maximum transport padding on a boundary line.
 
-Override them with `MultipartFormDataLimits`. The overall request size still uses the route's `maxBodyBytes`.
+Override them with `MultipartFormDataLimits`. The overall request size still uses the route's `maxBodyBytes`. Hudhud accepts RFC 2046 linear whitespace padding on boundary lines, but caps it to keep parser staging memory bounded.
 
 `MultipartPart` exposes the parsed field `name`, optional `filename`, headers, `contentType`, and `isFile`.
 
