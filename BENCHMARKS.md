@@ -167,6 +167,35 @@ Run the middleware scaling matrix:
 
 The matrix compares 0, 1, 4, and 8 pass-through layers for both the synchronous `useFast` path and the regular future-based middleware path.
 
+### Request-body benchmark
+
+Hudhud keeps ordinary request aggregation and streaming as separate route types. Compare the same POST payload against both paths:
+
+```bash
+./Benchmarks/upload.sh
+```
+
+The default matrix runs:
+
+- 1 KiB aggregated body.
+- 1 KiB streamed body.
+- 64 KiB aggregated body.
+- 64 KiB streamed body.
+
+Both routes return the same small text response. The streaming route discards each chunk immediately, while the ordinary route uses Hudhud's normal body aggregation path.
+
+Override load settings as usual:
+
+```bash
+WORKERS=8 \
+THREADS=8 \
+CONNECTIONS=128 \
+DURATION=30s \
+./Benchmarks/upload.sh
+```
+
+This benchmark is primarily useful together with process RSS/allocation profiling. Streaming can intentionally trade some per-chunk dispatch overhead for bounded request-body memory.
+
 ### Router scaling benchmark
 
 The benchmark server also registers dedicated route shapes for measuring router scaling.

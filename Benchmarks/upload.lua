@@ -1,7 +1,7 @@
-local upload_bytes = tonumber(
-    os.getenv("HUDHUD_UPLOAD_BYTES") or "65536"
-)
+local bytes = tonumber(os.getenv("HUDHUD_UPLOAD_BYTES")) or 1024
+local body = string.rep("a", bytes)
 
 wrk.method = "POST"
-wrk.body = string.rep("x", upload_bytes)
-wrk.headers["Content-Type"] = "application/octet-stream"
+wrk.body = body
+wrk.headers["content-type"] = "application/octet-stream"
+wrk.headers["content-length"] = tostring(bytes)
