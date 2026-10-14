@@ -19,6 +19,14 @@ internal final class PreparedResponseStorage: Sendable {
 }
 
 public struct PreparedResponse: Sendable {
+    internal static let defaultNotFoundStorage =
+        PreparedResponse
+            .text(
+                "Not Found",
+                status: .notFound
+            )
+            .storage
+
     internal let storage: PreparedResponseStorage
 
     internal init(
@@ -299,6 +307,15 @@ public struct PreparedResponse: Sendable {
                 headers: response.headers
             ),
             bodyBuffer: nil
+        )
+    }
+
+    public static func notFound()
+        -> PreparedResponse
+    {
+        text(
+            "Not Found",
+            status: .notFound
         )
     }
 

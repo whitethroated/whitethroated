@@ -1051,7 +1051,10 @@ public final class Application: @unchecked Sendable {
             )
 
         case .notFound:
-            return .immediate(.notFound())
+            return .prepared(
+                PreparedResponse
+                    .defaultNotFoundStorage
+            )
         }
     }
 
