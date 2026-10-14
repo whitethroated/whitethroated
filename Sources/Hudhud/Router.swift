@@ -339,7 +339,7 @@ final class Router: @unchecked Sendable {
         context: Context
     ) -> ResponderResult {
         switch lookup(
-            method: request.method,
+            method: request.routingMethod,
             uri: request.routingBytes
         ) {
         case .prepared(let prepared):
