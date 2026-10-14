@@ -281,6 +281,8 @@ Streaming responses use chunked HTTP/1.1 framing when no `Content-Length` is sup
 
 Unknown-length streams do not allocate or update a length tracker.
 
+`ResponseStreamWriter.write(...)` is a buffered enqueue operation. It writes into the NIO pipeline without installing a per-write completion promise and returns the event loop's cached succeeded `Void` future. This lets producers compose buffered writes with `flatMap` without waiting for a flush that only occurs when the producer completes. `writeAndFlush(...)` remains the explicit API for callers that need a future tied to a flushed transport write.
+
 A `Response.fileRegion` body is written as `IOData.fileRegion` directly. Hudhud derives content length from the region and does not copy file bytes into a `ByteBuffer`. The caller retains ownership of the underlying file handle and must keep it valid until the write completes.
 
 Hudhud must not introduce a convenience API that performs blocking file-open or file-stat work on an event-loop thread.

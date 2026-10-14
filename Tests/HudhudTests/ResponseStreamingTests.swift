@@ -11,6 +11,71 @@ private final class ResponseStreamCounter: @unchecked Sendable {
 }
 
 final class ResponseStreamingTests: XCTestCase {
+    func testBufferedWriteFutureDoesNotDependOnFrameworkFinalFlush() throws {
+        let app = Application()
+        let counter = ResponseStreamCounter()
+
+        app.get("/stream") { _ in
+            Response.stream { writer in
+                writer.writeString("a").flatMap {
+                    counter.producerCalls += 1
+                    return writer.writeString("b")
+                }
+            }
+        }
+
+        let channel = try makeChannel(app)
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+
+        XCTAssertEqual(
+            counter.producerCalls,
+            1
+        )
+
+        guard case .head? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response head")
+        }
+
+        var body = ""
+
+        while let part = try channel.readOutbound(
+            as: HTTPServerResponsePart.self
+        ) {
+            switch part {
+            case .head:
+                return XCTFail(
+                    "Unexpected second response head"
+                )
+
+            case .body(let data):
+                guard case .byteBuffer(let buffer) = data else {
+                    return XCTFail(
+                        "Expected ByteBuffer body"
+                    )
+                }
+
+                body += buffer.getString(
+                    at: buffer.readerIndex,
+                    length: buffer.readableBytes
+                ) ?? ""
+
+            case .end:
+                XCTAssertEqual(body, "ab")
+                return
+            }
+        }
+
+        XCTFail("Expected response end")
+    }
+
     func testResponseStreamWritesChunksAndFrameworkEndsResponse() throws {
         let app = Application()
 
