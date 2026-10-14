@@ -523,6 +523,29 @@ app.get("/peer") { _, context in
 
 Prepared and ordinary synchronous routes do not construct `Context`, so this metadata does not add address lookup work to those fast paths.
 
+
+When running behind a trusted reverse proxy, forwarded client IP resolution is explicit:
+
+```swift
+let trustedProxy = ProxyTrustPolicy { address in
+    address.ipAddress == "10.0.0.10"
+}
+
+app.get("/client-ip") { request, context in
+    let clientIP = context.clientIPAddress(
+        for: request,
+        trusting: trustedProxy
+    ) ?? "unknown"
+
+    return context.eventLoop
+        .makeSucceededFuture(
+            .text(clientIP)
+        )
+}
+```
+
+The resolver walks `X-Forwarded-For` from right to left. It only advances while the current hop is trusted. An untrusted immediate peer causes the header to be ignored completely, and malformed hops stop resolution rather than allowing the resolver to jump across a trust boundary.
+
 ## Middleware
 
 The regular middleware API supports asynchronous NIO work:

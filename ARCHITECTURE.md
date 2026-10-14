@@ -140,6 +140,15 @@ The transport passes its `Channel` internally, but reads `channel.remoteAddress`
 
 Middleware, NIO-future handlers, streaming handlers, and application error handlers receive the peer address through their existing `Context`. No reverse-DNS lookup or forwarded-header parsing occurs.
 
+
+Forwarded client-IP resolution is an explicit opt-in via `ProxyTrustPolicy`.
+
+- The raw socket peer remains authoritative unless that peer is trusted.
+- `X-Forwarded-For` is evaluated right-to-left.
+- Resolution stops at the first untrusted or malformed hop.
+- No forwarded-header work occurs unless application code calls the resolver.
+- Hudhud does not enable a global "trust all proxies" mode by default.
+
 ## Error paths
 
 Application error handling is a failure-only facility.
