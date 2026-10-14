@@ -86,6 +86,105 @@ final class ResponseStreamingTests: XCTestCase {
         XCTFail("Expected response end")
     }
 
+    func testHTTP11UnknownLengthStreamUsesChunkedWireFraming() throws {
+        let app = Application()
+
+        app.get("/stream") { _ in
+            Response.stream(
+                contentType: "text/plain"
+            ) { writer in
+                writer.writeString("hello").flatMap {
+                    writer.writeString(" world")
+                }
+            }
+        }
+
+        let channel = try makeEncodedChannel(app)
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+
+        let wire = try readEncodedResponse(
+            from: channel
+        )
+        let lowercased = wire.lowercased()
+
+        XCTAssertTrue(
+            lowercased.contains(
+                "transfer-encoding: chunked"
+            )
+        )
+        XCTAssertFalse(
+            lowercased.contains(
+                "content-length:"
+            )
+        )
+        XCTAssertTrue(
+            wire.contains(
+                "\r\n5\r\nhello\r\n"
+            )
+        )
+        XCTAssertTrue(
+            wire.contains(
+                "\r\n6\r\n world\r\n"
+            )
+        )
+        XCTAssertTrue(
+            wire.hasSuffix(
+                "0\r\n\r\n"
+            )
+        )
+    }
+
+    func testHTTP11KnownLengthStreamAvoidsChunkedWireFraming() throws {
+        let app = Application()
+
+        app.get("/stream") { _ in
+            Response
+                .stream(
+                    contentType: "text/plain"
+                ) { writer in
+                    writer.writeString("hello").flatMap {
+                        writer.writeString(" world")
+                    }
+                }
+                .header(
+                    "content-length",
+                    "11"
+                )
+        }
+
+        let channel = try makeEncodedChannel(app)
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+
+        let wire = try readEncodedResponse(
+            from: channel
+        )
+        let lowercased = wire.lowercased()
+
+        XCTAssertTrue(
+            lowercased.contains(
+                "content-length: 11"
+            )
+        )
+        XCTAssertFalse(
+            lowercased.contains(
+                "transfer-encoding:"
+            )
+        )
+        XCTAssertTrue(
+            wire.hasSuffix(
+                "\r\n\r\nhello world"
+            )
+        )
+    }
+
     func testHeadSuppressesResponseStreamProducer() throws {
         let app = Application()
         let counter = ResponseStreamCounter()
@@ -368,6 +467,52 @@ final class ResponseStreamingTests: XCTestCase {
         else {
             return XCTFail("Expected response end")
         }
+    }
+
+    private func makeEncodedChannel(
+        _ app: Application
+    ) throws -> EmbeddedChannel {
+        let channel = EmbeddedChannel()
+
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPResponseEncoder()
+            )
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        return channel
+    }
+
+    private func readEncodedResponse(
+        from channel: EmbeddedChannel
+    ) throws -> String {
+        var buffer = channel.allocator.buffer(
+            capacity: 256
+        )
+
+        while let data = try channel.readOutbound(
+            as: IOData.self
+        ) {
+            switch data {
+            case .byteBuffer(var part):
+                buffer.writeBuffer(&part)
+
+            case .fileRegion:
+                XCTFail(
+                    "Unexpected FileRegion in encoded response"
+                )
+            }
+        }
+
+        return buffer.getString(
+            at: buffer.readerIndex,
+            length: buffer.readableBytes
+        ) ?? ""
     }
 
     private func makeChannel(
