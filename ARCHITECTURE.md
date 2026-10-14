@@ -110,6 +110,8 @@ Prepared routes are stored directly in route endpoints.
 
 A `PreparedResponse` is a small value wrapper around immutable shared storage containing the fallback response, cached HTTP/1.1 head, and cached body buffer. Route endpoints, internal router matches, and responder results carry that storage reference directly. Public middleware wraps it back into `PreparedResponse` only when the middleware API requires the public type.
 
+The built-in 404 response uses process-wide immutable prepared storage. A router miss therefore avoids per-request response-body allocation and serialization while preserving the same public 404 semantics.
+
 ### Immediate
 
 A synchronous route returns a `Response` without creating an `EventLoopFuture`.

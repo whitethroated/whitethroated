@@ -115,6 +115,10 @@ final class CoreBenchmarkTests: XCTestCase {
                 )
             ),
             BenchmarkCase(
+                name: "not-found",
+                head: makeHead("/missing")
+            ),
+            BenchmarkCase(
                 name: "sync-method",
                 head: makeHead("/method")
             )

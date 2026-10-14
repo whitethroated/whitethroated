@@ -747,7 +747,10 @@ final class Router: @unchecked Sendable {
             return .streaming(session)
 
         case .notFound:
-            return .immediate(.notFound())
+            return .prepared(
+                PreparedResponse
+                    .defaultNotFoundStorage
+            )
         }
     }
 
