@@ -71,14 +71,43 @@ app.get("/concurrent") { _ async throws in
         .header("date", benchmarkDate)
 }
 
-app.get("/response-stream") { _ in
-    Response.stream(
-        contentType: "text/plain; charset=utf-8"
-    ) { writer in
-        writer.writeString("Hello, ").flatMap {
-            writer.writeString("World!")
+app.get("/response-stream-known") { _ in
+    Response
+        .stream(
+            contentType: "text/plain; charset=utf-8"
+        ) { writer in
+            writer.writeString("Hello, ").flatMap {
+                writer.writeString("World!")
+            }
         }
-    }
+        .header("content-length", "13")
+        .header("date", benchmarkDate)
+}
+
+app.get("/response-stream") { _ in
+    Response
+        .stream(
+            contentType: "text/plain; charset=utf-8"
+        ) { writer in
+            writer.writeString("Hello, ").flatMap {
+                writer.writeString("World!")
+            }
+        }
+        .header("date", benchmarkDate)
+}
+
+app.get("/response-stream-flush") { _ in
+    Response
+        .stream(
+            contentType: "text/plain; charset=utf-8"
+        ) { writer in
+            writer.writeStringAndFlush(
+                "Hello, "
+            ).flatMap {
+                writer.writeString("World!")
+            }
+        }
+        .header("date", benchmarkDate)
 }
 
 app.post("/aggregate-upload") { request in

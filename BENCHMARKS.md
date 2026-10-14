@@ -116,7 +116,9 @@ Core routes:
 - `/plaintext` — ordinary synchronous plaintext handler.
 - `/json` — ordinary synchronous JSON handler.
 - `/concurrent` — Swift async/await handler, isolating per-request Task bridge overhead.
-- `/response-stream` — two-chunk streaming response using the NIO-native response-stream writer.
+- `/response-stream-known` — two body parts with explicit Content-Length.
+- `/response-stream` — two-chunk unknown-length response using NIO HTTP/1.1 chunked framing.
+- `/response-stream-flush` — unknown-length stream with an intermediate flush, approximating latency-sensitive SSE-style writes.
 - `/users/:id` — one dynamic route parameter.
 - `/users/:id/posts/:post` — two dynamic route parameters.
 
@@ -167,6 +169,23 @@ Run the middleware scaling matrix:
 ```
 
 The matrix compares 0, 1, 4, and 8 pass-through layers for both the synchronous `useFast` path and the regular future-based middleware path.
+
+### Response-stream benchmark
+
+Run the response writer matrix:
+
+```bash
+./Benchmarks/response-stream.sh
+```
+
+It compares the same 13-byte logical payload across:
+
+1. Ordinary synchronous plaintext.
+2. Two streamed body parts with explicit `Content-Length: 13`.
+3. Two streamed body parts with HTTP/1.1 chunked framing.
+4. Chunked streaming with an intermediate flush.
+
+This separates multi-part response machinery from chunked framing and explicit flush cost. The intermediate-flush case is intentionally expected to trade throughput for lower delivery latency.
 
 ### Request-body benchmark
 
@@ -451,7 +470,7 @@ Next measurements and optimizations:
 1. Quantify Hudhud overhead relative to the raw NIO control.
 2. Measure ordinary synchronous `/plaintext` against prepared `/prepared`.
 3. Measure async/await `/concurrent` against synchronous `/plaintext` to quantify Task bridge cost.
-4. Measure `/response-stream` against `/plaintext` to quantify streaming-response machinery and multi-part write overhead.
+4. Run `Benchmarks/response-stream.sh` to separate multi-part writes, chunked framing, and flush overhead.
 5. Run the router matrix and quantify depth/fan-out cost.
 4. Quantify fast and asynchronous middleware overhead per layer.
 5. Profile ARC retain/release traffic.
