@@ -42,7 +42,8 @@ ITERATIONS=5000000 ./Benchmarks/core.sh
 
 The benchmark exercises the transport dispatch path without opening a socket:
 
-- prepared static route.
+- prepared canonical static route through the exact full-path table.
+- the same prepared route with a trailing slash, forcing trie fallback.
 - synchronous static route.
 - synchronous single-parameter route with parameter decoding.
 - synchronous targeted-query route with query decoding.

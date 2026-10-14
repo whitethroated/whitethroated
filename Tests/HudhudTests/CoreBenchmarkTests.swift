@@ -58,8 +58,12 @@ final class CoreBenchmarkTests: XCTestCase {
 
         let cases = [
             BenchmarkCase(
-                name: "prepared-static",
+                name: "prepared-exact",
                 head: makeHead("/prepared")
+            ),
+            BenchmarkCase(
+                name: "prepared-trie",
+                head: makeHead("/prepared/")
             ),
             BenchmarkCase(
                 name: "sync-static",
