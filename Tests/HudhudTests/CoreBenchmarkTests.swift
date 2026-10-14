@@ -225,6 +225,83 @@ final class CoreBenchmarkTests: XCTestCase {
         print("")
     }
 
+    func testMiddlewareScalingBenchmark() throws {
+        let environment = ProcessInfo.processInfo.environment
+
+        try XCTSkipUnless(
+            environment["HUDHUD_MIDDLEWARE_BENCHMARK"] == "1",
+            "Set HUDHUD_MIDDLEWARE_BENCHMARK=1 to run middleware benchmarks."
+        )
+
+        let iterations = Int(
+            environment["HUDHUD_MIDDLEWARE_ITERATIONS"]
+                ?? "1000000"
+        ) ?? 1_000_000
+
+        precondition(iterations > 0)
+
+        let loop = EmbeddedEventLoop()
+        let emptyBody = ByteBufferAllocator().buffer(
+            capacity: 0
+        )
+        let head = makeHead("/plaintext")
+
+        print("")
+        print(
+            "Hudhud middleware scaling benchmark "
+            + "iterations=\(iterations)"
+        )
+
+        let baseline = makeMiddlewareBenchmarkApp()
+
+        benchmark(
+            BenchmarkCase(
+                name: "middleware-0",
+                head: head
+            ),
+            iterations: iterations,
+            app: baseline,
+            eventLoop: loop,
+            body: emptyBody
+        )
+
+        for layers in [1, 4, 8] {
+            let app = makeMiddlewareBenchmarkApp(
+                fastLayers: layers
+            )
+
+            benchmark(
+                BenchmarkCase(
+                    name: "fast-\(layers)",
+                    head: head
+                ),
+                iterations: iterations,
+                app: app,
+                eventLoop: loop,
+                body: emptyBody
+            )
+        }
+
+        for layers in [1, 4, 8] {
+            let app = makeMiddlewareBenchmarkApp(
+                asynchronousLayers: layers
+            )
+
+            benchmark(
+                BenchmarkCase(
+                    name: "async-\(layers)",
+                    head: head
+                ),
+                iterations: iterations,
+                app: app,
+                eventLoop: loop,
+                body: emptyBody
+            )
+        }
+
+        print("")
+    }
+
     func testTransportWriterBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
 
@@ -295,6 +372,31 @@ final class CoreBenchmarkTests: XCTestCase {
         )
 
         print("")
+    }
+
+    private func makeMiddlewareBenchmarkApp(
+        fastLayers: Int = 0,
+        asynchronousLayers: Int = 0
+    ) -> Application {
+        let app = Application()
+
+        for _ in 0..<fastLayers {
+            app.useFast { request, _, next in
+                next(request)
+            }
+        }
+
+        for _ in 0..<asynchronousLayers {
+            app.use { request, _, next in
+                next(request)
+            }
+        }
+
+        app.get("/plaintext") { _ in
+            .text("Hello, World!")
+        }
+
+        return app
     }
 
     private func benchmarkRouter(
