@@ -187,6 +187,8 @@ It compares the same 13-byte logical payload across:
 
 This separates multi-part response machinery from chunked framing and explicit flush cost. The intermediate-flush case is intentionally expected to trade throughput for lower delivery latency.
 
+These routes are registered only when `HUDHUD_RESPONSE_STREAM_BENCHMARKS=1`; the runner sets it automatically so the normal prepared/raw-NIO/Actix baseline does not inherit extra GET route fan-out from this benchmark.
+
 ### Request-body benchmark
 
 Hudhud keeps ordinary request aggregation and streaming as separate route types. Compare the same POST payload against both paths:

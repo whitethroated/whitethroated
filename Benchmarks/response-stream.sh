@@ -21,6 +21,7 @@ swift build -c release --product hudhud-benchmark-server
 HUDHUD_HOST="$HOST" \
 HUDHUD_PORT="$PORT" \
 HUDHUD_THREADS="$WORKERS" \
+HUDHUD_RESPONSE_STREAM_BENCHMARKS=1 \
   .build/release/hudhud-benchmark-server \
   >/tmp/hudhud-response-stream-benchmark.log 2>&1 &
 
