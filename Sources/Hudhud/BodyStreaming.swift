@@ -54,6 +54,10 @@ public struct StreamRequest: @unchecked Sendable {
 }
 
 public struct BodyStreamConsumer: @unchecked Sendable {
+    public typealias SyncChunkHandler = @Sendable (
+        ByteBuffer
+    ) -> Void
+
     public typealias ChunkHandler = @Sendable (
         ByteBuffer
     ) -> EventLoopFuture<Void>?
@@ -76,6 +80,32 @@ public struct BodyStreamConsumer: @unchecked Sendable {
     internal let chunkHandler: ChunkHandler
     internal let endResponder: EndResponder
     internal let errorHandler: ErrorHandler?
+
+    public init(
+        onChunk: @escaping SyncChunkHandler,
+        onEnd: @escaping EndHandler,
+        onError: ErrorHandler? = nil
+    ) {
+        self.chunkHandler = { buffer in
+            onChunk(buffer)
+            return nil
+        }
+        self.endResponder = .asynchronous(onEnd)
+        self.errorHandler = onError
+    }
+
+    public init(
+        onChunk: @escaping SyncChunkHandler,
+        onEnd: @escaping SyncEndHandler,
+        onError: ErrorHandler? = nil
+    ) {
+        self.chunkHandler = { buffer in
+            onChunk(buffer)
+            return nil
+        }
+        self.endResponder = .synchronous(onEnd)
+        self.errorHandler = onError
+    }
 
     public init(
         onChunk: @escaping ChunkHandler,
