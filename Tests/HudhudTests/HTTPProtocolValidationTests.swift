@@ -81,6 +81,63 @@ final class HTTPProtocolValidationTests: XCTestCase {
         )
     }
 
+    func testOutboundResponseSplittingIsRejectedByServerPipeline()
+        throws
+    {
+        let app = Application()
+
+        app.get("/redirect") { _ in
+            .redirect(
+                "/safe\r\nx-injected: yes"
+            )
+        }
+
+        let channel = EmbeddedChannel()
+
+        try channel.pipeline.syncOperations
+            .configureHTTPServerPipeline(
+                withPipeliningAssistance: true,
+                withErrorHandling: true
+            )
+
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        var bytes = channel.allocator.buffer(
+            capacity: 96
+        )
+        bytes.writeString(
+            "GET /redirect HTTP/1.1\r\n"
+                + "Host: localhost\r\n"
+                + "\r\n"
+        )
+
+        do {
+            _ = try channel.writeInbound(bytes)
+        } catch {
+            // The response-header validator may surface the
+            // invalid-header error through EmbeddedChannel.
+        }
+
+        channel.embeddedEventLoop.run()
+
+        let outbound = try readOutboundText(
+            from: channel
+        )
+
+        XCTAssertFalse(
+            outbound.contains(
+                "x-injected"
+            )
+        )
+        XCTAssertTrue(outbound.isEmpty)
+        XCTAssertFalse(channel.isActive)
+    }
+
     func testInvalidDuplicateContentLengthIsRejectedBeforeHudhud()
         throws
     {
