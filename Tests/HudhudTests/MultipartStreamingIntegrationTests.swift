@@ -23,7 +23,7 @@ final class MultipartStreamingIntegrationTests:
         app.postStream(
             "/upload",
             maxBodyBytes: 1024 * 1024
-        ) { request, context in
+        ) { request, _ in
             let parser: MultipartFormDataParser
 
             do {
@@ -43,51 +43,44 @@ final class MultipartStreamingIntegrationTests:
             }
 
             return BodyStreamConsumer(
-                onChunk: { chunk in
-                    do {
-                        try parser.receive(
-                            chunk
-                        ) { event in
-                            switch event {
-                            case .partBegin(let part):
-                                state.activeName =
-                                    part.name
+                onChunkThrowing: { chunk in
+                    try parser.receive(
+                        chunk
+                    ) { event in
+                        switch event {
+                        case .partBegin(let part):
+                            state.activeName =
+                                part.name
 
-                                if part.name == "file" {
-                                    state.filename =
-                                        part.filename
-                                }
-
-                            case .partBody(let body):
-                                if
-                                    state.activeName
-                                    == "title"
-                                {
-                                    state.fieldValue +=
-                                        body.getString(
-                                            at:
-                                                body.readerIndex,
-                                            length:
-                                                body
-                                                    .readableBytes
-                                        ) ?? ""
-                                } else if
-                                    state.activeName
-                                    == "file"
-                                {
-                                    state.fileBytes +=
-                                        body.readableBytes
-                                }
-
-                            case .partEnd:
-                                state.activeName = nil
+                            if part.name == "file" {
+                                state.filename =
+                                    part.filename
                             }
-                        }
 
-                        return nil
-                    } catch {
-                        return context.eventLoop
-                            .makeFailedFuture(error)
+                        case .partBody(let body):
+                            if
+                                state.activeName
+                                == "title"
+                            {
+                                state.fieldValue +=
+                                    body.getString(
+                                        at:
+                                            body.readerIndex,
+                                        length:
+                                            body
+                                                .readableBytes
+                                    ) ?? ""
+                            } else if
+                                state.activeName
+                                == "file"
+                            {
+                                state.fileBytes +=
+                                    body.readableBytes
+                            }
+
+                        case .partEnd:
+                            state.activeName = nil
+                        }
                     }
                 },
                 onEnd: {

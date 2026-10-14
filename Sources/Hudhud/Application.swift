@@ -1001,23 +1001,31 @@ public final class Application: @unchecked Sendable {
             )
 
             if body.readableBytes > 0 {
-                if let chunkFuture =
-                    session.receive(body)
-                {
-                    let responseFuture =
-                        chunkFuture.hop(
-                            to: eventLoop
-                        ).flatMap {
-                            session.finish()
-                            return session.responseFuture
-                        }.flatMapError { error in
-                            session.fail(error)
-                            return eventLoop.makeFailedFuture(
-                                error
-                            )
-                        }
+                do {
+                    if let chunkFuture =
+                        try session.receive(body)
+                    {
+                        let responseFuture =
+                            chunkFuture.hop(
+                                to: eventLoop
+                            ).flatMap {
+                                session.finish()
+                                return session.responseFuture
+                            }.flatMapError { error in
+                                session.fail(error)
+                                return eventLoop
+                                    .makeFailedFuture(
+                                        error
+                                    )
+                            }
 
-                    return .future(responseFuture)
+                        return .future(responseFuture)
+                    }
+                } catch {
+                    session.fail(error)
+                    return .future(
+                        session.responseFuture
+                    )
                 }
             }
 

@@ -213,9 +213,9 @@ Measure multipart parser overhead independently from request streaming:
 For each 1 KiB, 64 KiB, and 1 MiB file payload, the runner sends the **same multipart/form-data wire body** to:
 
 1. `/upload-stream` — raw synchronous streaming control that discards chunks.
-2. `/upload-multipart` — the streaming multipart parser with emitted events discarded.
+2. `/upload-multipart` — the streaming multipart parser using the throwing-synchronous chunk path, with emitted events discarded.
 
-Because both cases receive identical multipart headers, boundaries, body bytes, worker count, connection count, and HTTP settings, most of the delta isolates multipart parsing/state-machine cost.
+Because both cases receive identical multipart headers, boundaries, body bytes, worker count, connection count, and HTTP settings—and neither allocates a future for successful chunks—most of the delta isolates multipart parsing/state-machine cost.
 
 Override the load when profiling:
 

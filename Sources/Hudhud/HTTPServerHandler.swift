@@ -354,7 +354,20 @@ final class HTTPServerHandler: ChannelInboundHandler {
         start: StreamingTransportStart,
         context: ChannelHandlerContext
     ) {
-        guard let future = session.receive(body) else {
+        let future: EventLoopFuture<Void>?
+
+        do {
+            future = try session.receive(body)
+        } catch {
+            failStreamingChunk(
+                error,
+                start: start,
+                context: context
+            )
+            return
+        }
+
+        guard let future else {
             return
         }
 
@@ -386,23 +399,34 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 )
 
             case .failure(let error):
-                self.streamingFailure = error
-                self.streamingPendingChunks
-                    .removeAll(
-                        keepingCapacity: true
-                    )
-                start.registration.cancel(error)
-
-                if self.streamingEndReceived {
-                    self.finalizeStreamingIfReady(
-                        context: context
-                    )
-                } else {
-                    self.resumeStreamingReads(
-                        context: context
-                    )
-                }
+                self.failStreamingChunk(
+                    error,
+                    start: start,
+                    context: context
+                )
             }
+        }
+    }
+
+    private func failStreamingChunk(
+        _ error: Error,
+        start: StreamingTransportStart,
+        context: ChannelHandlerContext
+    ) {
+        streamingFailure = error
+        streamingPendingChunks.removeAll(
+            keepingCapacity: true
+        )
+        start.registration.cancel(error)
+
+        if streamingEndReceived {
+            finalizeStreamingIfReady(
+                context: context
+            )
+        } else {
+            resumeStreamingReads(
+                context: context
+            )
         }
     }
 

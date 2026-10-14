@@ -255,7 +255,8 @@ A streaming route receives a `StreamRequest` plus a `BodyStreamConsumer`. The re
 
 Streaming invariants:
 
-- Synchronous chunk consumption returns `nil` and allocates no future.
+- Non-throwing synchronous chunk consumption invokes the user closure directly and allocates no future.
+- Throwing synchronous chunk consumption also allocates no future on success; thrown errors enter the streaming failure path directly.
 - Async chunk consumption returns `EventLoopFuture<Void>`.
 - Async chunk futures are hopped to the channel event loop before transport state is mutated.
 - Channel auto-read is paused while an async chunk is pending.
@@ -291,6 +292,8 @@ Runtime invariants:
 - The parser accepts binary part bodies and does not decode part payload bytes as text.
 - `Content-Disposition: form-data; name=...` is required for every part.
 - Parser state is expected to remain confined to the request event-loop flow. The parser is marked `@unchecked Sendable` only so it can be captured by Hudhud's `@Sendable` streaming closures without introducing locking on every chunk.
+- Multipart parsing should normally use the throwing-synchronous chunk responder so successful parsing does not allocate an `EventLoopFuture` per inbound chunk.
+- Client-provided filenames are metadata only and must not be trusted as filesystem paths.
 
 The parser's internal staging buffer can grow to the size of an inbound chunk plus multipart framing state, but it is not a whole-upload accumulator.
 

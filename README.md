@@ -170,6 +170,19 @@ app.postStream(
 
 The synchronous `onChunk` overload returns `Void` and does not allocate an `EventLoopFuture` per chunk. Use it for CPU-only processing, counters, incremental parsers, or sinks that complete synchronously.
 
+For synchronous processing that can fail, use `onChunkThrowing:`. Errors enter Hudhud's normal streaming error path without allocating a future on successful chunks:
+
+```swift
+BodyStreamConsumer(
+    onChunkThrowing: { chunk in
+        try parser.consume(chunk)
+    },
+    onEnd: {
+        .noContent()
+    }
+)
+```
+
 For asynchronous sinks, return an `EventLoopFuture<Void>` from `onChunk`:
 
 ```swift
@@ -207,7 +220,7 @@ Multipart uploads reuse the request-streaming path and do not require whole-body
 app.postStream(
     "/upload",
     maxBodyBytes: 100 * 1024 * 1024
-) { request, context in
+) { request, _ in
     let parser: MultipartFormDataParser
 
     do {
@@ -225,28 +238,21 @@ app.postStream(
     }
 
     return BodyStreamConsumer(
-        onChunk: { chunk in
-            do {
-                try parser.receive(chunk) { event in
-                    switch event {
-                    case .partBegin(let part):
-                        print(
-                            part.name,
-                            part.filename ?? ""
-                        )
+        onChunkThrowing: { chunk in
+            try parser.receive(chunk) { event in
+                switch event {
+                case .partBegin(let part):
+                    print(
+                        part.name,
+                        part.filename ?? ""
+                    )
 
-                    case .partBody(let bytes):
-                        // Incrementally persist or process bytes.
+                case .partBody(let bytes):
+                    // Incrementally persist or process bytes.
 
-                    case .partEnd:
-                        break
-                    }
+                case .partEnd:
+                    break
                 }
-
-                return nil
-            } catch {
-                return context.eventLoop
-                    .makeFailedFuture(error)
             }
         },
         onEnd: {
@@ -276,6 +282,8 @@ Default multipart safety limits are:
 Override them with `MultipartFormDataLimits`. The overall request size still uses the route's `maxBodyBytes`.
 
 `MultipartPart` exposes the parsed field `name`, optional `filename`, headers, `contentType`, and `isFile`.
+
+Treat `filename` as untrusted client metadata. Do not concatenate it directly into a filesystem path; generate or sanitize the destination name in application code.
 
 ## Prepared responses
 
