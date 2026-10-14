@@ -103,6 +103,76 @@ private enum StaticBucket {
     }
 }
 
+private struct ExactStaticEdge {
+    let bytes: [UInt8]
+    let endpoint: RouteEndpoint
+}
+
+private enum ExactStaticBucket {
+    case single(ExactStaticEdge)
+    case collisions([ExactStaticEdge])
+
+    @inline(__always)
+    func matching<C: Collection>(
+        _ bytes: C
+    ) -> RouteEndpoint?
+    where C.Element == UInt8 {
+        switch self {
+        case .single(let edge):
+            return Router.equals(
+                edge.bytes,
+                bytes
+            )
+            ? edge.endpoint
+            : nil
+
+        case .collisions(let edges):
+            for edge in edges
+            where Router.equals(
+                edge.bytes,
+                bytes
+            ) {
+                return edge.endpoint
+            }
+
+            return nil
+        }
+    }
+
+    func upserting(
+        _ edge: ExactStaticEdge
+    ) -> ExactStaticBucket {
+        switch self {
+        case .single(let existing):
+            if Router.equals(
+                existing.bytes,
+                edge.bytes
+            ) {
+                return .single(edge)
+            }
+
+            return .collisions([
+                existing,
+                edge
+            ])
+
+        case .collisions(var edges):
+            for index in edges.indices {
+                if Router.equals(
+                    edges[index].bytes,
+                    edge.bytes
+                ) {
+                    edges[index] = edge
+                    return .collisions(edges)
+                }
+            }
+
+            edges.append(edge)
+            return .collisions(edges)
+        }
+    }
+}
+
 private final class RouterNode {
     var staticChildren: [UInt64: StaticBucket] = [:]
     var parameterChild: RouterNode?
@@ -140,6 +210,27 @@ final class Router: @unchecked Sendable {
     private var connectRoot: RouterNode?
     private var traceRoot: RouterNode?
     private var otherRoots: [String: RouterNode] = [:]
+
+    private var getExact:
+        [UInt64: ExactStaticBucket] = [:]
+    private var postExact:
+        [UInt64: ExactStaticBucket] = [:]
+    private var putExact:
+        [UInt64: ExactStaticBucket] = [:]
+    private var patchExact:
+        [UInt64: ExactStaticBucket] = [:]
+    private var deleteExact:
+        [UInt64: ExactStaticBucket] = [:]
+    private var headExact:
+        [UInt64: ExactStaticBucket] = [:]
+    private var optionsExact:
+        [UInt64: ExactStaticBucket] = [:]
+    private var connectExact:
+        [UInt64: ExactStaticBucket] = [:]
+    private var traceExact:
+        [UInt64: ExactStaticBucket] = [:]
+    private var otherExact:
+        [String: [UInt64: ExactStaticBucket]] = [:]
 
     func add(
         method: HTTPMethod,
@@ -346,64 +437,60 @@ final class Router: @unchecked Sendable {
         switch method {
         case .GET:
             return lookup(
+                exact: getExact,
                 root: getRoot,
-                fallbackRoot: nil,
                 uri: uri
             )
 
         case .POST:
             return lookup(
+                exact: postExact,
                 root: postRoot,
-                fallbackRoot: nil,
                 uri: uri
             )
 
         case .PUT:
             return lookup(
+                exact: putExact,
                 root: putRoot,
-                fallbackRoot: nil,
                 uri: uri
             )
 
         case .PATCH:
             return lookup(
+                exact: patchExact,
                 root: patchRoot,
-                fallbackRoot: nil,
                 uri: uri
             )
 
         case .DELETE:
             return lookup(
+                exact: deleteExact,
                 root: deleteRoot,
-                fallbackRoot: nil,
                 uri: uri
             )
 
         case .HEAD:
-            return lookup(
-                root: headRoot,
-                fallbackRoot: getRoot,
-                uri: uri
-            )
+            return lookupHead(uri: uri)
 
         case .OPTIONS:
             return lookup(
+                exact: optionsExact,
                 root: optionsRoot,
-                fallbackRoot: nil,
                 uri: uri
             )
 
         case .CONNECT:
             return lookup(
+                exact: connectExact,
                 root: connectRoot,
-                fallbackRoot: nil,
                 uri: uri
             )
 
         case .TRACE:
             return lookup(
+                exact: traceExact,
                 root: traceRoot,
-                fallbackRoot: nil,
                 uri: uri
             )
 
@@ -420,17 +507,73 @@ final class Router: @unchecked Sendable {
         method: HTTPMethod,
         uri: String.UTF8View
     ) -> RouterMatch {
-        let primary = root(for: method)
-        let fallback =
-            method == .head
-            ? getRoot
-            : nil
+        switch method {
+        case .get:
+            return lookup(
+                exact: getExact,
+                root: getRoot,
+                uri: uri
+            )
 
-        return lookup(
-            root: primary,
-            fallbackRoot: fallback,
-            uri: uri
-        )
+        case .post:
+            return lookup(
+                exact: postExact,
+                root: postRoot,
+                uri: uri
+            )
+
+        case .put:
+            return lookup(
+                exact: putExact,
+                root: putRoot,
+                uri: uri
+            )
+
+        case .patch:
+            return lookup(
+                exact: patchExact,
+                root: patchRoot,
+                uri: uri
+            )
+
+        case .delete:
+            return lookup(
+                exact: deleteExact,
+                root: deleteRoot,
+                uri: uri
+            )
+
+        case .head:
+            return lookupHead(uri: uri)
+
+        case .options:
+            return lookup(
+                exact: optionsExact,
+                root: optionsRoot,
+                uri: uri
+            )
+
+        case .connect:
+            return lookup(
+                exact: connectExact,
+                root: connectRoot,
+                uri: uri
+            )
+
+        case .trace:
+            return lookup(
+                exact: traceExact,
+                root: traceRoot,
+                uri: uri
+            )
+
+        case .other(let value):
+            return lookup(
+                exact: otherExact[value] ?? [:],
+                root: otherRoots[value],
+                uri: uri
+            )
+        }
     }
 
     private func insert(
@@ -441,6 +584,10 @@ final class Router: @unchecked Sendable {
         precondition(
             !path.contains("//"),
             "Route path cannot contain repeated slashes"
+        )
+        precondition(
+            !path.contains("?"),
+            "Route path cannot contain a query string"
         )
 
         let root = rootForInsert(method)
@@ -527,63 +674,125 @@ final class Router: @unchecked Sendable {
             node = child
         }
 
-        node.endpoint = RouteEndpoint(
+        let endpoint = RouteEndpoint(
             responder: responder,
             parameterNames: parameterNames
         )
+
+        node.endpoint = endpoint
+
+        if parameterNames.isEmpty {
+            registerExactStatic(
+                method: method,
+                segments: segments,
+                endpoint: endpoint
+            )
+        }
     }
 
     @inline(__always)
     private func lookup(
+        exact: [UInt64: ExactStaticBucket],
         root: RouterNode?,
-        fallbackRoot: RouterNode?,
         uri: String.UTF8View
     ) -> RouterMatch {
-        if let root {
-            if let contiguous = uri
-                .withContiguousStorageIfAvailable({
-                    bytes in
-
-                    match(
-                        uri: bytes,
-                        from: root
-                    )
-                })
-            {
-                if let match = contiguous {
-                    return makeMatch(match)
-                }
-            } else if let match = match(
-                uri: uri,
-                from: root
-            ) {
-                return makeMatch(match)
-            }
+        if
+            let endpoint = exactMatch(
+                exact,
+                uri: uri
+            )
+        {
+            return makeMatch(endpoint)
         }
 
-        if let fallbackRoot {
-            if let contiguous = uri
-                .withContiguousStorageIfAvailable({
-                    bytes in
-
-                    match(
-                        uri: bytes,
-                        from: fallbackRoot
-                    )
-                })
-            {
-                if let match = contiguous {
-                    return makeMatch(match)
-                }
-            } else if let match = match(
-                uri: uri,
-                from: fallbackRoot
-            ) {
-                return makeMatch(match)
-            }
+        if let match = trieMatch(
+            root: root,
+            uri: uri
+        ) {
+            return makeMatch(match)
         }
 
         return .notFound
+    }
+
+    @inline(__always)
+    private func lookupHead(
+        uri: String.UTF8View
+    ) -> RouterMatch {
+        if
+            let endpoint = exactMatch(
+                headExact,
+                uri: uri
+            )
+        {
+            return makeMatch(endpoint)
+        }
+
+        if let match = trieMatch(
+            root: headRoot,
+            uri: uri
+        ) {
+            return makeMatch(match)
+        }
+
+        if
+            let endpoint = exactMatch(
+                getExact,
+                uri: uri
+            )
+        {
+            return makeMatch(endpoint)
+        }
+
+        if let match = trieMatch(
+            root: getRoot,
+            uri: uri
+        ) {
+            return makeMatch(match)
+        }
+
+        return .notFound
+    }
+
+    @inline(__always)
+    private func trieMatch(
+        root: RouterNode?,
+        uri: String.UTF8View
+    ) -> (
+        endpoint: RouteEndpoint,
+        parameterRanges: RouteParameterRanges
+    )? {
+        guard let root else {
+            return nil
+        }
+
+        if let contiguous = uri
+            .withContiguousStorageIfAvailable({
+                bytes in
+
+                match(
+                    uri: bytes,
+                    from: root
+                )
+            })
+        {
+            return contiguous
+        }
+
+        return match(
+            uri: uri,
+            from: root
+        )
+    }
+
+    @inline(__always)
+    private func makeMatch(
+        _ endpoint: RouteEndpoint
+    ) -> RouterMatch {
+        makeMatch((
+            endpoint: endpoint,
+            parameterRanges: .none
+        ))
     }
 
     @inline(__always)
@@ -692,6 +901,178 @@ final class Router: @unchecked Sendable {
         case .other(let value):
             streamingOtherMethods.insert(value)
         }
+    }
+
+    private func registerExactStatic(
+        method: HTTPMethod,
+        segments: [Substring],
+        endpoint: RouteEndpoint
+    ) {
+        var bytes: [UInt8] = [Self.slash]
+
+        for index in segments.indices {
+            if index != segments.startIndex {
+                bytes.append(Self.slash)
+            }
+
+            bytes.append(
+                contentsOf: segments[index].utf8
+            )
+        }
+
+        let edge = ExactStaticEdge(
+            bytes: bytes,
+            endpoint: endpoint
+        )
+        let hash = Self.hash(bytes)
+
+        switch method {
+        case .get:
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &getExact
+            )
+
+        case .post:
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &postExact
+            )
+
+        case .put:
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &putExact
+            )
+
+        case .patch:
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &patchExact
+            )
+
+        case .delete:
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &deleteExact
+            )
+
+        case .head:
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &headExact
+            )
+
+        case .options:
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &optionsExact
+            )
+
+        case .connect:
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &connectExact
+            )
+
+        case .trace:
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &traceExact
+            )
+
+        case .other(let value):
+            var table = otherExact[value] ?? [:]
+
+            Self.upsertExact(
+                edge,
+                hash: hash,
+                into: &table
+            )
+
+            otherExact[value] = table
+        }
+    }
+
+    private static func upsertExact(
+        _ edge: ExactStaticEdge,
+        hash: UInt64,
+        into table:
+            inout [UInt64: ExactStaticBucket]
+    ) {
+        if let bucket = table[hash] {
+            table[hash] =
+                bucket.upserting(edge)
+        } else {
+            table[hash] = .single(edge)
+        }
+    }
+
+    @inline(__always)
+    private func exactMatch(
+        _ table: [UInt64: ExactStaticBucket],
+        uri: String.UTF8View
+    ) -> RouteEndpoint? {
+        guard !table.isEmpty else {
+            return nil
+        }
+
+        if let contiguous = uri
+            .withContiguousStorageIfAvailable({
+                bytes in
+
+                exactMatch(
+                    table,
+                    bytes: bytes
+                )
+            })
+        {
+            return contiguous
+        }
+
+        return exactMatch(
+            table,
+            bytes: uri
+        )
+    }
+
+    @inline(__always)
+    private func exactMatch<C: Collection>(
+        _ table: [UInt64: ExactStaticBucket],
+        bytes: C
+    ) -> RouteEndpoint?
+    where C.Element == UInt8 {
+        var cursor = bytes.startIndex
+        var hash = Self.hashOffset
+
+        while cursor != bytes.endIndex {
+            let byte = bytes[cursor]
+
+            if byte == Self.query {
+                break
+            }
+
+            hash ^= UInt64(byte)
+            hash &*= Self.hashPrime
+            bytes.formIndex(after: &cursor)
+        }
+
+        guard let bucket = table[hash] else {
+            return nil
+        }
+
+        return bucket.matching(
+            bytes[bytes.startIndex..<cursor]
+        )
     }
 
     private func rootForInsert(

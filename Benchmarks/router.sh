@@ -69,16 +69,17 @@ run_case() {
     "http://$HOST:$PORT$route"
 }
 
-run_case "Prepared baseline" "/prepared"
+run_case "Prepared exact-static baseline" "/prepared"
+run_case "Prepared trie-fallback control" "/prepared/"
 
-run_case "Static depth 1" "/depth/s1"
-run_case "Static depth 4" "/depth/s1/s2/s3/s4"
-run_case "Static depth 8" "/depth/s1/s2/s3/s4/s5/s6/s7/s8"
-run_case "Static depth 16" "/depth/s1/s2/s3/s4/s5/s6/s7/s8/s9/s10/s11/s12/s13/s14/s15/s16"
+run_case "Trie static depth 1" "/depth/s1/"
+run_case "Trie static depth 4" "/depth/s1/s2/s3/s4/"
+run_case "Trie static depth 8" "/depth/s1/s2/s3/s4/s5/s6/s7/s8/"
+run_case "Trie static depth 16" "/depth/s1/s2/s3/s4/s5/s6/s7/s8/s9/s10/s11/s12/s13/s14/s15/s16/"
 
-run_case "Fan-out 16" "/fanout/16/r15"
-run_case "Fan-out 256" "/fanout/256/r255"
-run_case "Fan-out 4096" "/fanout/4096/r4095"
+run_case "Trie fan-out 16" "/fanout/16/r15/"
+run_case "Trie fan-out 256" "/fanout/256/r255/"
+run_case "Trie fan-out 4096" "/fanout/4096/r4095/"
 
 run_case "Dynamic params 1" "/dynamic/a/v1"
 run_case "Dynamic params 2" "/dynamic/a/v1/b/v2"

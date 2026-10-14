@@ -160,6 +160,27 @@ A fast middleware that transforms a prepared response into a mutable `Response` 
 
 ## Routing
 
+Canonical static routes are registered in two setup-time structures:
+
+1. An exact full-path table keyed by FNV-1a hash.
+2. The segment trie used by dynamic parameters, catch-all routes, and semantic fallbacks.
+
+For a canonical static URI, Hudhud hashes the path bytes once up to the query marker and performs one exact-table lookup. No `String` is created and route parameters are not involved.
+
+If exact lookup misses, routing falls back to the existing UTF-8 trie. This preserves trailing-slash behavior and mixed static/dynamic route precedence.
+
+`HEAD` lookup order is intentionally:
+
+1. Exact `HEAD` route.
+2. `HEAD` trie route.
+3. Exact `GET` fallback.
+4. `GET` trie fallback.
+
+This prevents an exact `GET` route from incorrectly outranking a dynamic route explicitly registered for `HEAD`.
+
+Static endpoints are duplicated as lightweight setup-time metadata between the exact table and trie. The tradeoff is additional route-table memory in exchange for fewer serving-time lookups on canonical static routes.
+
+
 The router is method-aware.
 
 Common NIO HTTP methods dispatch directly to dedicated roots. Custom or uncommon methods use the Hudhud method mapping and fallback root dictionary.
