@@ -282,6 +282,22 @@ public final class Application: @unchecked Sendable {
 
     public func get(
         _ path: String,
+        response: PreparedResponse,
+        etag: EntityTag
+    ) {
+        requireConfigurationPhase()
+
+        router.add(
+            method: .get,
+            path: path,
+            conditionalPreparedResponse:
+                response,
+            etag: etag
+        )
+    }
+
+    public func get(
+        _ path: String,
         use handler: @escaping SyncHandler
     ) {
         route(.get, path, use: handler)
@@ -920,6 +936,20 @@ public final class Application: @unchecked Sendable {
         switch match {
         case .prepared(let prepared):
             return .prepared(prepared)
+
+        case .conditionalPrepared(
+            let tag,
+            let response,
+            let notModified
+        ):
+            return .prepared(
+                IfNoneMatchMatcher.matches(
+                    headers: head.headers,
+                    tag: tag
+                )
+                ? notModified
+                : response
+            )
 
         case .synchronous(
             let handler,

@@ -32,6 +32,15 @@ final class CoreBenchmarkTests: XCTestCase {
             response: .text("Hello, World!")
         )
 
+        let conditionalTag =
+            EntityTag("benchmark-v1")
+
+        app.get(
+            "/conditional-prepared",
+            response: .text("Hello, World!"),
+            etag: conditionalTag
+        )
+
         app.get("/plaintext") { _ in
             .text("Hello, World!")
         }
@@ -64,6 +73,20 @@ final class CoreBenchmarkTests: XCTestCase {
             BenchmarkCase(
                 name: "prepared-trie",
                 head: makeHead("/prepared/")
+            ),
+            BenchmarkCase(
+                name: "conditional-200",
+                head: makeHead(
+                    "/conditional-prepared"
+                )
+            ),
+            BenchmarkCase(
+                name: "conditional-304",
+                head: makeHead(
+                    "/conditional-prepared",
+                    ifNoneMatch:
+                        conditionalTag.headerValue
+                )
             ),
             BenchmarkCase(
                 name: "sync-static",
@@ -287,6 +310,9 @@ final class CoreBenchmarkTests: XCTestCase {
         switch result {
         case .prepared:
             checksum &+= 1
+
+        case .conditionalPrepared:
+            checksum &+= 7
 
         case .synchronous(
             _,
@@ -516,13 +542,23 @@ final class CoreBenchmarkTests: XCTestCase {
     }
 
     private func makeHead(
-        _ uri: String
+        _ uri: String,
+        ifNoneMatch: String? = nil
     ) -> HTTPRequestHead {
-        HTTPRequestHead(
+        var head = HTTPRequestHead(
             version: .http1_1,
             method: .GET,
             uri: uri
         )
+
+        if let ifNoneMatch {
+            head.headers.add(
+                name: "if-none-match",
+                value: ifNoneMatch
+            )
+        }
+
+        return head
     }
 }
 

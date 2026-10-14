@@ -416,6 +416,16 @@ python3 Benchmarks/summarize.py \
 
 Always preserve the raw sample files used to produce a published summary.
 
+### Conditional prepared responses
+
+Measure the route-specific cost of `If-None-Match` while preserving the prepared-response path:
+
+```bash
+./Benchmarks/conditional.sh
+```
+
+This compares ordinary prepared 200, conditional prepared 200, and conditional prepared 304. The 304 variant uses cached bodyless storage; the middleware-free path constructs no `Request`, invokes no handler closure, and serializes no body.
+
 ## Linux CPU and ARC profiling
 
 On Linux, use `perf stat` to capture hardware/runtime counters while applying the same `wrk` load:

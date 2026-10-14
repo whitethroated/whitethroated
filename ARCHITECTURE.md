@@ -336,6 +336,9 @@ ETag support is opt-in.
 - Wildcard `*` is supported.
 - `Response.notModified(etag:)` emits a bodyless 304 response.
 - Prepared responses can attach an ETag during setup while retaining their cached-head path.
+- `app.get(path, response: prepared, etag: tag)` compiles two immutable storages at registration: the tagged representation and a bodyless 304 variant.
+- With no middleware, a conditional prepared route checks `If-None-Match` directly from `HTTPRequestHead.headers`; it does not construct `Request`, `Context`, a future, or a handler closure invocation.
+- The 304 variant preserves representation metadata such as ETag, Cache-Control, Vary, and the original representation Content-Length while carrying no body buffer.
 
 ## Byte ranges
 

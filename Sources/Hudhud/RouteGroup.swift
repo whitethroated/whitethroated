@@ -131,6 +131,18 @@ public struct RouteGroup: Sendable {
 
     public func get(
         _ path: String,
+        response: PreparedResponse,
+        etag: EntityTag
+    ) {
+        application.get(
+            joined(path),
+            response: response,
+            etag: etag
+        )
+    }
+
+    public func get(
+        _ path: String,
         use handler: @escaping SyncHandler
     ) {
         application.get(
