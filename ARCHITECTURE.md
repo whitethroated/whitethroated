@@ -274,6 +274,10 @@ Hudhud must not introduce a convenience API that performs blocking file-open or 
 
 Use `PreparedResponse` for immutable in-memory payloads where avoiding repeated serialization matters.
 
+Streaming responses are opt-in. Hudhud writes the response head, lets the producer emit HTTP body parts on the channel event loop, and writes the terminal HTTP end after the producer future succeeds. SwiftNIO's HTTP response encoder remains responsible for wire framing such as HTTP/1.1 chunked transfer encoding.
+
+If a streaming producer fails after headers have started, Hudhud closes the connection rather than attempting to emit a second response. HEAD requests suppress the producer. HTTP/1.0 unknown-length streams force connection-close framing unless an explicit content length is supplied.
+
 A response writer must preserve:
 
 - Correct `Content-Length`.

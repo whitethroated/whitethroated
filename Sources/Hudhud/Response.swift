@@ -9,6 +9,7 @@ public struct Response: Sendable {
         case bytes([UInt8])
         case buffer(ByteBuffer)
         case fileRegion(FileRegion)
+        case stream(ResponseStream)
     }
 
     public var status: HTTPResponseStatus
@@ -115,6 +116,31 @@ public struct Response: Sendable {
             status: status,
             headers: headers,
             body: .fileRegion(value)
+        )
+    }
+
+    public static func stream(
+        contentType: String? = nil,
+        status: HTTPResponseStatus = .ok,
+        produce: @escaping ResponseStream.Producer
+    ) -> Response {
+        var headers = HTTPHeaders()
+
+        if let contentType {
+            headers.add(
+                name: "content-type",
+                value: contentType
+            )
+        }
+
+        return Response(
+            status: status,
+            headers: headers,
+            body: .stream(
+                ResponseStream(
+                    producer: produce
+                )
+            )
         )
     }
 

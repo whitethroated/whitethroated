@@ -937,6 +937,18 @@ final class HTTPServerHandler: ChannelInboundHandler {
         keepAlive: Bool,
         context: ChannelHandlerContext
     ) {
+        if case .stream(let stream) = response.body {
+            writeStream(
+                stream,
+                response: response,
+                isHeadRequest: isHeadRequest,
+                version: version,
+                keepAlive: keepAlive,
+                context: context
+            )
+            return
+        }
+
         var headers = response.headers
         let body: IOData?
         let bodyLength: Int
@@ -971,6 +983,11 @@ final class HTTPServerHandler: ChannelInboundHandler {
         case .fileRegion(let value):
             body = .fileRegion(value)
             bodyLength = value.readableBytes
+
+        case .stream:
+            preconditionFailure(
+                "Stream bodies must use the streaming response writer"
+            )
         }
 
         if headers.first(
@@ -1030,4 +1047,94 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 }
             }
     }
+
+    private func writeStream(
+        _ stream: ResponseStream,
+        response: Response,
+        isHeadRequest: Bool,
+        version: HTTPVersion,
+        keepAlive: Bool,
+        context: ChannelHandlerContext
+    ) {
+        var headers = response.headers
+        let hasKnownLength =
+            headers.first(
+                name: "content-length"
+            ) != nil
+        let streamKeepAlive =
+            keepAlive
+            && (
+                version != .http1_0
+                || hasKnownLength
+            )
+
+        if !streamKeepAlive {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "close"
+            )
+        } else if version == .http1_0 {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "keep-alive"
+            )
+        }
+
+        let head = HTTPResponseHead(
+            version: version,
+            status: response.status,
+            headers: headers
+        )
+
+        context.write(
+            wrapOutboundOut(.head(head)),
+            promise: nil
+        )
+
+        if isHeadRequest {
+            finishStreamResponse(
+                keepAlive: streamKeepAlive,
+                context: context
+            )
+            return
+        }
+
+        let writer = ResponseStreamWriter(
+            context: context
+        )
+        let future = stream.producer(writer).hop(
+            to: context.eventLoop
+        )
+
+        future.whenComplete { result in
+            switch result {
+            case .success:
+                self.finishStreamResponse(
+                    keepAlive: streamKeepAlive,
+                    context: context
+                )
+
+            case .failure:
+                context.close(promise: nil)
+            }
+        }
+    }
+
+    private func finishStreamResponse(
+        keepAlive: Bool,
+        context: ChannelHandlerContext
+    ) {
+        context
+            .writeAndFlush(
+                wrapOutboundOut(.end(nil))
+            )
+            .whenComplete { _ in
+                if !keepAlive {
+                    context.close(
+                        promise: nil
+                    )
+                }
+            }
+    }
+
 }

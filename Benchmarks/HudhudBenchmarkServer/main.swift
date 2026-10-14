@@ -71,6 +71,16 @@ app.get("/concurrent") { _ async throws in
         .header("date", benchmarkDate)
 }
 
+app.get("/response-stream") { _ in
+    Response.stream(
+        contentType: "text/plain; charset=utf-8"
+    ) { writer in
+        writer.writeString("Hello, ").flatMap {
+            writer.writeString("World!")
+        }
+    }
+}
+
 app.post("/aggregate-upload") { request in
     .text(
         String(request.body.readableBytes)
