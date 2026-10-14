@@ -1269,34 +1269,110 @@ final class HTTPServerHandler: ChannelInboundHandler {
     private func declaredStreamContentLength(
         headers: HTTPHeaders
     ) -> Result<Int?, ResponseStreamError> {
-        let values = headers[
-            canonicalForm: "content-length"
-        ]
+        var firstRawValue: String?
+        var parsedLength: Int?
 
-        guard !values.isEmpty else {
-            return .success(nil)
-        }
+        for (name, value) in headers {
+            guard Self.isContentLengthHeader(name) else {
+                continue
+            }
 
-        guard values.count == 1 else {
-            return .failure(
-                .ambiguousContentLength(
-                    values.map(String.init)
+            if let firstRawValue {
+                return .failure(
+                    .ambiguousContentLength([
+                        firstRawValue,
+                        value
+                    ])
                 )
-            )
+            }
+
+            if value.utf8.contains(44) {
+                return .failure(
+                    .ambiguousContentLength([
+                        value
+                    ])
+                )
+            }
+
+            guard let contentLength =
+                Self.parseContentLength(value)
+            else {
+                return .failure(
+                    .invalidContentLength(value)
+                )
+            }
+
+            firstRawValue = value
+            parsedLength = contentLength
         }
 
-        let value = String(values[0])
+        return .success(parsedLength)
+    }
 
-        guard
-            let contentLength = Int(value),
-            contentLength >= 0
-        else {
-            return .failure(
-                .invalidContentLength(value)
-            )
+    @inline(__always)
+    private static func isContentLengthHeader(
+        _ name: String
+    ) -> Bool {
+        let bytes = name.utf8
+        let expected = "content-length".utf8
+
+        guard bytes.count == expected.count else {
+            return false
         }
 
-        return .success(contentLength)
+        var left = bytes.startIndex
+        var right = expected.startIndex
+
+        while left != bytes.endIndex {
+            let byte = bytes[left]
+            let folded =
+                byte >= 65 && byte <= 90
+                ? byte + 32
+                : byte
+
+            guard folded == expected[right] else {
+                return false
+            }
+
+            bytes.formIndex(after: &left)
+            expected.formIndex(after: &right)
+        }
+
+        return true
+    }
+
+    @inline(__always)
+    private static func parseContentLength(
+        _ value: String
+    ) -> Int? {
+        let bytes = value.utf8
+
+        guard !bytes.isEmpty else {
+            return nil
+        }
+
+        var result = 0
+
+        for byte in bytes {
+            guard byte >= 48 && byte <= 57 else {
+                return nil
+            }
+
+            let digit = Int(byte - 48)
+
+            guard
+                result
+                <= (Int.max - digit) / 10
+            else {
+                return nil
+            }
+
+            result =
+                result * 10
+                + digit
+        }
+
+        return result
     }
 
     private func finishStreamResponse(
