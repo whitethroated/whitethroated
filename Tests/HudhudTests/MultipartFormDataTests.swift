@@ -650,6 +650,97 @@ final class MultipartFormDataTests: XCTestCase {
         }
     }
 
+    func testLargePartHeaderCanArriveOneByteAtATime() throws {
+        let padding = String(
+            repeating: "a",
+            count: 8 * 1024
+        )
+        let body =
+            "--incremental\r\n"
+            + "Content-Disposition: form-data; name=\"file\"\r\n"
+            + "X-Padding: \(padding)\r\n"
+            + "\r\n"
+            + "x\r\n"
+            + "--incremental--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "incremental",
+            limits: MultipartFormDataLimits(
+                maxHeaderBytesPerPart: 12 * 1024
+            )
+        )
+        let collector = MultipartCollector()
+
+        for byte in body.utf8 {
+            var chunk = ByteBufferAllocator()
+                .buffer(capacity: 1)
+            chunk.writeInteger(byte)
+
+            try parser.receive(
+                chunk,
+                onEvent: collector.receive
+            )
+        }
+
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts.count,
+            1
+        )
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            Array("x".utf8)
+        )
+        XCTAssertTrue(parser.isFinished)
+    }
+
+    func testFragmentedOversizedPartHeaderStillRespectsLimit() throws {
+        let limits = MultipartFormDataLimits(
+            maxHeaderBytesPerPart: 128
+        )
+        let parser = try MultipartFormDataParser(
+            boundary: "header-limit",
+            limits: limits
+        )
+        let padding = String(
+            repeating: "x",
+            count: 256
+        )
+        let body =
+            "--header-limit\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "X-Padding: \(padding)\r\n"
+            + "\r\n"
+            + "value\r\n"
+            + "--header-limit--\r\n"
+
+        var thrown: MultipartFormDataError?
+
+        for byte in body.utf8 {
+            var chunk = ByteBufferAllocator()
+                .buffer(capacity: 1)
+            chunk.writeInteger(byte)
+
+            do {
+                try parser.receive(
+                    chunk,
+                    onEvent: { _ in }
+                )
+            } catch let error as MultipartFormDataError {
+                thrown = error
+                break
+            }
+        }
+
+        XCTAssertEqual(
+            thrown,
+            .headerBlockTooLarge(limit: 128)
+        )
+    }
+
     func testHeaderLimitRejectsOversizedPartHeaders() throws {
         let limits = MultipartFormDataLimits(
             maxParts: 2,
