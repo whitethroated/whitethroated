@@ -47,6 +47,8 @@ Router data structures are therefore setup-mutable and serving-read-only.
 
 Hudhud uses SwiftNIO event loops as its primary concurrency model.
 
+The configured SwiftNIO HTTP server pipeline keeps outbound response-header validation enabled. Invalid field values such as CR/LF response-splitting attempts are rejected before the HTTP encoder and the connection is closed. Hudhud convenience APIs may add stricter validation, but must not disable this transport-level safety boundary.
+
 Rules:
 
 1. Never block an event-loop thread.
