@@ -12,6 +12,7 @@ let eventLoopThreads = Int(
 
 let app = Application(
     configuration: ServerConfiguration(
+        maxRequestBodyBytes: 16 * 1024 * 1024,
         eventLoopThreads: eventLoopThreads
     )
 )
@@ -33,6 +34,10 @@ for _ in 0..<asyncMiddlewareLayers {
     app.use { request, _, next in
         next(request)
     }
+}
+
+final class StreamingUploadState: @unchecked Sendable {
+    var bytes = 0
 }
 
 let benchmarkDate = "Thu, 01 Jan 1970 00:00:00 GMT"
@@ -64,6 +69,31 @@ app.get("/concurrent") { _ async throws in
     Response
         .text("Hello, World!")
         .header("date", benchmarkDate)
+}
+
+app.post("/aggregate-upload") { request in
+    .text(
+        String(request.body.readableBytes)
+    )
+}
+
+app.postStream(
+    "/stream-upload",
+    maxBodyBytes: 16 * 1024 * 1024
+) { _, context in
+    let state = StreamingUploadState()
+
+    return BodyStreamConsumer(
+        onChunk: { chunk in
+            state.bytes += chunk.readableBytes
+            return nil
+        },
+        onEnd: {
+            context.eventLoop.makeSucceededFuture(
+                .text(String(state.bytes))
+            )
+        }
+    )
 }
 
 app.get("/query") { request in
