@@ -1,4 +1,3 @@
-import Foundation
 import NIOCore
 import NIOHTTP1
 
@@ -517,68 +516,137 @@ public final class MultipartFormDataParser:
     private func parsePart(
         _ headerBuffer: ByteBuffer
     ) throws -> MultipartPart {
-        let headerText = String(
-            decoding:
-                headerBuffer.readableBytesView,
-            as: UTF8.self
-        )
-
+        let bytes =
+            headerBuffer.readableBytesView
         var headers = HTTPHeaders()
         var headerCount = 0
+        var cursor = bytes.startIndex
 
-        if !headerText.isEmpty {
-            for line in headerText.components(
-                separatedBy: "\r\n"
-            ) {
-                guard
-                    !line.isEmpty,
-                    line.first != " ",
-                    line.first != "\t",
-                    let colonIndex =
-                        line.firstIndex(of: ":")
-                else {
-                    throw MultipartFormDataError
-                        .malformedHeader(line)
+        while cursor < bytes.endIndex {
+            let lineStart = cursor
+            var lineEnd = bytes.endIndex
+
+            while cursor < bytes.endIndex {
+                if
+                    bytes[cursor]
+                        == Self.carriageReturn,
+                    cursor + 1 < bytes.endIndex,
+                    bytes[cursor + 1]
+                        == Self.lineFeed
+                {
+                    lineEnd = cursor
+                    break
                 }
 
-                let name = String(
-                    line[..<colonIndex]
-                )
+                cursor += 1
+            }
 
-                guard
-                    !name.isEmpty,
-                    Self.isHTTPToken(name)
-                else {
-                    throw MultipartFormDataError
-                        .malformedHeader(line)
-                }
-
-                let rawValue = line[
-                    line.index(after: colonIndex)...
-                ]
-                let value =
-                    rawValue.trimmingCharacters(
-                        in: .whitespaces
-                    )
-
-                headerCount += 1
-
-                guard
-                    headerCount
-                    <= limits.maxHeadersPerPart
-                else {
-                    throw MultipartFormDataError
-                        .tooManyHeaders(
-                            limit:
-                                limits
-                                    .maxHeadersPerPart
+            guard
+                lineEnd > lineStart,
+                bytes[lineStart] != 32,
+                bytes[lineStart] != 9
+            else {
+                throw MultipartFormDataError
+                    .malformedHeader(
+                        String(
+                            decoding:
+                                bytes[lineStart..<lineEnd],
+                            as: UTF8.self
                         )
-                }
+                    )
+            }
 
-                headers.add(
-                    name: name,
-                    value: value
+            var colonIndex = lineStart
+
+            while
+                colonIndex < lineEnd,
+                bytes[colonIndex] != Self.colon
+            {
+                colonIndex += 1
+            }
+
+            guard
+                colonIndex > lineStart,
+                colonIndex < lineEnd,
+                Self.isHTTPToken(
+                    bytes[lineStart..<colonIndex]
                 )
+            else {
+                throw MultipartFormDataError
+                    .malformedHeader(
+                        String(
+                            decoding:
+                                bytes[lineStart..<lineEnd],
+                            as: UTF8.self
+                        )
+                    )
+            }
+
+            var valueStart = colonIndex + 1
+            var valueEnd = lineEnd
+
+            while
+                valueStart < valueEnd,
+                bytes[valueStart] == 32
+                || bytes[valueStart] == 9
+            {
+                valueStart += 1
+            }
+
+            while
+                valueEnd > valueStart,
+                bytes[valueEnd - 1] == 32
+                || bytes[valueEnd - 1] == 9
+            {
+                valueEnd -= 1
+            }
+
+            guard
+                Self.isSafeHeaderValue(
+                    bytes[valueStart..<valueEnd]
+                )
+            else {
+                throw MultipartFormDataError
+                    .malformedHeader(
+                        String(
+                            decoding:
+                                bytes[lineStart..<lineEnd],
+                            as: UTF8.self
+                        )
+                    )
+            }
+
+            headerCount += 1
+
+            guard
+                headerCount
+                <= limits.maxHeadersPerPart
+            else {
+                throw MultipartFormDataError
+                    .tooManyHeaders(
+                        limit:
+                            limits
+                                .maxHeadersPerPart
+                    )
+            }
+
+            headers.add(
+                name: String(
+                    decoding:
+                        bytes[lineStart..<colonIndex],
+                    as: UTF8.self
+                ),
+                value: String(
+                    decoding:
+                        bytes[valueStart..<valueEnd],
+                    as: UTF8.self
+                )
+            )
+
+            if lineEnd == bytes.endIndex {
+                cursor = bytes.endIndex
+            } else {
+                cursor = lineEnd + 2
             }
         }
 
@@ -837,14 +905,35 @@ public final class MultipartFormDataParser:
         return true
     }
 
-    private static func isHTTPToken(
-        _ value: String
-    ) -> Bool {
-        guard !value.isEmpty else {
+    private static func isSafeHeaderValue<
+        C: Collection
+    >(
+        _ bytes: C
+    ) -> Bool where C.Element == UInt8 {
+        for byte in bytes {
+            if
+                byte == 9
+                || byte >= 32 && byte != 127
+            {
+                continue
+            }
+
             return false
         }
 
-        for byte in value.utf8 {
+        return true
+    }
+
+    private static func isHTTPToken<
+        C: Collection
+    >(
+        _ bytes: C
+    ) -> Bool where C.Element == UInt8 {
+        guard !bytes.isEmpty else {
+            return false
+        }
+
+        for byte in bytes {
             switch byte {
             case 33,
                  35...39,
