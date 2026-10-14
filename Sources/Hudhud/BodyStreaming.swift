@@ -212,4 +212,5 @@ internal struct StreamingTransportStart {
     let result: ResponderResult
     let registration: StreamingRegistration
     let maxBodyBytes: Int
+    let declaredBodyTooLarge: Bool
 }

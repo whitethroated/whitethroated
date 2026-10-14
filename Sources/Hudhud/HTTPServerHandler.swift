@@ -118,16 +118,23 @@ final class HTTPServerHandler: ChannelInboundHandler {
             {
                 streamingStart = start
                 requestBodyTooLarge =
-                    declaredBodyExceedsLimit(
-                        head,
-                        maxBodyBytes:
-                            start.maxBodyBytes
-                    )
+                    start.declaredBodyTooLarge
 
                 if requestBodyTooLarge {
                     start.registration.cancel(
                         BodyStreamError.payloadTooLarge
                     )
+
+                    rejectingRequestEarly = true
+                    write(
+                        start.result,
+                        isHeadRequest:
+                            head.method == .HEAD,
+                        version: head.version,
+                        keepAlive: false,
+                        context: context
+                    )
+                    return
                 }
 
                 if handleExpectation(
