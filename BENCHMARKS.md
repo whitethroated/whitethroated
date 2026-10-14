@@ -100,7 +100,9 @@ The benchmark sends the same generated binary request body to:
 - `/aggregate-upload` — ordinary Hudhud body aggregation.
 - `/stream-upload` — synchronous chunk streaming with no per-chunk future.
 
-Repeat with larger payloads, for example `UPLOAD_BYTES=1048576` and `UPLOAD_BYTES=8388608`, while recording process RSS externally.
+Repeat with larger payloads, for example `UPLOAD_BYTES=1048576` and `UPLOAD_BYTES=8388608`.
+
+On Linux, `streaming.sh` samples `/proc/<pid>/status` during each isolated server run and prints `peak_rss_kib`. On other platforms, collect peak RSS with the platform's native process profiler.
 
 ## Benchmark servers
 
