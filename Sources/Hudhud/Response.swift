@@ -119,6 +119,23 @@ public struct Response: Sendable {
         )
     }
 
+    public static func sse(
+        status: HTTPResponseStatus = .ok,
+        produce: @escaping ResponseStream.Producer
+    ) -> Response {
+        var response = stream(
+            contentType: "text/event-stream; charset=utf-8",
+            status: status,
+            produce: produce
+        )
+        response.headers.add(
+            name: "cache-control",
+            value: "no-cache"
+        )
+
+        return response
+    }
+
     public static func stream(
         contentType: String? = nil,
         status: HTTPResponseStatus = .ok,
