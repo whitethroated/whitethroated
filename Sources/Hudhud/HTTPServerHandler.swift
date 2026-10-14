@@ -17,7 +17,10 @@ final class HTTPServerHandler: ChannelInboundHandler {
     private var requestBodyTooLarge = false
 
     private var streamingStart: StreamingTransportStart?
-    private var streamingPendingChunks: [ByteBuffer] = []
+    private var streamingPendingChunks =
+        CircularBuffer<ByteBuffer>(
+            initialCapacity: 4
+        )
     private var streamingChunkFuture:
         EventLoopFuture<Void>?
     private var streamingEndReceived = false
@@ -409,9 +412,11 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 streamingChunkFuture == nil,
                 !streamingPendingChunks.isEmpty
             {
-                let chunk =
-                    streamingPendingChunks
-                    .removeFirst()
+                guard let chunk =
+                    streamingPendingChunks.popFirst()
+                else {
+                    break
+                }
 
                 consumeStreamingChunk(
                     chunk,

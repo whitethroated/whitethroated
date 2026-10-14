@@ -246,7 +246,7 @@ Streaming invariants:
 - Async chunk consumption returns `EventLoopFuture<Void>`.
 - Async chunk futures are hopped to the channel event loop before transport state is mutated.
 - Channel auto-read is paused while an async chunk is pending.
-- Already-decoded chunks may be queued temporarily, but new socket reads remain paused until the consumer catches up.
+- Already-decoded chunks may be queued temporarily in a SwiftNIO `CircularBuffer`, so dequeue remains O(1), while new socket reads remain paused until the consumer catches up.
 - Per-route body limits can override the global body limit.
 - Middleware may short-circuit a streaming route; the transport then drains/discards the body without invoking the consumer.
 - Async middleware may delay route resolution; auto-read is paused until the middleware either reaches the stream route or short-circuits it.
