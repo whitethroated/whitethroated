@@ -35,7 +35,7 @@ final class PreparedResponseStorageTests: XCTestCase {
         )
     }
 
-    func testNoContentCachesNormalizedBodylessHead() throws {
+    func testNoContentCachesNormalizedHTTP11Head() {
         let prepared = PreparedResponse
             .text(
                 "payload",
@@ -46,55 +46,48 @@ final class PreparedResponseStorageTests: XCTestCase {
                 "chunked"
             )
 
-        let head = try XCTUnwrap(
-            prepared.storage.bodylessHTTP11Head
-        )
-
         XCTAssertEqual(
-            head.status,
+            prepared.http11Head.status,
             .noContent
         )
         XCTAssertNil(
-            head.headers.first(
+            prepared.http11Head.headers.first(
                 name: "content-length"
             )
         )
         XCTAssertNil(
-            head.headers.first(
+            prepared.http11Head.headers.first(
                 name: "transfer-encoding"
             )
         )
     }
 
-    func testNotModifiedCachedHeadKeepsRepresentationLength()
-        throws
-    {
+    func testNotModifiedCachedHeadKeepsRepresentationLength() {
         let prepared = PreparedResponse.text(
             "payload",
             status: .notModified
         )
 
-        let head = try XCTUnwrap(
-            prepared.storage.bodylessHTTP11Head
-        )
-
         XCTAssertEqual(
-            head.status,
+            prepared.http11Head.status,
             .notModified
         )
         XCTAssertEqual(
-            head.headers.first(
+            prepared.http11Head.headers.first(
                 name: "content-length"
             ),
             "7"
         )
     }
 
-    func testOrdinaryPreparedResponseDoesNotStoreBodylessHead() {
+    func testOrdinaryPreparedHeadKeepsBodyLength() {
         let prepared = PreparedResponse.text("payload")
 
-        XCTAssertNil(
-            prepared.storage.bodylessHTTP11Head
+        XCTAssertEqual(
+            prepared.http11Head.headers.first(
+                name: "content-length"
+            ),
+            "7"
         )
     }
 
