@@ -312,6 +312,7 @@ Runtime invariants:
 - Part headers are scanned directly from `ByteBufferView`; Hudhud does not construct a full header-block `String` or split it into an intermediate line array.
 - Obsolete folded headers and unsafe control bytes in header values are rejected.
 - Part count and header count are independently bounded.
+- An optional `maxPartBodyBytes` limit is checked incrementally before each part-body chunk is emitted; bytes that would cross the limit are not delivered to the application sink.
 - While scanning part bodies, the parser emits completed body bytes incrementally and retains only the longest trailing byte sequence that is an actual prefix of the multipart boundary.
 - For ordinary payload chunks that do not end in a possible boundary prefix, no body tail is retained; the next inbound `ByteBuffer` can become parser input directly instead of being appended behind a fixed boundary-sized tail.
 - Boundary matching validates the complete delimiter line. Boundary-like byte sequences such as `\r\n--boundary--X` inside file content are preserved instead of being treated as closing delimiters.

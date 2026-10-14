@@ -6,12 +6,14 @@ public struct MultipartFormDataLimits: Sendable {
     public var maxHeadersPerPart: Int
     public var maxHeaderBytesPerPart: Int
     public var maxBoundaryPaddingBytes: Int
+    public var maxPartBodyBytes: Int?
 
     public init(
         maxParts: Int = 128,
         maxHeadersPerPart: Int = 32,
         maxHeaderBytesPerPart: Int = 16 * 1024,
-        maxBoundaryPaddingBytes: Int = 1024
+        maxBoundaryPaddingBytes: Int = 1024,
+        maxPartBodyBytes: Int? = nil
     ) {
         precondition(
             maxParts > 0,
@@ -30,12 +32,21 @@ public struct MultipartFormDataLimits: Sendable {
             "maxBoundaryPaddingBytes must be zero or greater"
         )
 
+        if let maxPartBodyBytes {
+            precondition(
+                maxPartBodyBytes >= 0,
+                "maxPartBodyBytes must be zero or greater"
+            )
+        }
+
         self.maxParts = maxParts
         self.maxHeadersPerPart = maxHeadersPerPart
         self.maxHeaderBytesPerPart =
             maxHeaderBytesPerPart
         self.maxBoundaryPaddingBytes =
             maxBoundaryPaddingBytes
+        self.maxPartBodyBytes =
+            maxPartBodyBytes
     }
 }
 
@@ -52,6 +63,7 @@ public enum MultipartFormDataError:
     case tooManyHeaders(limit: Int)
     case tooManyParts(limit: Int)
     case boundaryPaddingTooLarge(limit: Int)
+    case partBodyTooLarge(limit: Int)
     case malformedHeader(String)
     case missingContentDisposition
     case invalidContentDisposition
@@ -131,6 +143,7 @@ public final class MultipartFormDataParser:
     private var buffer =
         ByteBufferAllocator().buffer(capacity: 0)
     private var partCount = 0
+    private var currentPartBodyBytes = 0
     private var headerSearchOffset = 0
 
     public convenience init(
@@ -461,6 +474,7 @@ public final class MultipartFormDataParser:
             headerBuffer
         )
 
+        currentPartBodyBytes = 0
         try onEvent(.partBegin(part))
         state = .body
         return true
@@ -490,7 +504,10 @@ public final class MultipartFormDataParser:
                     return false
                 }
 
-                try onEvent(.partBody(slice))
+                try emitPartBody(
+                    slice,
+                    onEvent: onEvent
+                )
             }
 
             buffer.moveReaderIndex(
@@ -523,7 +540,10 @@ public final class MultipartFormDataParser:
                     return false
                 }
 
-                try onEvent(.partBody(slice))
+                try emitPartBody(
+                    slice,
+                    onEvent: onEvent
+                )
             }
 
             compactTail()
@@ -548,10 +568,35 @@ public final class MultipartFormDataParser:
                 return false
             }
 
-            try onEvent(.partBody(slice))
+            try emitPartBody(
+                slice,
+                onEvent: onEvent
+            )
             compactTail()
             return false
         }
+    }
+
+    private func emitPartBody(
+        _ body: ByteBuffer,
+        onEvent: EventHandler
+    ) throws {
+        if let limit =
+            limits.maxPartBodyBytes
+        {
+            let bytes = body.readableBytes
+
+            if bytes > limit - currentPartBodyBytes {
+                throw MultipartFormDataError
+                    .partBodyTooLarge(
+                        limit: limit
+                    )
+            }
+
+            currentPartBodyBytes += bytes
+        }
+
+        try onEvent(.partBody(body))
     }
 
     private func parsePart(
