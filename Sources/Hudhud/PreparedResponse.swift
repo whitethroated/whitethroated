@@ -189,6 +189,23 @@ public struct PreparedResponse: Sendable {
         )
     }
 
+    public func etag(
+        _ tag: EntityTag
+    ) -> PreparedResponse {
+        var response = response
+        response.setETag(tag)
+
+        return PreparedResponse(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
+                status: response.status,
+                headers: response.headers
+            ),
+            bodyBuffer: bodyBuffer
+        )
+    }
+
     public func attachment(
         _ filename: String
     ) -> PreparedResponse {

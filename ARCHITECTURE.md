@@ -326,6 +326,17 @@ Runtime invariants:
 
 The parser's internal staging buffer can grow to the size of an inbound chunk plus multipart framing state, but it is not a whole-upload accumulator.
 
+## Conditional requests
+
+ETag support is opt-in.
+
+- `EntityTag` validates opaque tag bytes at construction time.
+- `request.matchesIfNoneMatch(...)` scans original header field values directly and does not use canonical comma splitting, because commas are valid inside quoted entity-tag opaque values.
+- Matching follows weak `If-None-Match` comparison semantics: `W/"tag"` matches `"tag"`.
+- Wildcard `*` is supported.
+- `Response.notModified(etag:)` emits a bodyless 304 response.
+- Prepared responses can attach an ETag during setup while retaining their cached-head path.
+
 ## Byte ranges
 
 Byte-range parsing is opt-in and header-only.

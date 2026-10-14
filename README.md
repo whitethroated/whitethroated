@@ -370,6 +370,36 @@ The response writer emits `IOData.fileRegion` directly and derives `Content-Leng
 
 Hudhud intentionally does not open filesystem paths synchronously inside this helper. Open files through an appropriate non-blocking/file-service layer, then create the region. The caller owns the underlying file handle and must keep it open until the response write completes.
 
+### ETag conditional responses
+
+ETag matching is opt-in and scans `If-None-Match` only when requested:
+
+```swift
+let version = EntityTag("article-v42")
+
+app.get("/article") { request in
+    if request.matchesIfNoneMatch(version) {
+        return .notModified(
+            etag: version
+        )
+    }
+
+    return Response
+        .html(renderArticle())
+        .etag(version)
+}
+```
+
+Weak tags are supported with `EntityTag.weak(...)`. `If-None-Match` uses weak comparison semantics, supports `*`, and scans comma-separated entity-tag lists without splitting quoted opaque tags into intermediate strings.
+
+Prepared immutable responses can cache the ETag header during setup:
+
+```swift
+let cached = PreparedResponse
+    .json(#"{"status":"ok"}"#)
+    .etag(EntityTag("status-v1"))
+```
+
 ### Byte-range downloads
 
 Single HTTP byte ranges are parsed lazily from the `Range` header and can be served as a sliced `FileRegion` without copying file bytes:
