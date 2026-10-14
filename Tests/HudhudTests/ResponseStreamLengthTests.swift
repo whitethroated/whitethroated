@@ -128,6 +128,67 @@ final class ResponseStreamLengthTests: XCTestCase {
         XCTAssertFalse(channel.isActive)
     }
 
+    func testDuplicateDeclaredLengthFailsBeforeStreamHead() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+        let errors = StreamLengthErrorBox()
+
+        app.get("/stream") { _ in
+            var response = Response.stream(
+                onError: { error in
+                    errors.error =
+                        error as? ResponseStreamError
+                }
+            ) { writer in
+                writer.writeString("body")
+            }
+
+            response.appendHeader(
+                "content-length",
+                "4"
+            )
+            response.appendHeader(
+                "content-length",
+                "4"
+            )
+
+            return response
+        }
+
+        let channel = EmbeddedChannel(loop: loop)
+        try addHandler(
+            app,
+            to: channel
+        )
+
+        try sendRequest(channel)
+        loop.run()
+
+        let parts = try readParts(channel)
+
+        guard
+            case .some(
+                .headStatus(
+                    HTTPResponseStatus
+                        .internalServerError
+                        .code
+                )
+            ) = parts.first
+        else {
+            return XCTFail(
+                "Expected 500 before stream output"
+            )
+        }
+
+        XCTAssertEqual(
+            errors.error,
+            .ambiguousContentLength([
+                "4",
+                "4"
+            ])
+        )
+    }
+
     func testInvalidDeclaredLengthFailsBeforeStreamHead() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()

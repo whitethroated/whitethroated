@@ -276,7 +276,7 @@ Streaming responses use chunked HTTP/1.1 framing when no `Content-Length` is sup
 
 - Writes that would exceed the declared length fail before the overflow bytes are written.
 - Producer completion with fewer bytes than declared is treated as a framing error.
-- Invalid or negative declared lengths fail before the streaming response head is emitted.
+- Invalid, negative, duplicate, or comma-combined declared lengths fail before the streaming response head is emitted.
 - A length mismatch after response streaming begins closes the connection instead of emitting a misleading HTTP end marker.
 
 Unknown-length streams do not allocate or update a length tracker.

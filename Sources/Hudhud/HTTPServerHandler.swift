@@ -1241,11 +1241,23 @@ final class HTTPServerHandler: ChannelInboundHandler {
     private func declaredStreamContentLength(
         headers: HTTPHeaders
     ) -> Result<Int?, ResponseStreamError> {
-        guard let value = headers.first(
-            name: "content-length"
-        ) else {
+        let values = headers[
+            canonicalForm: "content-length"
+        ]
+
+        guard !values.isEmpty else {
             return .success(nil)
         }
+
+        guard values.count == 1 else {
+            return .failure(
+                .ambiguousContentLength(
+                    values.map(String.init)
+                )
+            )
+        }
+
+        let value = String(values[0])
 
         guard
             let contentLength = Int(value),
