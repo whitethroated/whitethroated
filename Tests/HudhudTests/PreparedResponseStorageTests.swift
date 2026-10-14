@@ -1,5 +1,6 @@
 import XCTest
 @testable import Hudhud
+import NIOHTTP1
 
 final class PreparedResponseStorageTests: XCTestCase {
     func testPreparedResponseUsesSharedImmutableStorage() {
@@ -31,6 +32,69 @@ final class PreparedResponseStorageTests: XCTestCase {
                 name: "cache-control"
             ),
             "no-store"
+        )
+    }
+
+    func testNoContentCachesNormalizedBodylessHead() throws {
+        let prepared = PreparedResponse
+            .text(
+                "payload",
+                status: .noContent
+            )
+            .header(
+                "transfer-encoding",
+                "chunked"
+            )
+
+        let head = try XCTUnwrap(
+            prepared.storage.bodylessHTTP11Head
+        )
+
+        XCTAssertEqual(
+            head.status,
+            .noContent
+        )
+        XCTAssertNil(
+            head.headers.first(
+                name: "content-length"
+            )
+        )
+        XCTAssertNil(
+            head.headers.first(
+                name: "transfer-encoding"
+            )
+        )
+    }
+
+    func testNotModifiedCachedHeadKeepsRepresentationLength()
+        throws
+    {
+        let prepared = PreparedResponse.text(
+            "payload",
+            status: .notModified
+        )
+
+        let head = try XCTUnwrap(
+            prepared.storage.bodylessHTTP11Head
+        )
+
+        XCTAssertEqual(
+            head.status,
+            .notModified
+        )
+        XCTAssertEqual(
+            head.headers.first(
+                name: "content-length"
+            ),
+            "7"
+        )
+    }
+
+    func testOrdinaryPreparedResponseDoesNotStoreBodylessHead() {
+        let prepared = PreparedResponse.text("payload")
+
+        XCTAssertNil(
+            prepared.storage.bodylessHTTP11Head
         )
     }
 
