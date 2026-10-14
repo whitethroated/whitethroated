@@ -5,6 +5,7 @@ import NIOHTTP1
 internal final class PreparedResponseStorage: Sendable {
     let response: Response
     let http11Head: HTTPResponseHead
+    let bodylessHTTP11Head: HTTPResponseHead?
     let bodyBuffer: ByteBuffer?
 
     init(
@@ -14,7 +15,39 @@ internal final class PreparedResponseStorage: Sendable {
     ) {
         self.response = response
         self.http11Head = http11Head
+        self.bodylessHTTP11Head =
+            Self.makeBodylessHTTP11Head(
+                response: response,
+                http11Head: http11Head
+            )
         self.bodyBuffer = bodyBuffer
+    }
+
+    private static func makeBodylessHTTP11Head(
+        response: Response,
+        http11Head: HTTPResponseHead
+    ) -> HTTPResponseHead? {
+        guard !response.status.mayHaveResponseBody else {
+            return nil
+        }
+
+        var headers = http11Head.headers
+
+        headers.remove(
+            name: "transfer-encoding"
+        )
+
+        if response.status != .notModified {
+            headers.remove(
+                name: "content-length"
+            )
+        }
+
+        return HTTPResponseHead(
+            version: .http1_1,
+            status: response.status,
+            headers: headers
+        )
     }
 }
 
