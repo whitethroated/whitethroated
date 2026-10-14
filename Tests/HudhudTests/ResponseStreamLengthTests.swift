@@ -189,6 +189,113 @@ final class ResponseStreamLengthTests: XCTestCase {
         )
     }
 
+    func testCommaCombinedDeclaredLengthIsRejected() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+        let errors = StreamLengthErrorBox()
+
+        app.get("/stream") { _ in
+            Response
+                .stream(
+                    onError: { error in
+                        errors.error =
+                            error as? ResponseStreamError
+                    }
+                ) { writer in
+                    writer.writeString("body")
+                }
+                .header(
+                    "content-length",
+                    "4, 4"
+                )
+        }
+
+        let channel = EmbeddedChannel(loop: loop)
+        try addHandler(
+            app,
+            to: channel
+        )
+
+        try sendRequest(channel)
+        loop.run()
+
+        let parts = try readParts(channel)
+
+        guard
+            case .some(
+                .headStatus(
+                    HTTPResponseStatus
+                        .internalServerError
+                        .code
+                )
+            ) = parts.first
+        else {
+            return XCTFail(
+                "Expected 500 before stream output"
+            )
+        }
+
+        XCTAssertEqual(
+            errors.error,
+            .ambiguousContentLength([
+                "4, 4"
+            ])
+        )
+    }
+
+    func testDeclaredLengthIntegerOverflowIsRejected() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+        let errors = StreamLengthErrorBox()
+        let value = String(Int.max) + "0"
+
+        app.get("/stream") { _ in
+            Response
+                .stream(
+                    onError: { error in
+                        errors.error =
+                            error as? ResponseStreamError
+                    }
+                ) { writer in
+                    writer.writeString("body")
+                }
+                .header(
+                    "content-length",
+                    value
+                )
+        }
+
+        let channel = EmbeddedChannel(loop: loop)
+        try addHandler(
+            app,
+            to: channel
+        )
+
+        try sendRequest(channel)
+        loop.run()
+
+        let parts = try readParts(channel)
+
+        guard
+            case .some(
+                .headStatus(
+                    HTTPResponseStatus
+                        .internalServerError
+                        .code
+                )
+            ) = parts.first
+        else {
+            return XCTFail(
+                "Expected 500 before stream output"
+            )
+        }
+
+        XCTAssertEqual(
+            errors.error,
+            .invalidContentLength(value)
+        )
+    }
+
     func testInvalidDeclaredLengthFailsBeforeStreamHead() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
