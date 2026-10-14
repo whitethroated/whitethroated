@@ -16,6 +16,166 @@ private final class MultipartUploadState:
 final class MultipartStreamingIntegrationTests:
     XCTestCase
 {
+    func testMultipartConsumerHelperParsesFragmentedUpload() throws {
+        let app = Application()
+        let state = MultipartUploadState()
+
+        app.postStream("/upload") { request, _ in
+            do {
+                return try BodyStreamConsumer.multipart(
+                    request: request,
+                    onEvent: { event in
+                        switch event {
+                        case .partBegin(let part):
+                            state.activeName = part.name
+
+                            if part.name == "file" {
+                                state.filename =
+                                    part.filename
+                            }
+
+                        case .partBody(let body):
+                            if state.activeName == "title" {
+                                state.fieldValue +=
+                                    body.getString(
+                                        at: body.readerIndex,
+                                        length:
+                                            body.readableBytes
+                                    ) ?? ""
+                            } else if state.activeName == "file" {
+                                state.fileBytes +=
+                                    body.readableBytes
+                            }
+
+                        case .partEnd:
+                            state.activeName = nil
+                        }
+                    },
+                    onEnd: {
+                        .text(
+                            [
+                                state.fieldValue,
+                                state.filename ?? "",
+                                String(state.fileBytes)
+                            ].joined(separator: ":")
+                        )
+                    }
+                )
+            } catch {
+                return BodyStreamConsumer(
+                    onChunk: { _ in },
+                    onEnd: {
+                        .text(
+                            "invalid multipart",
+                            status: .badRequest
+                        )
+                    }
+                )
+            }
+        }
+
+        let channel = try makeChannel(app)
+        let boundary = "helper-boundary"
+        let body =
+            "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"title\"\r\n"
+            + "\r\n"
+            + "Hudhud\r\n"
+            + "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"demo.bin\"\r\n"
+            + "Content-Type: application/octet-stream\r\n"
+            + "\r\n"
+            + "1234567890\r\n"
+            + "--\(boundary)--\r\n"
+
+        try sendMultipart(
+            body,
+            boundary: boundary,
+            chunkSizes: [1, 2, 5, 13, 3, 21],
+            to: channel
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.status,
+            .ok
+        )
+        XCTAssertEqual(
+            response.body,
+            "Hudhud:demo.bin:10"
+        )
+    }
+
+    func testMultipartConsumerHelperFinishErrorUsesApplicationErrorHandler()
+        throws
+    {
+        let app = Application()
+
+        app.onError { error, _ in
+            if error is MultipartFormDataError {
+                return .text(
+                    "bad multipart",
+                    status: .badRequest
+                )
+            }
+
+            return .internalServerError()
+        }
+
+        app.postStream("/upload") { request, _ in
+            do {
+                return try BodyStreamConsumer.multipart(
+                    request: request,
+                    onEvent: { _ in },
+                    onEnd: {
+                        .text("unexpected")
+                    }
+                )
+            } catch {
+                return BodyStreamConsumer(
+                    onChunk: { _ in },
+                    onEnd: {
+                        .text(
+                            "bad multipart",
+                            status: .badRequest
+                        )
+                    }
+                )
+            }
+        }
+
+        let channel = try makeChannel(app)
+        let boundary = "missing-final"
+        let body =
+            "--\(boundary)\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "\r\n"
+            + "incomplete"
+
+        try sendMultipart(
+            body,
+            boundary: boundary,
+            chunkSizes: [3, 7, 2],
+            to: channel
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.status,
+            .badRequest
+        )
+        XCTAssertEqual(
+            response.body,
+            "bad multipart"
+        )
+    }
+
     func testMultipartParserRunsInsideStreamingRoute() throws {
         let app = Application()
         let state = MultipartUploadState()
@@ -253,6 +413,65 @@ final class MultipartStreamingIntegrationTests:
         XCTAssertEqual(
             response.status,
             .badRequest
+        )
+    }
+
+
+    private func sendMultipart(
+        _ body: String,
+        boundary: String,
+        chunkSizes: [Int],
+        to channel: EmbeddedChannel
+    ) throws {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .POST,
+            uri: "/upload"
+        )
+        head.headers.add(
+            name: "content-type",
+            value:
+                "multipart/form-data; boundary=\(boundary)"
+        )
+        head.headers.add(
+            name: "content-length",
+            value: String(body.utf8.count)
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        let bytes = Array(body.utf8)
+        var cursor = 0
+        var chunkIndex = 0
+
+        while cursor < bytes.count {
+            let requested =
+                chunkSizes[
+                    chunkIndex % chunkSizes.count
+                ]
+            let length = min(
+                requested,
+                bytes.count - cursor
+            )
+            var chunk = channel.allocator.buffer(
+                capacity: length
+            )
+            chunk.writeBytes(
+                bytes[cursor..<(cursor + length)]
+            )
+
+            _ = try channel.writeInbound(
+                HTTPServerRequestPart.body(chunk)
+            )
+
+            cursor += length
+            chunkIndex += 1
+        }
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
         )
     }
 

@@ -1303,6 +1303,42 @@ private enum MultipartHeaderValue {
 }
 
 
+
+extension BodyStreamConsumer {
+    public typealias MultipartEventHandler = @Sendable (
+        MultipartFormDataEvent
+    ) throws -> Void
+
+    public static func multipart(
+        request: StreamRequest,
+        limits: MultipartFormDataLimits =
+            MultipartFormDataLimits(),
+        onEvent: @escaping MultipartEventHandler,
+        onEnd: @escaping SyncEndHandler,
+        onError: ErrorHandler? = nil
+    ) throws -> BodyStreamConsumer {
+        let parser = try request.multipartParser(
+            limits: limits
+        )
+
+        return BodyStreamConsumer(
+            onChunkThrowing: { chunk in
+                try parser.receive(
+                    chunk,
+                    onEvent: onEvent
+                )
+            },
+            onEndThrowing: {
+                try parser.finish(
+                    onEvent: onEvent
+                )
+                return onEnd()
+            },
+            onError: onError
+        )
+    }
+}
+
 extension StreamRequest {
     public func multipartParser(
         limits: MultipartFormDataLimits =

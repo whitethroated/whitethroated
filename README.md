@@ -217,76 +217,75 @@ Hudhud also handles `Expect: 100-continue` for large uploads. Accepted HTTP/1.1 
 Multipart uploads reuse the request-streaming path and do not require whole-body aggregation:
 
 ```swift
+final class UploadState: @unchecked Sendable {
+    var activePart: MultipartPart?
+    var fileBytes = 0
+}
+
+app.onError { error, _ in
+    if error is MultipartFormDataError {
+        return .text(
+            "Invalid multipart body",
+            status: .badRequest
+        )
+    }
+
+    return .internalServerError()
+}
+
 app.postStream(
     "/upload",
     maxBodyBytes: 100 * 1024 * 1024
 ) { request, _ in
-    let parser: MultipartFormDataParser
+    let state = UploadState()
 
     do {
-        parser = try request.multipartParser()
+        return try BodyStreamConsumer.multipart(
+            request: request,
+            onEvent: { event in
+                switch event {
+                case .partBegin(let part):
+                    state.activePart = part
+
+                case .partBody(let chunk):
+                    if state.activePart?.isFile == true {
+                        state.fileBytes +=
+                            chunk.readableBytes
+                    }
+
+                case .partEnd:
+                    state.activePart = nil
+                }
+            },
+            onEnd: {
+                .text(
+                    "received \(state.fileBytes) file bytes"
+                )
+            }
+        )
     } catch {
         return BodyStreamConsumer(
             onChunk: { _ in },
             onEnd: {
                 .text(
-                    "Invalid multipart request",
+                    "Invalid multipart content type",
                     status: .badRequest
                 )
             }
         )
     }
-
-    return BodyStreamConsumer(
-        onChunkThrowing: { chunk in
-            try parser.receive(chunk) { event in
-                switch event {
-                case .partBegin(let part):
-                    print(
-                        part.name,
-                        part.filename ?? ""
-                    )
-
-                case .partBody(let bytes):
-                    // Incrementally persist or process bytes.
-
-                case .partEnd:
-                    break
-                }
-            }
-        },
-        onEnd: {
-            do {
-                try parser.finish()
-                return .noContent()
-            } catch {
-                return .text(
-                    "Invalid multipart body",
-                    status: .badRequest
-                )
-            }
-        }
-    )
 }
 ```
 
-The parser emits `partBegin`, `partBody`, and `partEnd` events. File contents are emitted incrementally as `ByteBuffer` chunks. Multipart boundaries may be split across arbitrary network chunks.
+The helper uses the zero-future throwing synchronous body-stream path internally:
 
-The event callback may throw. When multipart parsing runs inside `onChunkThrowing:`, synchronous validation or sink failures propagate through Hudhud's normal streaming error path without allocating a future on successful chunks.
+- each incoming chunk is parsed incrementally.
+- part bodies are emitted as `ByteBuffer` slices instead of one complete file allocation.
+- fragmented boundaries are retained only as a small parser tail.
+- `parser.finish()` runs through a throwing synchronous end handler, so malformed closing boundaries enter the normal application error pipeline without creating an end-of-body future.
 
-Default multipart safety limits are:
+For lower-level control, `request.multipartParser()` exposes the incremental parser directly.
 
-- 128 parts.
-- 32 headers per part.
-- 16 KiB of headers per part.
-- Boundary length up to 70 bytes.
-- 1 KiB maximum transport padding on a boundary line.
-
-Override them with `MultipartFormDataLimits`. The overall request size still uses the route's `maxBodyBytes`. Hudhud accepts RFC 2046 linear whitespace padding on boundary lines, but caps it to keep parser staging memory bounded.
-
-`MultipartPart` exposes the parsed field `name`, optional `filename`, headers, `contentType`, and `isFile`.
-
-Treat `filename` as untrusted client metadata. Do not concatenate it directly into a filesystem path; generate or sanitize the destination name in application code.
 
 ## Prepared responses
 

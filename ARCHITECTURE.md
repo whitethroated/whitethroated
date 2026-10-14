@@ -165,8 +165,6 @@ Canonical static routes are registered in two setup-time structures:
 1. An exact full-path table keyed by FNV-1a hash.
 2. The segment trie used by dynamic parameters, catch-all routes, and semantic fallbacks.
 
-The common-method exact table is a custom open-addressed table. The already-computed FNV hash selects the initial slot directly, so serving does not run the hash through Swift `Dictionary`'s `Hasher` a second time. Linear probing resolves slot collisions, while true FNV hash collisions retain a small byte-checked bucket. Resizing occurs only during route registration.
-
 For a canonical static URI, Hudhud hashes the path bytes once up to the query marker and performs one exact-table lookup. No `String` is created and route parameters are not involved.
 
 If exact lookup misses, routing falls back to the existing UTF-8 trie. This preserves trailing-slash behavior and mixed static/dynamic route precedence.
@@ -304,6 +302,8 @@ Streaming therefore avoids whole-body aggregation while preserving middleware se
 ## Multipart request bodies
 
 Multipart parsing is an opt-in layer over request-body streaming. It does not change the ordinary aggregated request path or router hot path.
+
+`BodyStreamConsumer.multipart(...)` composes the incremental parser with the throwing synchronous chunk and end responders. Valid multipart chunks therefore create no per-chunk future, while parser errors still propagate through the existing streaming/application error pipeline.
 
 Runtime invariants:
 
