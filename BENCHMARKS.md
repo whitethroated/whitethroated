@@ -268,6 +268,8 @@ WORKERS=4 ./Benchmarks/router.sh
 
 The matrix runs against one warmed release server so machine and process setup remain constant across the route cases.
 
+Router-matrix routes are registered only when `HUDHUD_ROUTER_BENCHMARKS=1`; `router.sh` sets it automatically. The normal prepared/raw-NIO/Actix baseline therefore does not inherit the router stress-test route table.
+
 Interpret the matrix by comparing each case to `/prepared`. The response path is intentionally the same prepared response for static depth and fan-out cases, so most of the delta should come from routing.
 
 ### Wire contract verification
