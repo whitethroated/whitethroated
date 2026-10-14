@@ -370,6 +370,99 @@ The response writer emits `IOData.fileRegion` directly and derives `Content-Leng
 
 Hudhud intentionally does not open filesystem paths synchronously inside this helper. Open files through an appropriate non-blocking/file-service layer, then create the region. The caller owns the underlying file handle and must keep it open until the response write completes.
 
+### ETag conditional responses
+
+ETag matching is opt-in. For immutable content, the fastest path is a conditional prepared route:
+
+```swift
+let version = EntityTag("article-v42")
+let article = PreparedResponse.html(
+    renderArticle()
+)
+
+app.get(
+    "/article",
+    response: article,
+    etag: version
+)
+```
+
+Hudhud prebuilds both the tagged 200 response and its bodyless 304 variant during route registration. On a request, the exact route checks `If-None-Match` directly from the request headers and selects cached response storage without constructing `Request` or invoking a handler.
+
+For dynamic content, use the lower-level matcher:
+
+```swift
+app.get("/profile") { request in
+    let version = EntityTag("profile-v7")
+
+    if request.matchesIfNoneMatch(version) {
+        return .notModified(
+            etag: version
+        )
+    }
+
+    return Response
+        .json(#"{"fresh":true}"#)
+        .etag(version)
+}
+```
+
+Weak tags are supported with `EntityTag.weak(...)`. `If-None-Match` uses weak comparison semantics, supports `*`, and scans comma-separated entity-tag lists without splitting quoted opaque tags into intermediate strings.
+
+Prepared immutable responses can cache the ETag header during setup:
+
+```swift
+let cached = PreparedResponse
+    .json(#"{"status":"ok"}"#)
+    .etag(EntityTag("status-v1"))
+```
+
+### Byte-range downloads
+
+Single HTTP byte ranges are parsed lazily from the `Range` header and can be served as a sliced `FileRegion` without copying file bytes:
+
+```swift
+app.get("/video") { request in
+    let totalLength = region.readableBytes
+
+    switch request.byteRange(
+        totalLength: totalLength
+    ) {
+    case .none:
+        return Response
+            .fileRegion(
+                region,
+                contentType: "video/mp4"
+            )
+            .acceptingByteRanges()
+
+    case .satisfiable(let range):
+        return .partialFileRegion(
+            region,
+            range: range,
+            contentType: "video/mp4"
+        )
+
+    case .unsatisfiable:
+        return .rangeNotSatisfiable(
+            totalLength: totalLength
+        )
+
+    case .malformed,
+         .unsupportedMultiple,
+         .unsupportedUnit:
+        return Response
+            .fileRegion(
+                region,
+                contentType: "video/mp4"
+            )
+            .acceptingByteRanges()
+    }
+}
+```
+
+Supported single-range forms are `bytes=0-99`, `bytes=100-`, and suffix ranges such as `bytes=-500`. Multiple ranges are reported explicitly as unsupported rather than silently constructing a multipart/byteranges response.
+
 ### SSE writer
 
 `Response.sse` and `writer.writeSSE(...)` provide server-sent events without first building a normalized intermediate response string:
