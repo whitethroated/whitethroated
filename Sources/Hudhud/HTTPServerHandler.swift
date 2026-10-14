@@ -7,6 +7,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
     private let application: Application
     private let maxRequestBodyBytes: Int
+    private let hasStreamingRoutes: Bool
     private let emptyBody = ByteBufferAllocator().buffer(
         capacity: 0
     )
@@ -37,6 +38,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
         self.maxRequestBodyBytes =
             maxRequestBodyBytes
             ?? application.configuration.maxRequestBodyBytes
+        self.hasStreamingRoutes =
+            application.hasStreamingRoutes
     }
 
     func channelRead(
@@ -101,9 +104,12 @@ final class HTTPServerHandler: ChannelInboundHandler {
         )
         streamingChunkFuture = nil
 
-        if application.hasStreamingRoute(
-            for: head.method
-        ) {
+        if
+            hasStreamingRoutes,
+            application.hasStreamingRoute(
+                for: head.method
+            )
+        {
             let match = application.lookupTransport(
                 head: head
             )
