@@ -1,4 +1,3 @@
-import Foundation
 import NIOCore
 
 public struct ServerSentEvent: Sendable {
@@ -40,42 +39,105 @@ public struct ServerSentEvent: Sendable {
         self.retryMilliseconds = retryMilliseconds
     }
 
-    internal func serialized() -> String {
-        var output = ""
+    internal var estimatedSerializedBytes: Int {
+        var count = data.utf8.count + 8
 
         if let event {
-            output += "event: \(event)\n"
+            count += event.utf8.count + 8
         }
 
         if let id {
-            output += "id: \(id)\n"
+            count += id.utf8.count + 5
+        }
+
+        if retryMilliseconds != nil {
+            count += 24
+        }
+
+        return count
+    }
+
+    internal func write(
+        to buffer: inout ByteBuffer
+    ) {
+        if let event {
+            buffer.writeStaticString("event: ")
+            buffer.writeString(event)
+            buffer.writeInteger(UInt8(10))
+        }
+
+        if let id {
+            buffer.writeStaticString("id: ")
+            buffer.writeString(id)
+            buffer.writeInteger(UInt8(10))
         }
 
         if let retryMilliseconds {
-            output += "retry: \(retryMilliseconds)\n"
+            buffer.writeStaticString("retry: ")
+            buffer.writeString(
+                String(retryMilliseconds)
+            )
+            buffer.writeInteger(UInt8(10))
         }
 
-        let normalized = data
-            .replacingOccurrences(
-                of: "\r\n",
-                with: "\n"
-            )
-            .replacingOccurrences(
-                of: "\r",
-                with: "\n"
-            )
+        writeData(to: &buffer)
+        buffer.writeInteger(UInt8(10))
+    }
 
-        let lines = normalized.split(
-            separator: "\n",
-            omittingEmptySubsequences: false
+    internal func serialized() -> String {
+        var buffer = ByteBufferAllocator().buffer(
+            capacity: estimatedSerializedBytes
         )
+        write(to: &buffer)
 
-        for line in lines {
-            output += "data: \(line)\n"
+        return buffer.getString(
+            at: buffer.readerIndex,
+            length: buffer.readableBytes
+        ) ?? ""
+    }
+
+    private func writeData(
+        to buffer: inout ByteBuffer
+    ) {
+        let bytes = data.utf8
+        var lineStart = bytes.startIndex
+        var cursor = bytes.startIndex
+
+        buffer.writeStaticString("data: ")
+
+        while cursor != bytes.endIndex {
+            let byte = bytes[cursor]
+
+            guard byte == 10 || byte == 13 else {
+                bytes.formIndex(after: &cursor)
+                continue
+            }
+
+            buffer.writeBytes(
+                bytes[lineStart..<cursor]
+            )
+            buffer.writeInteger(UInt8(10))
+
+            if byte == 13 {
+                let next = bytes.index(after: cursor)
+
+                if
+                    next != bytes.endIndex,
+                    bytes[next] == 10
+                {
+                    cursor = next
+                }
+            }
+
+            bytes.formIndex(after: &cursor)
+            lineStart = cursor
+            buffer.writeStaticString("data: ")
         }
 
-        output += "\n"
-        return output
+        buffer.writeBytes(
+            bytes[lineStart..<bytes.endIndex]
+        )
+        buffer.writeInteger(UInt8(10))
     }
 
     @inline(__always)
@@ -93,12 +155,16 @@ extension ResponseStreamWriter {
         _ event: ServerSentEvent,
         flush: Bool = true
     ) -> EventLoopFuture<Void> {
-        let payload = event.serialized()
+        var buffer = makeBuffer(
+            capacity:
+                event.estimatedSerializedBytes
+        )
+        event.write(to: &buffer)
 
         if flush {
-            return writeStringAndFlush(payload)
+            return writeAndFlush(buffer)
         }
 
-        return writeString(payload)
+        return write(buffer)
     }
 }

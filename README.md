@@ -354,6 +354,26 @@ The response writer emits `IOData.fileRegion` directly and derives `Content-Leng
 
 Hudhud intentionally does not open filesystem paths synchronously inside this helper. Open files through an appropriate non-blocking/file-service layer, then create the region. The caller owns the underlying file handle and must keep it open until the response write completes.
 
+### SSE writer
+
+`Response.sse` and `writer.writeSSE(...)` provide server-sent events without first building a normalized intermediate response string:
+
+```swift
+app.get("/events") { _ in
+    Response.sse { writer in
+        writer.writeSSE(
+            ServerSentEvent(
+                data: "ready",
+                event: "status",
+                id: "1"
+            )
+        )
+    }
+}
+```
+
+SSE events are serialized directly into a channel-allocator `ByteBuffer`. CRLF and lone CR in event data are normalized to SSE data lines in one UTF-8 pass.
+
 ## Error handling
 
 Register one global application error handler for failed NIO futures, thrown async/await routes, and streaming consumer failures:

@@ -114,6 +114,20 @@ public struct ResponseStreamWriter: @unchecked Sendable {
         context.channel.closeFuture
     }
 
+    public func makeBuffer(
+        capacity: Int = 0
+    ) -> ByteBuffer {
+        requireEventLoop()
+        precondition(
+            capacity >= 0,
+            "Buffer capacity must be zero or greater"
+        )
+
+        return context.channel.allocator.buffer(
+            capacity: capacity
+        )
+    }
+
     @discardableResult
     public func write(
         _ buffer: ByteBuffer
