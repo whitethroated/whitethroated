@@ -162,14 +162,13 @@ Hudhud keeps ordinary request aggregation and streaming as separate route types.
 ./Benchmarks/upload.sh
 ```
 
-The default matrix runs:
+The default matrix runs each 1 KiB and 64 KiB payload through:
 
-- 1 KiB aggregated body.
-- 1 KiB streamed body.
-- 64 KiB aggregated body.
-- 64 KiB streamed body.
+- ordinary aggregated body handling.
+- streamed body with the synchronous chunk consumer.
+- streamed body with a future-returning chunk consumer.
 
-Both routes return the same small text response. The streaming route discards each chunk immediately, while the ordinary route uses Hudhud's normal body aggregation path.
+All routes return the same small text response and discard payload contents after accounting. The synchronous streaming case isolates direct chunk dispatch. The future case returns the event loop's cached succeeded `Void` future for every chunk, so its delta primarily exposes future/backpressure state-machine overhead rather than application I/O latency.
 
 The upload routes are registered only when `HUDHUD_UPLOAD_BENCHMARKS=1`. The upload runner sets this automatically so request-streaming feature detection does not contaminate the normal plaintext/raw-NIO/Actix baseline.
 
