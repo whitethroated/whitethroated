@@ -438,6 +438,11 @@ final class Router: @unchecked Sendable {
         path: String,
         responder: RouteResponder
     ) {
+        precondition(
+            !path.contains("//"),
+            "Route path cannot contain repeated slashes"
+        )
+
         let root = rootForInsert(method)
 
         var node = root
@@ -757,7 +762,7 @@ final class Router: @unchecked Sendable {
         var cursor = initialCursor
         var cursorOffset = initialOffset
 
-        while
+        if
             cursor != bytes.endIndex,
             bytes[cursor] == Self.slash
         {

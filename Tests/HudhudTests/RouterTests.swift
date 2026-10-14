@@ -20,6 +20,77 @@ final class RouterTests: XCTestCase {
         XCTAssertEqual(response.status, .ok)
     }
 
+    func testRepeatedSlashDoesNotMatchStaticRoute() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/admin/users") { _ in
+            .text("matched")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(
+                    path: "/admin//users"
+                ),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertEqual(
+            response.status,
+            .notFound
+        )
+    }
+
+    func testLeadingRepeatedSlashDoesNotMatchStaticRoute() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/admin/users") { _ in
+            .text("matched")
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(
+                    path: "//admin/users"
+                ),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertEqual(
+            response.status,
+            .notFound
+        )
+    }
+
+    func testCatchAllPreservesRepeatedSlashInCapturedPath() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/files/*path") { request in
+            .text(
+                request.parameter("path") ?? ""
+            )
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(
+                    path: "/files/a//b"
+                ),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertTextBody(
+            response,
+            equals: "a//b"
+        )
+    }
+
     func testRootRoute() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()

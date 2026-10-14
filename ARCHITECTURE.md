@@ -188,6 +188,10 @@ Current trie behavior:
 
 Catch-all parameters must be the final route segment.
 
+Static and dynamic routes do not normalize repeated slashes. A path such as `/admin//users` does not match `/admin/users`. Terminal catch-all parameters preserve repeated slashes inside the captured remainder because wildcard matching is explicit.
+
+Route registration rejects patterns containing repeated slashes.
+
 Do not introduce eager request-path splitting into `[String]`.
 
 ## Route groups
