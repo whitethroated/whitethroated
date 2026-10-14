@@ -340,6 +340,23 @@ Use prepared responses only for payloads and headers that are truly immutable.
 
 Hudhud can send an existing SwiftNIO `FileRegion` without first copying the file into a `ByteBuffer`:
 
+For browser downloads, add a safe `Content-Disposition` header without hand-building header syntax:
+
+```swift
+app.get("/download") { _ in
+    Response
+        .fileRegion(
+            region,
+            contentType: "application/zip"
+        )
+        .attachment("archive.zip")
+}
+```
+
+Unicode filenames emit both a sanitized quoted fallback and RFC 5987 `filename*`. The helper never performs file I/O; callers still own file opening/stat work and the lifetime of the `FileRegion`.
+
+The zero-copy response itself is unchanged:
+
 ```swift
 app.get("/download") { _ in
     .fileRegion(
