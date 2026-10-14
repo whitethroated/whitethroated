@@ -13,6 +13,68 @@ private final class StreamCounter: @unchecked Sendable {
 }
 
 final class BodyStreamingTests: XCTestCase {
+    func testThrowingEndHandlerUsesApplicationErrorPipeline() throws {
+        enum EndError: Error {
+            case failed
+        }
+
+        let app = Application()
+        let errors = StreamCounter()
+
+        app.onError { error, _ in
+            if error is EndError {
+                return .text(
+                    "end-failed",
+                    status: .badRequest
+                )
+            }
+
+            return .internalServerError()
+        }
+
+        app.postStream("/upload") { _, _ in
+            BodyStreamConsumer(
+                onChunkThrowing: { _ in },
+                onEndThrowing: {
+                    throw EndError.failed
+                },
+                onError: { error in
+                    if error is EndError {
+                        errors.errors += 1
+                    }
+                }
+            )
+        }
+
+        let channel = try makeChannel(app)
+
+        try write(
+            .head(makeHead("/upload")),
+            to: channel
+        )
+        try write(
+            .end(nil),
+            to: channel
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .badRequest
+        )
+        XCTAssertEqual(
+            response.body,
+            "end-failed"
+        )
+        XCTAssertEqual(
+            errors.errors,
+            1
+        )
+    }
+
     func testSyncChunkConsumerDoesNotRequireFuture() throws {
         let app = Application()
         let counter = StreamCounter()

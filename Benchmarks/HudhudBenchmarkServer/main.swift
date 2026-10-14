@@ -178,10 +178,14 @@ if environment["HUDHUD_MULTIPART_BENCHMARKS"] == "1" {
         "/upload-multipart",
         maxBodyBytes: 8 * 1024 * 1024
     ) { request, _ in
-        let parser: MultipartFormDataParser
-
         do {
-            parser = try request.multipartParser()
+            return try BodyStreamConsumer.multipart(
+                request: request,
+                onEvent: { _ in },
+                onEnd: {
+                    .text("ok")
+                }
+            )
         } catch {
             return BodyStreamConsumer(
                 onChunk: { _ in },
@@ -193,26 +197,6 @@ if environment["HUDHUD_MULTIPART_BENCHMARKS"] == "1" {
                 }
             )
         }
-
-        return BodyStreamConsumer(
-            onChunkThrowing: { chunk in
-                try parser.receive(
-                    chunk,
-                    onEvent: { _ in }
-                )
-            },
-            onEnd: {
-                do {
-                    try parser.finish()
-                    return .text("ok")
-                } catch {
-                    return .text(
-                        "invalid multipart",
-                        status: .badRequest
-                    )
-                }
-            }
-        )
     }
 }
 
