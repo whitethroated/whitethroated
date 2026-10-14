@@ -139,22 +139,24 @@ app.get("/query") { request in
     .text(request.query("q") ?? "")
 }
 
-app.post("/upload-aggregated") { _ in
-    .text("ok")
-}
+if environment["HUDHUD_UPLOAD_BENCHMARKS"] == "1" {
+    app.post("/upload-aggregated") { _ in
+        .text("ok")
+    }
 
-app.postStream(
-    "/upload-stream",
-    maxBodyBytes: 8 * 1024 * 1024
-) { _, context in
-    BodyStreamConsumer(
-        onChunk: { _ in nil },
-        onEnd: {
-            context.eventLoop.makeSucceededFuture(
-                .text("ok")
-            )
-        }
-    )
+    app.postStream(
+        "/upload-stream",
+        maxBodyBytes: 8 * 1024 * 1024
+    ) { _, context in
+        BodyStreamConsumer(
+            onChunk: { _ in nil },
+            onEnd: {
+                context.eventLoop.makeSucceededFuture(
+                    .text("ok")
+                )
+            }
+        )
+    }
 }
 
 app.get("/users/:id") { request in

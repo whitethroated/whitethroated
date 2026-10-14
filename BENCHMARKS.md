@@ -204,6 +204,8 @@ The default matrix runs:
 
 Both routes return the same small text response. The streaming route discards each chunk immediately, while the ordinary route uses Hudhud's normal body aggregation path.
 
+The upload routes are registered only when `HUDHUD_UPLOAD_BENCHMARKS=1`. The upload runner sets this automatically so request-streaming feature detection does not contaminate the normal plaintext/raw-NIO/Actix baseline.
+
 Override load settings as usual:
 
 ```bash
