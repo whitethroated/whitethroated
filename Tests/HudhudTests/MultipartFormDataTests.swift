@@ -741,6 +741,92 @@ final class MultipartFormDataTests: XCTestCase {
         )
     }
 
+    func testPerPartBodyLimitRejectsBeforeOverflowChunkIsEmitted()
+        throws
+    {
+        let parser = try MultipartFormDataParser(
+            boundary: "part-limit",
+            limits: MultipartFormDataLimits(
+                maxPartBodyBytes: 4
+            )
+        )
+        let collector = MultipartCollector()
+        let first =
+            "--part-limit\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"x.bin\"\r\n"
+            + "\r\n"
+            + "123"
+
+        var firstChunk = ByteBufferAllocator()
+            .buffer(capacity: first.utf8.count)
+        firstChunk.writeString(first)
+
+        try parser.receive(
+            firstChunk,
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            Array("123".utf8)
+        )
+
+        var secondChunk = ByteBufferAllocator()
+            .buffer(capacity: 32)
+        secondChunk.writeString(
+            "45\r\n--part-limit--\r\n"
+        )
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                secondChunk,
+                onEvent: collector.receive
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? MultipartFormDataError,
+                .partBodyTooLarge(limit: 4)
+            )
+        }
+
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            Array("123".utf8)
+        )
+    }
+
+    func testZeroPartBodyLimitAllowsEmptyPart() throws {
+        let parser = try MultipartFormDataParser(
+            boundary: "zero-limit",
+            limits: MultipartFormDataLimits(
+                maxPartBodyBytes: 0
+            )
+        )
+        let collector = MultipartCollector()
+        let body =
+            "--zero-limit\r\n"
+            + "Content-Disposition: form-data; name=\"empty\"\r\n"
+            + "\r\n"
+            + "\r\n--zero-limit--\r\n"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            []
+        )
+    }
+
     func testHeaderLimitRejectsOversizedPartHeaders() throws {
         let limits = MultipartFormDataLimits(
             maxParts: 2,
