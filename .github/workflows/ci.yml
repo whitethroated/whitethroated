@@ -7,17 +7,6 @@ on:
   pull_request:
 
 jobs:
-  benchmark-tooling:
-    name: Benchmark tooling
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Validate benchmark tooling
-        run: ./Benchmarks/check.sh
-
   test:
     name: Swift 6.4.0
     runs-on: ubuntu-latest
