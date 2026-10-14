@@ -1132,10 +1132,38 @@ final class HTTPServerHandler: ChannelInboundHandler {
         context: ChannelHandlerContext
     ) {
         var headers = response.headers
+        let declaredLengthResult =
+            declaredStreamContentLength(
+                headers: headers
+            )
+
+        let lengthTracker: ResponseStreamLengthTracker?
+
+        switch declaredLengthResult {
+        case .success(let declaredLength):
+            if let declaredLength {
+                lengthTracker =
+                    ResponseStreamLengthTracker(
+                        expected: declaredLength
+                    )
+            } else {
+                lengthTracker = nil
+            }
+
+        case .failure(let error):
+            stream.errorHandler?(error)
+            writeFailure(
+                error,
+                isHeadRequest: isHeadRequest,
+                version: version,
+                keepAlive: keepAlive,
+                context: context
+            )
+            return
+        }
+
         let hasKnownLength =
-            headers.first(
-                name: "content-length"
-            ) != nil
+            lengthTracker != nil
         let streamKeepAlive =
             keepAlive
             && (
@@ -1175,7 +1203,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
         }
 
         let writer = ResponseStreamWriter(
-            context: context
+            context: context,
+            lengthTracker: lengthTracker
         )
         let future = stream.producer(writer).hop(
             to: context.eventLoop
@@ -1188,6 +1217,14 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
             switch result {
             case .success:
+                if let error =
+                    lengthTracker?.completionError()
+                {
+                    stream.errorHandler?(error)
+                    context.close(promise: nil)
+                    return
+                }
+
                 self.finishStreamResponse(
                     keepAlive: streamKeepAlive,
                     context: context
@@ -1198,6 +1235,28 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 context.close(promise: nil)
             }
         }
+    }
+
+    @inline(__always)
+    private func declaredStreamContentLength(
+        headers: HTTPHeaders
+    ) -> Result<Int?, ResponseStreamError> {
+        guard let value = headers.first(
+            name: "content-length"
+        ) else {
+            return .success(nil)
+        }
+
+        guard
+            let contentLength = Int(value),
+            contentLength >= 0
+        else {
+            return .failure(
+                .invalidContentLength(value)
+            )
+        }
+
+        return .success(contentLength)
     }
 
     private func finishStreamResponse(
