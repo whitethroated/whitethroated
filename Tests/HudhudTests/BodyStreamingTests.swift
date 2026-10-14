@@ -13,6 +13,53 @@ private final class StreamCounter: @unchecked Sendable {
 }
 
 final class BodyStreamingTests: XCTestCase {
+    func testStreamingConsumerSupportsSynchronousEndResponse() throws {
+        let app = Application()
+        let counter = StreamCounter()
+
+        app.postStream("/upload") { _, _ in
+            BodyStreamConsumer(
+                onChunk: { buffer in
+                    counter.bytes += buffer.readableBytes
+                    return nil
+                },
+                onEnd: {
+                    .text(
+                        "bytes:\(counter.bytes)"
+                    )
+                }
+            )
+        }
+
+        let channel = try makeChannel(app)
+
+        try write(
+            .head(makeHead("/upload")),
+            to: channel
+        )
+        try writeBody(
+            "abc",
+            to: channel
+        )
+        try write(
+            .end(nil),
+            to: channel
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .ok
+        )
+        XCTAssertEqual(
+            response.body,
+            "bytes:3"
+        )
+    }
+
     func testStreamingRouteConsumesChunksWithoutAggregation() throws {
         let app = Application()
         let counter = StreamCounter()

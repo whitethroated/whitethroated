@@ -321,9 +321,7 @@ app.postStream(
             nil
         },
         onEnd: {
-            context.eventLoop.makeSucceededFuture(
-                .noContent()
-            )
+            .noContent()
         },
         onError: { error in
             // Clean up partial files or other request resources.
@@ -342,7 +340,7 @@ Streaming routes:
 - Invoke the optional `onError` hook exactly once after a started stream fails.
 - Keep ordinary routes on the existing aggregation path.
 
-A synchronous chunk consumer should return `nil` rather than allocating an already-succeeded future.
+A synchronous chunk consumer should return `nil` rather than allocating an already-succeeded future. The `onEnd` closure can return `Response` directly for the same reason; use the future-returning overload only when finalization performs asynchronous NIO work.
 
 ## Streaming responses
 

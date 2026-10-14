@@ -151,9 +151,7 @@ if environment["HUDHUD_UPLOAD_BENCHMARKS"] == "1" {
         BodyStreamConsumer(
             onChunk: { _ in nil },
             onEnd: {
-                context.eventLoop.makeSucceededFuture(
-                    .text("ok")
-                )
+                .text("ok")
             }
         )
     }
