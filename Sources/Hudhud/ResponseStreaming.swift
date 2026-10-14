@@ -127,13 +127,17 @@ public struct ResponseStreamWriter: @unchecked Sendable {
             )
         }
 
-        return context.write(
+        context.write(
             NIOAny(
                 HTTPServerResponsePart.body(
                     .byteBuffer(buffer)
                 )
-            )
+            ),
+            promise: nil
         )
+
+        return context.eventLoop
+            .makeSucceededVoidFuture()
     }
 
     @discardableResult
@@ -150,13 +154,17 @@ public struct ResponseStreamWriter: @unchecked Sendable {
             )
         }
 
-        return context.write(
+        context.write(
             NIOAny(
                 HTTPServerResponsePart.body(
                     .fileRegion(region)
                 )
-            )
+            ),
+            promise: nil
         )
+
+        return context.eventLoop
+            .makeSucceededVoidFuture()
     }
 
     @discardableResult
