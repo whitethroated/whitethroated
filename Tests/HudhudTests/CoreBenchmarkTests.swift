@@ -251,6 +251,15 @@ final class CoreBenchmarkTests: XCTestCase {
             .text("Hello, World!")
         }
 
+        let conditionalApp = Application()
+        let conditionalTag =
+            EntityTag("writer-v1")
+        conditionalApp.get(
+            "/conditional-prepared",
+            response: .text("Hello, World!"),
+            etag: conditionalTag
+        )
+
         print("")
         print(
             "Hudhud transport writer benchmark "
@@ -260,14 +269,28 @@ final class CoreBenchmarkTests: XCTestCase {
         try benchmarkTransport(
             name: "prepared-writer",
             app: preparedApp,
-            uri: "/prepared",
+            head: makeHead("/prepared"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "prepared-304-writer",
+            app: conditionalApp,
+            head: makeHead(
+                "/conditional-prepared",
+                ifNoneMatch:
+                    conditionalTag.headerValue
+            ),
+            expectedParts: 2,
             iterations: iterations
         )
 
         try benchmarkTransport(
             name: "sync-writer",
             app: syncApp,
-            uri: "/plaintext",
+            head: makeHead("/plaintext"),
+            expectedParts: 3,
             iterations: iterations
         )
 
@@ -409,7 +432,8 @@ final class CoreBenchmarkTests: XCTestCase {
     private func benchmarkTransport(
         name: String,
         app: Application,
-        uri: String,
+        head: HTTPRequestHead,
+        expectedParts: Int,
         iterations: Int
     ) throws {
         let channel = EmbeddedChannel(
@@ -417,12 +441,12 @@ final class CoreBenchmarkTests: XCTestCase {
                 application: app
             )
         )
-        let head = makeHead(uri)
         var checksum = 0
 
         for _ in 0..<1_000 {
             try writeAndDrain(
                 head: head,
+                expectedParts: expectedParts,
                 channel: channel,
                 checksum: &checksum
             )
@@ -433,6 +457,7 @@ final class CoreBenchmarkTests: XCTestCase {
         for _ in 0..<iterations {
             try writeAndDrain(
                 head: head,
+                expectedParts: expectedParts,
                 channel: channel,
                 checksum: &checksum
             )
@@ -460,6 +485,7 @@ final class CoreBenchmarkTests: XCTestCase {
     @inline(__always)
     private func writeAndDrain(
         head: HTTPRequestHead,
+        expectedParts: Int,
         channel: EmbeddedChannel,
         checksum: inout Int
     ) throws {
@@ -470,12 +496,12 @@ final class CoreBenchmarkTests: XCTestCase {
             HTTPServerRequestPart.end(nil)
         )
 
-        for _ in 0..<3 {
+        for _ in 0..<expectedParts {
             guard let part = try channel.readOutbound(
                 as: HTTPServerResponsePart.self
             ) else {
                 preconditionFailure(
-                    "Expected three outbound response parts"
+                    "Expected \(expectedParts) outbound response parts"
                 )
             }
 
