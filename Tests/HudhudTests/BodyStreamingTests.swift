@@ -151,6 +151,69 @@ final class BodyStreamingTests: XCTestCase {
         )
     }
 
+    func testDeclaredOversizedStreamStillHonorsFastMiddleware() throws {
+        let app = Application()
+        let counter = StreamCounter()
+
+        app.useFast { request, _, next in
+            guard request.header("authorization") == "ok" else {
+                return .response(
+                    .text(
+                        "blocked",
+                        status: .unauthorized
+                    )
+                )
+            }
+
+            return next(request)
+        }
+
+        app.postStream(
+            "/upload",
+            maxBodyBytes: 4
+        ) { _, context in
+            counter.sessions += 1
+
+            return BodyStreamConsumer(
+                onChunk: { _ in nil },
+                onEnd: {
+                    context.eventLoop.makeSucceededFuture(
+                        .text("unexpected")
+                    )
+                }
+            )
+        }
+
+        let channel = try makeChannel(app)
+        var head = makeHead("/upload")
+        head.headers.add(
+            name: "content-length",
+            value: "8"
+        )
+
+        try write(
+            .head(head),
+            to: channel
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .unauthorized
+        )
+        XCTAssertEqual(
+            response.body,
+            "blocked"
+        )
+        XCTAssertEqual(
+            counter.sessions,
+            0
+        )
+    }
+
     func testDeclaredOversizedStreamingBodyNeverCreatesConsumer() throws {
         let app = Application()
         let counter = StreamCounter()
