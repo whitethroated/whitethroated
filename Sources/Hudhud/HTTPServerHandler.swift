@@ -792,6 +792,16 @@ final class HTTPServerHandler: ChannelInboundHandler {
         keepAlive: Bool,
         context: ChannelHandlerContext
     ) {
+        guard storage.response.status.mayHaveResponseBody else {
+            writeBodylessStatus(
+                storage.response,
+                version: version,
+                keepAlive: keepAlive,
+                context: context
+            )
+            return
+        }
+
         guard
             version == .http1_1,
             keepAlive

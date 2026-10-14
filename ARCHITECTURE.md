@@ -399,6 +399,8 @@ Hudhud normalizes `Content-Length` from the actual `Response.Body` for every ord
 
 304 remains the intentional exception: its body is suppressed while Content-Length may describe the selected representation, as allowed by HTTP semantics. Streaming responses use their separate declared-length tracker.
 
+Prepared bodyless statuses bypass the cached prepared body writer. Informational responses, 204, and 304 therefore use the same body-suppression rules as ordinary responses; 304 may preserve the selected representation's `Content-Length`, while 204 removes it.
+
 A response writer must preserve:
 
 - Correct `Content-Length`.
