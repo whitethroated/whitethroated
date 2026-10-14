@@ -107,6 +107,35 @@ final class ByteRangeTests: XCTestCase {
         )
     }
 
+    func testDuplicateRangeHeadersAreExplicitlyUnsupported() {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/file"
+        )
+        head.headers.add(
+            name: "range",
+            value: "bytes=0-9"
+        )
+        head.headers.add(
+            name: "range",
+            value: "bytes=20-29"
+        )
+
+        let request = Request(
+            head: head,
+            body: ByteBufferAllocator()
+                .buffer(capacity: 0)
+        )
+
+        XCTAssertEqual(
+            request.byteRange(
+                totalLength: 1_000
+            ),
+            .unsupportedMultiple
+        )
+    }
+
     func testMultipleRangesAreExplicitlyUnsupported() {
         let request = makeRequest(
             range: "bytes=0-9,20-29"
