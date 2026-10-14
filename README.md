@@ -235,6 +235,23 @@ let sessionResponse = PreparedResponse
 
 Use prepared responses only for payloads and headers that are truly immutable.
 
+## File-region responses
+
+Hudhud can send an existing SwiftNIO `FileRegion` without first copying the file into a `ByteBuffer`:
+
+```swift
+app.get("/download") { _ in
+    .fileRegion(
+        region,
+        contentType: "application/octet-stream"
+    )
+}
+```
+
+The response writer emits `IOData.fileRegion` directly and derives `Content-Length` from the readable region. `HEAD` responses preserve the length while suppressing the file body.
+
+Hudhud intentionally does not open filesystem paths synchronously inside this helper. Open files through an appropriate non-blocking/file-service layer, then create the region. The caller owns the underlying file handle and must keep it open until the response write completes.
+
 ## Middleware
 
 The regular middleware API supports asynchronous NIO work:
@@ -286,6 +303,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Synchronous `useFast` middleware pipeline.
 - Opt-in async/await route handlers through SwiftNIO's Task bridge.
 - Direct `ByteBuffer` response support.
+- Direct SwiftNIO `FileRegion` response support without ByteBuffer copying.
 - Bodyless-request empty-buffer reuse.
 - First request-body chunk reuse instead of unconditional copying.
 - Opt-in request-body streaming with per-route limits and async backpressure.

@@ -251,7 +251,11 @@ Streaming therefore avoids whole-body aggregation while preserving middleware se
 
 Ordinary text and byte responses may allocate or serialize per request.
 
-Use `PreparedResponse` for immutable payloads where avoiding repeated serialization matters.
+A `Response.fileRegion` body is written as `IOData.fileRegion` directly. Hudhud derives content length from the region and does not copy file bytes into a `ByteBuffer`. The caller retains ownership of the underlying file handle and must keep it valid until the write completes.
+
+Hudhud must not introduce a convenience API that performs blocking file-open or file-stat work on an event-loop thread.
+
+Use `PreparedResponse` for immutable in-memory payloads where avoiding repeated serialization matters.
 
 A response writer must preserve:
 
@@ -333,6 +337,7 @@ Before merging a hot-path change, ask:
 - Does it force a synchronous path into a future?
 - Does it introduce a `Task`?
 - Does it copy a ByteBuffer unnecessarily?
+- Could a file download use `FileRegion` instead of reading the file into memory?
 - Does an upload path aggregate bytes that could remain streaming?
 - Does async body processing apply backpressure instead of building an unbounded queue?
 - Does it mutate copy-on-write storage?

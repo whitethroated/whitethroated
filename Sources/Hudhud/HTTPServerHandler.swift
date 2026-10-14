@@ -857,11 +857,13 @@ final class HTTPServerHandler: ChannelInboundHandler {
         context: ChannelHandlerContext
     ) {
         var headers = response.headers
-        let buffer: ByteBuffer?
+        let body: IOData?
+        let bodyLength: Int
 
         switch response.body {
         case .empty:
-            buffer = nil
+            body = nil
+            bodyLength = 0
 
         case .text(let value):
             var valueBuffer =
@@ -869,7 +871,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     capacity: value.utf8.count
                 )
             valueBuffer.writeString(value)
-            buffer = valueBuffer
+            body = .byteBuffer(valueBuffer)
+            bodyLength = valueBuffer.readableBytes
 
         case .bytes(let bytes):
             var valueBuffer =
@@ -877,10 +880,16 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     capacity: bytes.count
                 )
             valueBuffer.writeBytes(bytes)
-            buffer = valueBuffer
+            body = .byteBuffer(valueBuffer)
+            bodyLength = valueBuffer.readableBytes
 
         case .buffer(let value):
-            buffer = value
+            body = .byteBuffer(value)
+            bodyLength = value.readableBytes
+
+        case .fileRegion(let value):
+            body = .fileRegion(value)
+            bodyLength = value.readableBytes
         }
 
         if headers.first(
@@ -888,9 +897,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         ) == nil {
             headers.add(
                 name: "content-length",
-                value: String(
-                    buffer?.readableBytes ?? 0
-                )
+                value: String(bodyLength)
             )
         }
 
@@ -919,12 +926,12 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
         if
             !isHeadRequest,
-            let buffer,
-            buffer.readableBytes > 0
+            let body,
+            bodyLength > 0
         {
             context.write(
                 wrapOutboundOut(
-                    .body(.byteBuffer(buffer))
+                    .body(body)
                 ),
                 promise: nil
             )

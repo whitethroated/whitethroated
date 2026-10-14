@@ -304,6 +304,8 @@ final class CoreBenchmarkTests: XCTestCase {
                 checksum &+= value.count
             case .buffer(let value):
                 checksum &+= value.readableBytes
+            case .fileRegion(let value):
+                checksum &+= value.readableBytes
             }
 
         case .streaming:
