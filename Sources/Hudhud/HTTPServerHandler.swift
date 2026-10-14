@@ -509,8 +509,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
             start.registration.cancel(
                 streamingFailure
             )
-            write(
-                .internalServerError(),
+            writeFailure(
+                streamingFailure,
                 isHeadRequest: isHead,
                 version: version,
                 keepAlive: keepAlive,
@@ -538,8 +538,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
         case .cancelled(let error):
             start.registration.cancel(error)
-            write(
-                .internalServerError(),
+            writeFailure(
+                error,
                 isHeadRequest: isHead,
                 version: version,
                 keepAlive: keepAlive,
@@ -837,14 +837,59 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     context: context
                 )
 
-            case .failure:
-                self.write(
-                    .internalServerError(),
+            case .failure(let error):
+                self.writeFailure(
+                    error,
                     isHeadRequest: isHeadRequest,
                     version: version,
                     keepAlive: keepAlive,
                     context: context
                 )
+            }
+        }
+    }
+
+    private func writeFailure(
+        _ error: Error,
+        isHeadRequest: Bool,
+        version: HTTPVersion,
+        keepAlive: Bool,
+        context: ChannelHandlerContext
+    ) {
+        switch application.respondError(
+            error,
+            on: context.eventLoop
+        ) {
+        case .immediate(let response):
+            write(
+                response,
+                isHeadRequest: isHeadRequest,
+                version: version,
+                keepAlive: keepAlive,
+                context: context
+            )
+
+        case .future(let future):
+            future.whenComplete { result in
+                switch result {
+                case .success(let response):
+                    self.write(
+                        response,
+                        isHeadRequest: isHeadRequest,
+                        version: version,
+                        keepAlive: keepAlive,
+                        context: context
+                    )
+
+                case .failure:
+                    self.write(
+                        .internalServerError(),
+                        isHeadRequest: isHeadRequest,
+                        version: version,
+                        keepAlive: keepAlive,
+                        context: context
+                    )
+                }
             }
         }
     }

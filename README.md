@@ -252,6 +252,51 @@ The response writer emits `IOData.fileRegion` directly and derives `Content-Leng
 
 Hudhud intentionally does not open filesystem paths synchronously inside this helper. Open files through an appropriate non-blocking/file-service layer, then create the region. The caller owns the underlying file handle and must keep it open until the response write completes.
 
+## Error handling
+
+Register one global application error handler for failed NIO futures, thrown async/await routes, and streaming consumer failures:
+
+```swift
+app.onError { error, _ in
+    Response.text(
+        "Request failed",
+        status: .internalServerError
+    )
+}
+```
+
+NIO-future handlers are also supported:
+
+```swift
+let handler: ErrorHandler = { error, context in
+    context.eventLoop.makeSucceededFuture(
+        .json(
+            #"{"error":"internal"}"#,
+            status: .internalServerError
+        )
+    )
+}
+
+app.onError(handler)
+```
+
+And Swift concurrency is opt-in:
+
+```swift
+app.onError { error, context async throws in
+    try await report(error)
+
+    return .text(
+        "Request failed",
+        status: .internalServerError
+    )
+}
+```
+
+Error handling is not inserted into the successful request pipeline. Prepared, synchronous, and successful asynchronous routes do not perform an error-handler lookup. If a custom future/async error handler itself fails, Hudhud writes the built-in `500 Internal Server Error` directly and does not recursively invoke the custom handler.
+
+Only one global handler is active; the most recent `onError` registration replaces the previous one. Error handlers receive the error and event-loop `Context`, not mutable request state.
+
 ## Middleware
 
 The regular middleware API supports asynchronous NIO work:
@@ -299,6 +344,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Immutable shared prepared-response storage carried directly through the internal pipeline.
 - Precomputed HTTP/1.1 heads and body buffers for prepared responses.
 - NIO future handlers for asynchronous I/O.
+- Global sync, NIO-future, or async/await error handling on failure paths only.
 - Compiled asynchronous middleware pipeline.
 - Synchronous `useFast` middleware pipeline.
 - Opt-in async/await route handlers through SwiftNIO's Task bridge.

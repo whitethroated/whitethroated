@@ -24,6 +24,7 @@ public final class Application: @unchecked Sendable {
 
     private let router = Router()
     private var middleware: [MiddlewareEntry] = []
+    private var errorHandler: ErrorHandlerEntry?
     private var compiledResponder: InternalHandler?
     private var group: MultiThreadedEventLoopGroup?
     private var serverChannel: Channel?
@@ -75,6 +76,77 @@ public final class Application: @unchecked Sendable {
         compiledResponder = nil
     }
 
+    public func onError(
+        _ handler: @escaping SyncErrorHandler
+    ) {
+        requireConfigurationPhase()
+        errorHandler = .synchronous(handler)
+    }
+
+    public func onError(
+        _ handler: @escaping ErrorHandler
+    ) {
+        requireConfigurationPhase()
+        errorHandler = .asynchronous(handler)
+    }
+
+    public func onError(
+        _ handler: @escaping AsyncErrorHandler
+    ) {
+        requireConfigurationPhase()
+        errorHandler = .concurrent(handler)
+    }
+
+    @inline(__always)
+    internal func respondError(
+        _ error: Error,
+        on eventLoop: EventLoop
+    ) -> ErrorResponderResult {
+        guard let errorHandler else {
+            return .immediate(
+                .internalServerError()
+            )
+        }
+
+        let context = Context(
+            eventLoop: eventLoop
+        )
+
+        switch errorHandler {
+        case .synchronous(let handler):
+            return .immediate(
+                handler(
+                    error,
+                    context
+                )
+            )
+
+        case .asynchronous(let handler):
+            return .future(
+                handler(
+                    error,
+                    context
+                ).hop(
+                    to: eventLoop
+                )
+            )
+
+        case .concurrent(let handler):
+            let promise = eventLoop.makePromise(
+                of: Response.self
+            )
+            promise.completeWithTask {
+                try await handler(
+                    error,
+                    context
+                )
+            }
+
+            return .future(
+                promise.futureResult
+            )
+        }
+    }
 
     public func all(
         _ path: String,
