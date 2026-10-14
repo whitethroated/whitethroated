@@ -177,7 +177,7 @@ if environment["HUDHUD_MULTIPART_BENCHMARKS"] == "1" {
     app.postStream(
         "/upload-multipart",
         maxBodyBytes: 8 * 1024 * 1024
-    ) { request, context in
+    ) { request, _ in
         let parser: MultipartFormDataParser
 
         do {
@@ -195,17 +195,11 @@ if environment["HUDHUD_MULTIPART_BENCHMARKS"] == "1" {
         }
 
         return BodyStreamConsumer(
-            onChunk: { chunk in
-                do {
-                    try parser.receive(
-                        chunk,
-                        onEvent: { _ in }
-                    )
-                    return nil
-                } catch {
-                    return context.eventLoop
-                        .makeFailedFuture(error)
-                }
+            onChunkThrowing: { chunk in
+                try parser.receive(
+                    chunk,
+                    onEvent: { _ in }
+                )
             },
             onEnd: {
                 do {

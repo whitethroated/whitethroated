@@ -61,6 +61,106 @@ final class BodyStreamingTests: XCTestCase {
         )
     }
 
+    func testThrowingSyncChunkConsumerSucceedsWithoutFuture() throws {
+        let app = Application()
+        let counter = StreamCounter()
+
+        app.postStream("/upload") { _, _ in
+            BodyStreamConsumer(
+                onChunkThrowing: { buffer in
+                    counter.bytes += buffer.readableBytes
+                },
+                onEnd: {
+                    .text(String(counter.bytes))
+                }
+            )
+        }
+
+        let channel = try makeChannel(app)
+
+        try write(
+            .head(makeHead("/upload")),
+            to: channel
+        )
+        try writeBody(
+            "abc",
+            to: channel
+        )
+        try write(
+            .end(nil),
+            to: channel
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.body,
+            "3"
+        )
+    }
+
+    func testThrowingSyncChunkConsumerFailureUsesErrorPath()
+        throws
+    {
+        enum ConsumerError: Error {
+            case failed
+        }
+
+        let app = Application()
+        let counter = StreamCounter()
+
+        app.postStream("/upload") { _, _ in
+            BodyStreamConsumer(
+                onChunkThrowing: { _ in
+                    throw ConsumerError.failed
+                },
+                onEnd: {
+                    counter.bytes = -1
+                    return .text("unexpected")
+                },
+                onError: { error in
+                    if error is ConsumerError {
+                        counter.errors += 1
+                    }
+                }
+            )
+        }
+
+        let channel = try makeChannel(app)
+
+        try write(
+            .head(makeHead("/upload")),
+            to: channel
+        )
+        try writeBody(
+            "abc",
+            to: channel
+        )
+        try write(
+            .end(nil),
+            to: channel
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .internalServerError
+        )
+        XCTAssertEqual(
+            counter.errors,
+            1
+        )
+        XCTAssertEqual(
+            counter.bytes,
+            0
+        )
+    }
+
     func testStreamingConsumerSupportsSynchronousEndResponse() throws {
         let app = Application()
         let counter = StreamCounter()

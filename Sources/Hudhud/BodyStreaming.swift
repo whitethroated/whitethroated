@@ -58,6 +58,10 @@ public struct BodyStreamConsumer: @unchecked Sendable {
         ByteBuffer
     ) -> Void
 
+    public typealias ThrowingSyncChunkHandler = @Sendable (
+        ByteBuffer
+    ) throws -> Void
+
     public typealias ChunkHandler = @Sendable (
         ByteBuffer
     ) -> EventLoopFuture<Void>?
@@ -74,6 +78,9 @@ public struct BodyStreamConsumer: @unchecked Sendable {
 
     internal enum ChunkResponder: @unchecked Sendable {
         case synchronous(SyncChunkHandler)
+        case throwingSynchronous(
+            ThrowingSyncChunkHandler
+        )
         case asynchronous(ChunkHandler)
     }
 
@@ -102,6 +109,34 @@ public struct BodyStreamConsumer: @unchecked Sendable {
         onError: ErrorHandler? = nil
     ) {
         self.chunkResponder = .synchronous(onChunk)
+        self.endResponder = .synchronous(onEnd)
+        self.errorHandler = onError
+    }
+
+    public init(
+        onChunkThrowing:
+            @escaping ThrowingSyncChunkHandler,
+        onEnd: @escaping EndHandler,
+        onError: ErrorHandler? = nil
+    ) {
+        self.chunkResponder =
+            .throwingSynchronous(
+                onChunkThrowing
+            )
+        self.endResponder = .asynchronous(onEnd)
+        self.errorHandler = onError
+    }
+
+    public init(
+        onChunkThrowing:
+            @escaping ThrowingSyncChunkHandler,
+        onEnd: @escaping SyncEndHandler,
+        onError: ErrorHandler? = nil
+    ) {
+        self.chunkResponder =
+            .throwingSynchronous(
+                onChunkThrowing
+            )
         self.endResponder = .synchronous(onEnd)
         self.errorHandler = onError
     }
@@ -159,7 +194,7 @@ internal final class BodyStreamSession: @unchecked Sendable {
     @inline(__always)
     func receive(
         _ buffer: ByteBuffer
-    ) -> EventLoopFuture<Void>? {
+    ) throws -> EventLoopFuture<Void>? {
         guard !finished else {
             return nil
         }
@@ -167,6 +202,10 @@ internal final class BodyStreamSession: @unchecked Sendable {
         switch consumer.chunkResponder {
         case .synchronous(let handler):
             handler(buffer)
+            return nil
+
+        case .throwingSynchronous(let handler):
+            try handler(buffer)
             return nil
 
         case .asynchronous(let handler):
