@@ -67,6 +67,29 @@ The writer benchmark compares prepared and ordinary synchronous text responses w
 
 Treat all in-process numbers as diagnostic ns/op measurements, not as substitutes for the repeated `wrk` network suite.
 
+## In-process router lookup benchmark
+
+Use the router-only benchmark when evaluating exact-table strategy:
+
+```bash
+./Benchmarks/router-core.sh
+```
+
+Increase iterations for small deltas:
+
+```bash
+ITERATIONS=10000000 ./Benchmarks/router-core.sh
+```
+
+It bypasses request construction, handlers, response serialization, and transport writes. The cases isolate:
+
+- exact static hit with 4,096 registered GET static routes.
+- dynamic GET lookup after a populated exact table misses.
+- the same dynamic route on PUT where the exact table is empty.
+- a GET not-found lookup after a populated exact table misses.
+
+The `dynamic-exact-miss` versus `dynamic-empty-exact` delta is the direct cost of hashing and probing the exact table before trie fallback. Use this measurement before introducing routing heuristics that make static hits more complicated.
+
 ## Benchmark servers
 
 The repository contains two release benchmark servers.
