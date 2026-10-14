@@ -165,6 +165,8 @@ Canonical static routes are registered in two setup-time structures:
 1. An exact full-path table keyed by FNV-1a hash.
 2. The segment trie used by dynamic parameters, catch-all routes, and semantic fallbacks.
 
+The common-method exact table is a custom open-addressed table. The already-computed FNV hash selects the initial slot directly, so serving does not run the hash through Swift `Dictionary`'s `Hasher` a second time. Linear probing resolves slot collisions, while true FNV hash collisions retain a small byte-checked bucket. Resizing occurs only during route registration.
+
 For a canonical static URI, Hudhud hashes the path bytes once up to the query marker and performs one exact-table lookup. No `String` is created and route parameters are not involved.
 
 If exact lookup misses, routing falls back to the existing UTF-8 trie. This preserves trailing-slash behavior and mixed static/dynamic route precedence.

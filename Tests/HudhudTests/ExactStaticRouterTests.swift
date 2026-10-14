@@ -188,6 +188,44 @@ final class ExactStaticRouterTests: XCTestCase {
         )
     }
 
+    func testExactTableResizesAcrossThousandsOfStaticRoutes()
+        throws
+    {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        for index in 0..<5_000 {
+            app.get(
+                "/static/r\(index)",
+                response: .text(
+                    String(index)
+                )
+            )
+        }
+
+        for index in [
+            0,
+            7,
+            63,
+            511,
+            2_047,
+            4_999
+        ] {
+            let response = try app.respond(
+                to: makeRequest(
+                    method: .GET,
+                    uri: "/static/r\(index)"
+                ),
+                on: loop
+            ).wait()
+
+            XCTAssertBody(
+                response,
+                equals: String(index)
+            )
+        }
+    }
+
     func testDynamicRouteStillMatchesWhenMethodHasStaticRoutes()
         throws
     {

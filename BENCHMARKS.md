@@ -478,7 +478,7 @@ Record at minimum:
 
 Completed:
 
-- Exact full-path static route table with trie fallback.
+- Custom open-addressed exact full-path static route table with trie fallback.
 - Direct roots for common HTTP methods.
 - Method-aware UTF-8 trie routing.
 - Static-route priority with parameter fallback.
