@@ -123,6 +123,21 @@ app.get("/nio") { request, context in
 }
 ```
 
+## URL-encoded forms
+
+Aggregated request bodies can be read as `application/x-www-form-urlencoded` data without Foundation URL parsing:
+
+```swift
+app.post("/login") { request in
+    let email = request.form("email") ?? ""
+    let remember = request.form("remember") ?? "false"
+
+    return .text("\(email):\(remember)")
+}
+```
+
+`request.form(name)` scans lazily and stops at the requested field. `request.formParameters` materializes the full dictionary only when needed. Percent escapes and `+` spaces follow standard URL-encoded form semantics.
+
 ## Streaming request bodies
 
 Large request bodies can opt into chunk streaming instead of whole-body aggregation:

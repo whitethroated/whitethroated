@@ -121,6 +121,26 @@ public struct Request: @unchecked Sendable {
         return result
     }
 
+    public var formParameters: [String: String] {
+        var result: [String: String] = [:]
+
+        scanForm { key, value in
+            result[
+                URLComponentDecoder.decode(
+                    key,
+                    plusAsSpace: true
+                )
+            ] = URLComponentDecoder.decode(
+                value,
+                plusAsSpace: true
+            )
+
+            return true
+        }
+
+        return result
+    }
+
     public func parameter(_ name: String) -> String? {
         for index in 0..<routeParameterNames.count
         where routeParameterNames[index] == name {
@@ -152,6 +172,13 @@ public struct Request: @unchecked Sendable {
         return Self.queryValue(
             named: expected,
             in: bytes
+        )
+    }
+
+    public func form(_ name: String) -> String? {
+        Self.formValue(
+            named: name.utf8,
+            in: body.readableBytesView
         )
     }
 
@@ -387,6 +414,132 @@ public struct Request: @unchecked Sendable {
         }
 
         return nil
+    }
+
+    @inline(__always)
+    private static func formValue<
+        C: Collection,
+        N: Collection
+    >(
+        named expected: N,
+        in bytes: C
+    ) -> String?
+    where C.Element == UInt8, N.Element == UInt8 {
+        var cursor = bytes.startIndex
+
+        while cursor != bytes.endIndex {
+            if bytes[cursor] == 38 {
+                bytes.formIndex(after: &cursor)
+                continue
+            }
+
+            let keyStart = cursor
+
+            while
+                cursor != bytes.endIndex,
+                bytes[cursor] != 61,
+                bytes[cursor] != 38
+            {
+                bytes.formIndex(after: &cursor)
+            }
+
+            let keyEnd = cursor
+            var valueStart = cursor
+
+            if
+                cursor != bytes.endIndex,
+                bytes[cursor] == 61
+            {
+                bytes.formIndex(after: &cursor)
+                valueStart = cursor
+
+                while
+                    cursor != bytes.endIndex,
+                    bytes[cursor] != 38
+                {
+                    bytes.formIndex(after: &cursor)
+                }
+            }
+
+            if URLComponentDecoder.equalsDecoded(
+                bytes[keyStart..<keyEnd],
+                expected,
+                plusAsSpace: true
+            ) {
+                return URLComponentDecoder.decode(
+                    bytes[valueStart..<cursor],
+                    plusAsSpace: true
+                )
+            }
+
+            if
+                cursor != bytes.endIndex,
+                bytes[cursor] == 38
+            {
+                bytes.formIndex(after: &cursor)
+            }
+        }
+
+        return nil
+    }
+
+    private func scanForm(
+        _ visit: (
+            ByteBufferView.SubSequence,
+            ByteBufferView.SubSequence
+        ) -> Bool
+    ) {
+        let bytes = body.readableBytesView
+        var cursor = bytes.startIndex
+
+        while cursor != bytes.endIndex {
+            if bytes[cursor] == 38 {
+                bytes.formIndex(after: &cursor)
+                continue
+            }
+
+            let keyStart = cursor
+
+            while
+                cursor != bytes.endIndex,
+                bytes[cursor] != 61,
+                bytes[cursor] != 38
+            {
+                bytes.formIndex(after: &cursor)
+            }
+
+            let keyEnd = cursor
+            var valueStart = cursor
+
+            if
+                cursor != bytes.endIndex,
+                bytes[cursor] == 61
+            {
+                bytes.formIndex(after: &cursor)
+                valueStart = cursor
+
+                while
+                    cursor != bytes.endIndex,
+                    bytes[cursor] != 38
+                {
+                    bytes.formIndex(after: &cursor)
+                }
+            }
+
+            if !visit(
+                bytes[keyStart..<keyEnd],
+                bytes[valueStart..<cursor]
+            ) {
+                return
+            }
+
+            if
+                cursor != bytes.endIndex,
+                bytes[cursor] == 38
+            {
+                bytes.formIndex(after: &cursor)
+            }
+        }
     }
 
     private func scanQuery(

@@ -222,6 +222,15 @@ Queries are not parsed during request construction.
 
 Percent decoding is implemented without Foundation URL parsing in the route/query hot path.
 
+## URL-encoded forms
+
+URL-encoded form parsing is opt-in and operates directly on the aggregated request `ByteBuffer` view.
+
+- `request.form(name)` performs a targeted scan and stops on the first decoded matching key.
+- `request.formParameters` allocates a dictionary only when the full form is requested.
+- Percent decoding reuses the same byte-oriented decoder as query parsing.
+- Requests that do not access form APIs pay no parsing cost.
+
 ## JSON
 
 Codable JSON support is opt-in.
