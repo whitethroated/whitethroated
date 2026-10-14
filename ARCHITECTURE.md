@@ -312,7 +312,9 @@ Runtime invariants:
 - Part count and header count are independently bounded.
 - While scanning part bodies, the parser emits completed body bytes incrementally and retains only the longest trailing byte sequence that is an actual prefix of the multipart boundary.
 - For ordinary payload chunks that do not end in a possible boundary prefix, no body tail is retained; the next inbound `ByteBuffer` can become parser input directly instead of being appended behind a fixed boundary-sized tail.
-- Boundary matching requires the RFC delimiter suffix (`\r\n` for another part or `--` for the closing delimiter), so boundary-like byte sequences inside file content are preserved.
+- Boundary matching validates the complete delimiter line. Boundary-like byte sequences such as `\r\n--boundary--X` inside file content are preserved instead of being treated as closing delimiters.
+- RFC 2046 transport padding (space/tab) is accepted on delimiter lines but bounded by `maxBoundaryPaddingBytes` to prevent unbounded staging from malicious whitespace.
+- A closing delimiter may terminate exactly at the request-body end or be followed by CRLF and an ignored epilogue.
 - The parser accepts binary part bodies and does not decode part payload bytes as text.
 - `Content-Disposition: form-data; name=...` is required for every part.
 - Parser state is expected to remain confined to the request event-loop flow. The parser is marked `@unchecked Sendable` only so it can be captured by Hudhud's `@Sendable` streaming closures without introducing locking on every chunk.

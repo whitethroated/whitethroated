@@ -5,11 +5,13 @@ public struct MultipartFormDataLimits: Sendable {
     public var maxParts: Int
     public var maxHeadersPerPart: Int
     public var maxHeaderBytesPerPart: Int
+    public var maxBoundaryPaddingBytes: Int
 
     public init(
         maxParts: Int = 128,
         maxHeadersPerPart: Int = 32,
-        maxHeaderBytesPerPart: Int = 16 * 1024
+        maxHeaderBytesPerPart: Int = 16 * 1024,
+        maxBoundaryPaddingBytes: Int = 1024
     ) {
         precondition(
             maxParts > 0,
@@ -23,11 +25,17 @@ public struct MultipartFormDataLimits: Sendable {
             maxHeaderBytesPerPart > 0,
             "maxHeaderBytesPerPart must be greater than zero"
         )
+        precondition(
+            maxBoundaryPaddingBytes >= 0,
+            "maxBoundaryPaddingBytes must be zero or greater"
+        )
 
         self.maxParts = maxParts
         self.maxHeadersPerPart = maxHeadersPerPart
         self.maxHeaderBytesPerPart =
             maxHeaderBytesPerPart
+        self.maxBoundaryPaddingBytes =
+            maxBoundaryPaddingBytes
     }
 }
 
@@ -43,6 +51,7 @@ public enum MultipartFormDataError:
     case headerBlockTooLarge(limit: Int)
     case tooManyHeaders(limit: Int)
     case tooManyParts(limit: Int)
+    case boundaryPaddingTooLarge(limit: Int)
     case malformedHeader(String)
     case missingContentDisposition
     case invalidContentDisposition
@@ -94,10 +103,20 @@ public final class MultipartFormDataParser:
     private enum BoundarySearch {
         case found(
             index: Int,
-            isFinal: Bool
+            isFinal: Bool,
+            consumedBytes: Int
         )
         case incomplete(index: Int)
         case none
+    }
+
+    private enum DelimiterSuffix {
+        case complete(
+            isFinal: Bool,
+            consumedBytes: Int
+        )
+        case incomplete
+        case invalid
     }
 
     private static let carriageReturn: UInt8 = 13
@@ -199,7 +218,10 @@ public final class MultipartFormDataParser:
         append(chunk)
 
         do {
-            try process(onEvent: onEvent)
+            try process(
+                onEvent: onEvent,
+                finalInput: false
+            )
         } catch {
             state = .failed
             throw error
@@ -219,7 +241,10 @@ public final class MultipartFormDataParser:
         }
 
         do {
-            try process(onEvent: onEvent)
+            try process(
+                onEvent: onEvent,
+                finalInput: true
+            )
 
             guard case .finished = state else {
                 throw MultipartFormDataError
@@ -283,12 +308,15 @@ public final class MultipartFormDataParser:
     }
 
     private func process(
-        onEvent: EventHandler
+        onEvent: EventHandler,
+        finalInput: Bool
     ) throws {
         while true {
             switch state {
             case .openingBoundary:
-                guard try consumeOpeningBoundary()
+                guard try consumeOpeningBoundary(
+                    finalInput: finalInput
+                )
                 else {
                     return
                 }
@@ -302,7 +330,8 @@ public final class MultipartFormDataParser:
 
             case .body:
                 guard try consumeBody(
-                    onEvent: onEvent
+                    onEvent: onEvent,
+                    finalInput: finalInput
                 ) else {
                     return
                 }
@@ -317,57 +346,55 @@ public final class MultipartFormDataParser:
         }
     }
 
-    private func consumeOpeningBoundary()
-        throws -> Bool
-    {
-        let required =
-            openingBoundary.count + 2
-
-        guard buffer.readableBytes >= required else {
+    private func consumeOpeningBoundary(
+        finalInput: Bool
+    ) throws -> Bool {
+        guard
+            buffer.readableBytes
+            >= openingBoundary.count
+        else {
             return false
         }
 
+        let boundaryStart = buffer.readerIndex
+
         guard matches(
             openingBoundary,
-            at: buffer.readerIndex
+            at: boundaryStart
         ) else {
             throw MultipartFormDataError
                 .invalidOpeningBoundary
         }
 
-        buffer.moveReaderIndex(
-            forwardBy: openingBoundary.count
-        )
+        let suffixStart =
+            boundaryStart + openingBoundary.count
 
-        let first = buffer.getInteger(
-            at: buffer.readerIndex,
-            as: UInt8.self
-        )
-        let second = buffer.getInteger(
-            at: buffer.readerIndex + 1,
-            as: UInt8.self
-        )
-
-        if
-            first == Self.hyphen,
-            second == Self.hyphen
-        {
-            buffer.moveReaderIndex(forwardBy: 2)
-            state = .finished
+        switch try delimiterSuffix(
+            at: suffixStart,
+            finalInput: finalInput
+        ) {
+        case .complete(
+            let isFinal,
+            let consumedBytes
+        ):
+            buffer.moveReaderIndex(
+                forwardBy:
+                    openingBoundary.count
+                    + consumedBytes
+            )
+            state =
+                isFinal
+                ? .finished
+                : .headers
             return true
-        }
 
-        guard
-            first == Self.carriageReturn,
-            second == Self.lineFeed
-        else {
+        case .incomplete:
+            return false
+
+        case .invalid:
             throw MultipartFormDataError
                 .invalidOpeningBoundary
         }
-
-        buffer.moveReaderIndex(forwardBy: 2)
-        state = .headers
-        return true
     }
 
     private func consumeHeaders(
@@ -434,12 +461,16 @@ public final class MultipartFormDataParser:
     }
 
     private func consumeBody(
-        onEvent: EventHandler
+        onEvent: EventHandler,
+        finalInput: Bool
     ) throws -> Bool {
-        switch findBoundary() {
+        switch try findBoundary(
+            finalInput: finalInput
+        ) {
         case .found(
             let index,
-            let isFinal
+            let isFinal,
+            let consumedBytes
         ):
             let bodyBytes =
                 index - buffer.readerIndex
@@ -457,7 +488,7 @@ public final class MultipartFormDataParser:
             }
 
             buffer.moveReaderIndex(
-                forwardBy: bodyBoundary.count + 2
+                forwardBy: consumedBytes
             )
 
             try onEvent(.partEnd)
@@ -721,7 +752,9 @@ public final class MultipartFormDataParser:
         return nil
     }
 
-    private func findBoundary() -> BoundarySearch {
+    private func findBoundary(
+        finalInput: Bool
+    ) throws -> BoundarySearch {
         let bytes = buffer.readableBytesView
         let patternCount = bodyBoundary.count
 
@@ -752,42 +785,128 @@ public final class MultipartFormDataParser:
 
             let suffixIndex =
                 index + patternCount
-            let suffixBytes =
-                bytes.endIndex - suffixIndex
 
-            guard suffixBytes >= 2 else {
+            switch try delimiterSuffix(
+                at: suffixIndex,
+                finalInput: finalInput
+            ) {
+            case .complete(
+                let isFinal,
+                let suffixBytes
+            ):
+                return .found(
+                    index: index,
+                    isFinal: isFinal,
+                    consumedBytes:
+                        patternCount
+                        + suffixBytes
+                )
+
+            case .incomplete:
                 return .incomplete(
                     index: index
                 )
+
+            case .invalid:
+                index += 1
             }
-
-            let first = bytes[suffixIndex]
-            let second = bytes[suffixIndex + 1]
-
-            if
-                first == Self.hyphen,
-                second == Self.hyphen
-            {
-                return .found(
-                    index: index,
-                    isFinal: true
-                )
-            }
-
-            if
-                first == Self.carriageReturn,
-                second == Self.lineFeed
-            {
-                return .found(
-                    index: index,
-                    isFinal: false
-                )
-            }
-
-            index += 1
         }
 
         return .none
+    }
+
+    private func delimiterSuffix(
+        at start: Int,
+        finalInput: Bool
+    ) throws -> DelimiterSuffix {
+        let bytes = buffer.readableBytesView
+        var cursor = start
+        var isFinal = false
+
+        if
+            cursor < bytes.endIndex,
+            bytes[cursor] == Self.hyphen
+        {
+            guard cursor + 1 < bytes.endIndex else {
+                return .incomplete
+            }
+
+            guard
+                bytes[cursor + 1]
+                == Self.hyphen
+            else {
+                return .invalid
+            }
+
+            isFinal = true
+            cursor += 2
+        }
+
+        var paddingBytes = 0
+
+        while
+            cursor < bytes.endIndex,
+            bytes[cursor] == 32
+            || bytes[cursor] == 9
+        {
+            paddingBytes += 1
+
+            guard
+                paddingBytes
+                <= limits.maxBoundaryPaddingBytes
+            else {
+                throw MultipartFormDataError
+                    .boundaryPaddingTooLarge(
+                        limit:
+                            limits
+                                .maxBoundaryPaddingBytes
+                    )
+            }
+
+            cursor += 1
+        }
+
+        if
+            isFinal,
+            cursor == bytes.endIndex
+        {
+            guard finalInput else {
+                return .incomplete
+            }
+
+            return .complete(
+                isFinal: true,
+                consumedBytes: cursor - start
+            )
+        }
+
+        guard cursor < bytes.endIndex else {
+            return .incomplete
+        }
+
+        guard
+            bytes[cursor]
+            == Self.carriageReturn
+        else {
+            return .invalid
+        }
+
+        guard cursor + 1 < bytes.endIndex else {
+            return .incomplete
+        }
+
+        guard
+            bytes[cursor + 1]
+            == Self.lineFeed
+        else {
+            return .invalid
+        }
+
+        return .complete(
+            isFinal: isFinal,
+            consumedBytes:
+                cursor + 2 - start
+        )
     }
 
     private func partialBoundarySuffixLength() -> Int {

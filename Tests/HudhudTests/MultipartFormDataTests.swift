@@ -250,6 +250,168 @@ final class MultipartFormDataTests: XCTestCase {
         )
     }
 
+    func testBoundaryTransportPaddingIsAccepted() throws {
+        let body =
+            "--pad \t\r\n"
+            + "Content-Disposition: form-data; name=\"a\"\r\n"
+            + "\r\n"
+            + "one\r\n"
+            + "--pad\t \r\n"
+            + "Content-Disposition: form-data; name=\"b\"\r\n"
+            + "\r\n"
+            + "two\r\n"
+            + "--pad-- \t\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "pad"
+        )
+        let collector = MultipartCollector()
+
+        for byte in body.utf8 {
+            var chunk = ByteBufferAllocator()
+                .buffer(capacity: 1)
+            chunk.writeInteger(byte)
+
+            try parser.receive(
+                chunk,
+                onEvent: collector.receive
+            )
+        }
+
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts.count,
+            2
+        )
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            "one"
+        )
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[1].bytes,
+                as: UTF8.self
+            ),
+            "two"
+        )
+    }
+
+    func testClosingBoundaryCanEndExactlyAtRequestEnd()
+        throws
+    {
+        let body =
+            "--eof\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "\r\n"
+            + "ok\r\n"
+            + "--eof--"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "eof"
+        )
+        let collector = MultipartCollector()
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+
+        XCTAssertFalse(parser.isFinished)
+
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertTrue(parser.isFinished)
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            "ok"
+        )
+    }
+
+    func testFalseClosingBoundarySequenceRemainsPartBody()
+        throws
+    {
+        let boundary = "boundary"
+        let payload =
+            "before\r\n--boundary--Xafter"
+        let body =
+            "--boundary\r\n"
+            + "Content-Disposition: form-data; name=\"data\"\r\n"
+            + "\r\n"
+            + payload
+            + "\r\n--boundary--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: boundary
+        )
+        let collector = MultipartCollector()
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            payload
+        )
+    }
+
+    func testBoundaryPaddingLimitIsEnforced() throws {
+        let parser = try MultipartFormDataParser(
+            boundary: "padding",
+            limits: MultipartFormDataLimits(
+                maxBoundaryPaddingBytes: 2
+            )
+        )
+        let body =
+            "--padding   \r\n"
+            + "Content-Disposition: form-data; name=\"x\"\r\n"
+            + "\r\n"
+            + "value\r\n"
+            + "--padding--\r\n"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                chunk,
+                onEvent: { _ in }
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? MultipartFormDataError,
+                .boundaryPaddingTooLarge(
+                    limit: 2
+                )
+            )
+        }
+    }
+
     func testFalseBoundaryPrefixRemainsPartBody() throws {
         let boundary = "boundary"
         let payload =
