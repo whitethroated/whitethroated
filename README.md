@@ -376,8 +376,9 @@ app.get("/stream") { _ in
 
 `ResponseStreamWriter` exposes:
 
-- `write(_:)` and `writeString(_:)` for buffered writes.
-- `writeAndFlush(_:)` and `writeStringAndFlush(_:)` for latency-sensitive output such as SSE.
+- `write(_:)` and `writeString(_:)` for buffered in-memory writes.
+- `writeFileRegion(_:)` for direct file-region body parts.
+- `writeAndFlush(_:)`, `writeStringAndFlush(_:)`, and `writeFileRegionAndFlush(_:)` for latency-sensitive output.
 - `flush()` to flush previously queued chunks.
 - `eventLoop` for scheduling NIO-native asynchronous work.
 - `closeFuture` to observe client disconnects.

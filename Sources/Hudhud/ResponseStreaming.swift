@@ -48,6 +48,21 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     }
 
     @discardableResult
+    public func writeFileRegion(
+        _ region: FileRegion
+    ) -> EventLoopFuture<Void> {
+        requireEventLoop()
+
+        return context.write(
+            NIOAny(
+                HTTPServerResponsePart.body(
+                    .fileRegion(region)
+                )
+            )
+        )
+    }
+
+    @discardableResult
     public func writeString(
         _ value: String
     ) -> EventLoopFuture<Void> {
@@ -72,6 +87,21 @@ public struct ResponseStreamWriter: @unchecked Sendable {
             NIOAny(
                 HTTPServerResponsePart.body(
                     .byteBuffer(buffer)
+                )
+            )
+        )
+    }
+
+    @discardableResult
+    public func writeFileRegionAndFlush(
+        _ region: FileRegion
+    ) -> EventLoopFuture<Void> {
+        requireEventLoop()
+
+        return context.writeAndFlush(
+            NIOAny(
+                HTTPServerResponsePart.body(
+                    .fileRegion(region)
                 )
             )
         )
