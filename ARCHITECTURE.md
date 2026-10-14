@@ -282,6 +282,8 @@ Streaming responses are opt-in. Hudhud writes the response head, lets the produc
 
 If a streaming producer fails after headers have started, Hudhud closes the connection rather than attempting to emit a second response. HEAD requests suppress the producer. HTTP/1.0 unknown-length streams force connection-close framing unless an explicit content length is supplied.
 
+SSE is implemented as a formatting/header convenience over the same response-stream path. It does not introduce a separate transport abstraction.
+
 A response writer must preserve:
 
 - Correct `Content-Length`.

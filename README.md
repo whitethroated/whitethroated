@@ -388,6 +388,26 @@ For HTTP/1.1 responses without a declared `Content-Length`, SwiftNIO's response 
 
 HEAD requests suppress the stream producer entirely.
 
+### Server-Sent Events
+
+SSE is a small convenience layer over response streaming:
+
+```swift
+app.get("/events") { _ in
+    Response.sse { writer in
+        writer.writeSSE(
+            ServerSentEvent(
+                data: "build complete",
+                event: "status",
+                id: "42"
+            )
+        )
+    }
+}
+```
+
+`writeSSE` flushes each event by default for low delivery latency. Pass `flush: false` when several events should be batched before an explicit `writer.flush()`.
+
 ## Middleware
 
 The regular middleware API supports asynchronous NIO work:
