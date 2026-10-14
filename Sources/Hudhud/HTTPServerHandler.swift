@@ -23,6 +23,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
     private var streamingEndReceived = false
     private var streamingReadsPaused = false
     private var streamingFailure: Error?
+    private var rejectingRequestEarly = false
 
     init(
         application: Application,
@@ -89,6 +90,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         requestBodyTooLarge = false
         streamingFailure = nil
         streamingEndReceived = false
+        rejectingRequestEarly = false
         streamingPendingChunks.removeAll(
             keepingCapacity: true
         )
@@ -119,6 +121,13 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 )
             }
 
+            if handleExpectation(
+                head,
+                context: context
+            ) {
+                return
+            }
+
             observeStreamingRegistration(
                 start.registration,
                 context: context
@@ -133,12 +142,21 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 maxBodyBytes:
                     maxRequestBodyBytes
             )
+
+        _ = handleExpectation(
+            head,
+            context: context
+        )
     }
 
     private func receiveBody(
         _ body: ByteBuffer,
         context: ChannelHandlerContext
     ) {
+        guard !rejectingRequestEarly else {
+            return
+        }
+
         guard !requestBodyTooLarge else {
             return
         }
@@ -188,6 +206,17 @@ final class HTTPServerHandler: ChannelInboundHandler {
         context: ChannelHandlerContext
     ) {
         guard let head = requestHead else {
+            return
+        }
+
+        if rejectingRequestEarly {
+            if streamingStart != nil {
+                resetStreamingState()
+            } else {
+                resetRequestState()
+            }
+
+            rejectingRequestEarly = false
             return
         }
 
@@ -563,6 +592,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         requestBody = nil
         receivedBodyBytes = 0
         requestBodyTooLarge = false
+        rejectingRequestEarly = false
     }
 
     private func pauseStreamingReads(
@@ -597,6 +627,78 @@ final class HTTPServerHandler: ChannelInboundHandler {
         }
     }
 
+    private func handleExpectation(
+        _ head: HTTPRequestHead,
+        context: ChannelHandlerContext
+    ) -> Bool {
+        guard let expectation = head.headers.first(
+            name: "expect"
+        ) else {
+            return false
+        }
+
+        guard
+            head.version == .http1_1,
+            expectation.lowercased()
+                == "100-continue"
+        else {
+            streamingStart?.registration.cancel(
+                BodyStreamError.connectionClosed
+            )
+            rejectRequestEarly(
+                .text(
+                    "Expectation Failed",
+                    status: .expectationFailed
+                ),
+                head: head,
+                context: context
+            )
+            return true
+        }
+
+        if requestBodyTooLarge {
+            streamingStart?.registration.cancel(
+                BodyStreamError.payloadTooLarge
+            )
+            rejectRequestEarly(
+                .payloadTooLarge(),
+                head: head,
+                context: context
+            )
+            return true
+        }
+
+        let continueHead = HTTPResponseHead(
+            version: .http1_1,
+            status: .continue
+        )
+
+        context.writeAndFlush(
+            wrapOutboundOut(
+                .head(continueHead)
+            ),
+            promise: nil
+        )
+
+        return false
+    }
+
+    private func rejectRequestEarly(
+        _ response: Response,
+        head: HTTPRequestHead,
+        context: ChannelHandlerContext
+    ) {
+        rejectingRequestEarly = true
+
+        write(
+            response,
+            isHeadRequest: head.method == .HEAD,
+            version: head.version,
+            keepAlive: false,
+            context: context
+        )
+    }
+
     @inline(__always)
     private func declaredBodyExceedsLimit(
         _ head: HTTPRequestHead,
@@ -619,6 +721,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
         requestBody = nil
         receivedBodyBytes = 0
         requestBodyTooLarge = false
+        rejectingRequestEarly = false
     }
 
     @inline(__always)
