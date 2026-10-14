@@ -31,6 +31,12 @@ enum RouterMatch {
         parameterNames: RouteParameterNames,
         parameterRanges: RouteParameterRanges
     )
+    case streaming(
+        StreamingHandler,
+        maxBodyBytes: Int?,
+        parameterNames: RouteParameterNames,
+        parameterRanges: RouteParameterRanges
+    )
     case notFound
 }
 
@@ -38,6 +44,10 @@ private enum RouteResponder {
     case synchronous(SyncHandler)
     case asynchronous(Handler)
     case concurrent(AsyncHandler)
+    case streaming(
+        StreamingHandler,
+        maxBodyBytes: Int?
+    )
     case prepared(PreparedResponseStorage)
 }
 
@@ -108,6 +118,18 @@ final class Router: @unchecked Sendable {
     private static let hashPrime: UInt64 =
         1_099_511_628_211
 
+    private(set) var hasStreamingRoutes = false
+    private var streamingGet = false
+    private var streamingPost = false
+    private var streamingPut = false
+    private var streamingPatch = false
+    private var streamingDelete = false
+    private var streamingHead = false
+    private var streamingOptions = false
+    private var streamingConnect = false
+    private var streamingTrace = false
+    private var streamingOtherMethods: Set<String> = []
+
     private var getRoot: RouterNode?
     private var postRoot: RouterNode?
     private var putRoot: RouterNode?
@@ -158,6 +180,25 @@ final class Router: @unchecked Sendable {
     func add(
         method: HTTPMethod,
         path: String,
+        streamingHandler: @escaping StreamingHandler,
+        maxBodyBytes: Int?
+    ) {
+        hasStreamingRoutes = true
+        markStreamingMethod(method)
+
+        insert(
+            method: method,
+            path: path,
+            responder: .streaming(
+                streamingHandler,
+                maxBodyBytes: maxBodyBytes
+            )
+        )
+    }
+
+    func add(
+        method: HTTPMethod,
+        path: String,
         preparedResponse: PreparedResponse
     ) {
         insert(
@@ -165,6 +206,40 @@ final class Router: @unchecked Sendable {
             path: path,
             responder: .prepared(preparedResponse.storage)
         )
+    }
+
+    @inline(__always)
+    func hasStreamingRoute(
+        for method: NIOHTTP1.HTTPMethod
+    ) -> Bool {
+        switch method {
+        case .GET:
+            return streamingGet
+        case .POST:
+            return streamingPost
+        case .PUT:
+            return streamingPut
+        case .PATCH:
+            return streamingPatch
+        case .DELETE:
+            return streamingDelete
+        case .HEAD:
+            return streamingHead || streamingGet
+        case .OPTIONS:
+            return streamingOptions
+        case .CONNECT:
+            return streamingConnect
+        case .TRACE:
+            return streamingTrace
+        case .RAW(let value):
+            return streamingOtherMethods.contains(
+                value
+            )
+        default:
+            return streamingOtherMethods.contains(
+                String(describing: method)
+            )
+        }
     }
 
     @inline(__always)
@@ -232,6 +307,31 @@ final class Router: @unchecked Sendable {
             }
 
             return .future(promise.futureResult)
+
+        case .streaming(
+            let handler,
+            _,
+            let parameterNames,
+            let parameterRanges
+        ):
+            var matchedRequest = request
+            matchedRequest.routeParameterNames =
+                parameterNames
+            matchedRequest.routeParameterRanges =
+                parameterRanges
+
+            let consumer = handler(
+                StreamRequest(matchedRequest),
+                context
+            )
+            let session = BodyStreamSession(
+                consumer: consumer,
+                eventLoop: context.eventLoop
+            )
+            context.streamingRegistration?
+                .register(session)
+
+            return .streaming(session)
 
         case .notFound:
             return .immediate(.notFound())
@@ -518,6 +618,19 @@ final class Router: @unchecked Sendable {
                 parameterRanges:
                     match.parameterRanges
             )
+
+        case .streaming(
+            let handler,
+            let maxBodyBytes
+        ):
+            return .streaming(
+                handler,
+                maxBodyBytes: maxBodyBytes,
+                parameterNames:
+                    match.endpoint.parameterNames,
+                parameterRanges:
+                    match.parameterRanges
+            )
         }
     }
 
@@ -546,6 +659,33 @@ final class Router: @unchecked Sendable {
             return traceRoot
         case .other(let value):
             return otherRoots[value]
+        }
+    }
+
+    private func markStreamingMethod(
+        _ method: HTTPMethod
+    ) {
+        switch method {
+        case .get:
+            streamingGet = true
+        case .post:
+            streamingPost = true
+        case .put:
+            streamingPut = true
+        case .patch:
+            streamingPatch = true
+        case .delete:
+            streamingDelete = true
+        case .head:
+            streamingHead = true
+        case .options:
+            streamingOptions = true
+        case .connect:
+            streamingConnect = true
+        case .trace:
+            streamingTrace = true
+        case .other(let value):
+            streamingOtherMethods.insert(value)
         }
     }
 

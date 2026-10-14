@@ -214,13 +214,30 @@ JSON convenience must never add encoding or Foundation parsing to requests that 
 
 ## Request bodies
 
-Bodyless requests reuse an empty buffer owned by the channel handler.
+Bodyless ordinary requests reuse an empty buffer owned by the channel handler.
 
-The first received request-body chunk is reused directly. Additional chunks are appended only when necessary.
+For ordinary routes, the first received request-body chunk is reused directly. Additional chunks are appended only when necessary.
 
 Request-body limits are enforced while chunks arrive.
 
-Future body-streaming support should avoid forcing all endpoints back into an eager aggregation model.
+Streaming routes are detected from the request head only when the application registered at least one streaming endpoint. Applications with no streaming routes retain the ordinary one-lookup transport path.
+
+A streaming route receives a `StreamRequest` plus a `BodyStreamConsumer`. The request metadata is available before the first body chunk, but no aggregated body is exposed.
+
+Streaming invariants:
+
+- Synchronous chunk consumption returns `nil` and allocates no future.
+- Async chunk consumption returns `EventLoopFuture<Void>`.
+- Async chunk futures are hopped to the channel event loop before transport state is mutated.
+- Channel auto-read is paused while an async chunk is pending.
+- Already-decoded chunks may be queued temporarily, but new socket reads remain paused until the consumer catches up.
+- Per-route body limits can override the global body limit.
+- Middleware may short-circuit a streaming route; the transport then drains/discards the body without invoking the consumer.
+- Async middleware may delay route resolution; auto-read is paused until the middleware either reaches the stream route or short-circuits it.
+- Client disconnects and channel errors fail the active streaming session.
+- Ordinary routes never become streaming implicitly.
+
+Streaming therefore avoids whole-body aggregation while preserving middleware semantics and backpressure.
 
 ## Responses
 
@@ -308,6 +325,8 @@ Before merging a hot-path change, ask:
 - Does it force a synchronous path into a future?
 - Does it introduce a `Task`?
 - Does it copy a ByteBuffer unnecessarily?
+- Does an upload path aggregate bytes that could remain streaming?
+- Does async body processing apply backpressure instead of building an unbounded queue?
 - Does it mutate copy-on-write storage?
 - Does it add work for requests that do not use the feature?
 - Can the work happen during application setup instead?

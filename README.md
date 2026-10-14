@@ -123,6 +123,67 @@ app.get("/nio") { request, context in
 }
 ```
 
+## Streaming request bodies
+
+Large request bodies can opt into chunk streaming instead of whole-body aggregation:
+
+```swift
+final class UploadState: @unchecked Sendable {
+    var bytes = 0
+}
+
+app.postStream(
+    "/upload/:id",
+    maxBodyBytes: 100 * 1024 * 1024
+) { request, context in
+    let state = UploadState()
+
+    return BodyStreamConsumer(
+        onChunk: { chunk in
+            state.bytes += chunk.readableBytes
+
+            // Return nil when the chunk was consumed synchronously.
+            return nil
+        },
+        onEnd: {
+            context.eventLoop.makeSucceededFuture(
+                .text(
+                    "received \(state.bytes) bytes"
+                )
+            )
+        }
+    )
+}
+```
+
+`StreamRequest` exposes method, URI, headers, route parameters, queries, and cookies, but intentionally does not expose an aggregated body.
+
+For asynchronous sinks, return an `EventLoopFuture<Void>` from `onChunk`:
+
+```swift
+onChunk: { chunk in
+    fileWriter.write(chunk)
+}
+```
+
+When a chunk future is returned, Hudhud pauses channel auto-read and resumes only after the future completes. Futures from another event loop are hopped back to the request event loop before channel state is touched.
+
+Streaming routes support the normal middleware chain. If middleware short-circuits the request, Hudhud drains/discards the incoming body without invoking the stream consumer.
+
+Available registration APIs include:
+
+```swift
+app.postStream(...)
+app.putStream(...)
+app.patchStream(...)
+app.deleteStream(...)
+app.onStream(.post, ...)
+```
+
+Route groups expose the same streaming APIs.
+
+Ordinary routes keep the existing aggregation behavior and do not pay a streaming router lookup unless the application has registered at least one streaming route.
+
 ## Prepared responses
 
 For immutable responses, Hudhud can prebuild the body, content length, and HTTP/1.1 response head during application setup.
@@ -225,6 +286,8 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Direct `ByteBuffer` response support.
 - Bodyless-request empty-buffer reuse.
 - First request-body chunk reuse instead of unconditional copying.
+- Opt-in request-body streaming with per-route limits and async backpressure.
+- Streaming middleware compatibility without whole-body aggregation.
 - Configurable request-body limits.
 - HTTP keep-alive and pipelining assistance.
 - Express-style `HEAD` fallback to matching `GET` routes.
@@ -350,5 +413,6 @@ See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.
 2. Run the core dispatch and writer benchmarks before changing NIO response-part boxing.
 3. Profile ARC retain/release traffic for prepared, synchronous, dynamic-parameter, and async/await routes.
 4. Quantify route depth/fan-out and middleware scaling with the committed matrices.
-5. Add request-body streaming so large uploads do not require whole-body aggregation by default.
-6. Compare the pinned Actix Web control only after Hudhud's raw-NIO framework overhead is measured and explained.
+5. Benchmark streaming versus aggregated uploads across 64 KiB, 1 MiB, and larger payloads while recording peak RSS.
+6. Add response-body streaming/file-region APIs without forcing ordinary responses off the current fast paths.
+7. Compare the pinned Actix Web control only after Hudhud's raw-NIO framework overhead is measured and explained.
