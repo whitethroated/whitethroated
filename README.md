@@ -141,15 +141,10 @@ app.postStream(
     return BodyStreamConsumer(
         onChunk: { chunk in
             state.bytes += chunk.readableBytes
-
-            // Return nil when the chunk was consumed synchronously.
-            return nil
         },
         onEnd: {
-            context.eventLoop.makeSucceededFuture(
-                .text(
-                    "received \(state.bytes) bytes"
-                )
+            .text(
+                "received \(state.bytes) bytes"
             )
         }
     )
@@ -157,6 +152,8 @@ app.postStream(
 ```
 
 `StreamRequest` exposes method, URI, headers, route parameters, queries, and cookies, but intentionally does not expose an aggregated body.
+
+The synchronous `onChunk` overload returns `Void` and does not allocate an `EventLoopFuture` per chunk. Use it for CPU-only processing, counters, incremental parsers, or sinks that complete synchronously.
 
 For asynchronous sinks, return an `EventLoopFuture<Void>` from `onChunk`:
 

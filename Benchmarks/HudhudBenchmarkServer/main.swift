@@ -127,7 +127,6 @@ app.postStream(
     return BodyStreamConsumer(
         onChunk: { chunk in
             state.bytes += chunk.readableBytes
-            return nil
         },
         onEnd: {
             context.eventLoop.makeSucceededFuture(
@@ -151,7 +150,7 @@ if environment["HUDHUD_UPLOAD_BENCHMARKS"] == "1" {
         maxBodyBytes: 8 * 1024 * 1024
     ) { _, context in
         BodyStreamConsumer(
-            onChunk: { _ in nil },
+            onChunk: { _ in },
             onEnd: {
                 .text("ok")
             }
