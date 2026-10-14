@@ -150,7 +150,7 @@ final class UploadState: @unchecked Sendable {
 app.postStream(
     "/upload/:id",
     maxBodyBytes: 100 * 1024 * 1024
-) { request, context in
+) { request, _ in
     let state = UploadState()
 
     return BodyStreamConsumer(
@@ -398,51 +398,6 @@ Error handling is not inserted into the successful request pipeline. Prepared, s
 
 Only one global handler is active; the most recent `onError` registration replaces the previous one. Error handlers receive the error and event-loop `Context`, not mutable request state.
 
-## Streaming request bodies
-
-Ordinary routes keep the simple aggregated-body model:
-
-```swift
-app.post("/upload") { request in
-    .text("bytes: \(request.body.readableBytes)")
-}
-```
-
-For large uploads or incremental processing, streaming is opt-in:
-
-```swift
-app.postStream(
-    "/upload",
-    maxBodyBytes: 64 * 1024 * 1024
-) { request, context in
-    BodyStreamConsumer(
-        onChunk: { chunk in
-            // Process or persist this chunk.
-            // Return nil when consumption completed synchronously.
-            nil
-        },
-        onEnd: {
-            .noContent()
-        },
-        onError: { error in
-            // Clean up partial files or other request resources.
-        }
-    )
-}
-```
-
-Streaming routes:
-
-- Do not aggregate the full body into `Request.body`.
-- Preserve route parameters, query access, headers, and cookies through `StreamRequest`.
-- Apply backpressure when `onChunk` returns an unfinished `EventLoopFuture<Void>`.
-- Support per-route body limits.
-- Reject a declared oversized body before creating the consumer.
-- Invoke the optional `onError` hook exactly once after a started stream fails.
-- Keep ordinary routes on the existing aggregation path.
-
-A synchronous chunk consumer should return `nil` rather than allocating an already-succeeded future. The `onEnd` closure can return `Response` directly for the same reason; use the future-returning overload only when finalization performs asynchronous NIO work.
-
 ## Streaming responses
 
 For generated output that should not be buffered into one large body, return a response stream:
@@ -600,6 +555,11 @@ HTTP/1 Decoder
   v
 Direct HTTP-method root
   |
+  +-- exact static route ----------> endpoint
+  |
+  v
+UTF-8 route trie fallback
+  |
   +-- prepared/no middleware -----> cached storage
   |
   v
@@ -607,9 +567,6 @@ Request wrapping when required
   |
   v
 Compiled middleware / handler
-  |
-  v
-UTF-8 route trie
   |
   +-- prepared response -----------+
   |                                |
