@@ -280,7 +280,7 @@ Use `PreparedResponse` for immutable in-memory payloads where avoiding repeated 
 
 Streaming responses are opt-in. Hudhud writes the response head, lets the producer emit HTTP body parts on the channel event loop, and writes the terminal HTTP end after the producer future succeeds. SwiftNIO's HTTP response encoder remains responsible for wire framing such as HTTP/1.1 chunked transfer encoding.
 
-If a streaming producer fails after headers have started, Hudhud closes the connection rather than attempting to emit a second response. HEAD requests suppress the producer. HTTP/1.0 unknown-length streams force connection-close framing unless an explicit content length is supplied.
+If a streaming producer fails after headers have started, Hudhud invokes the optional response-stream error cleanup hook and closes the connection rather than attempting to emit a second response. Client disconnects can be observed through the stream writer's close future. HEAD requests suppress the producer. HTTP/1.0 unknown-length streams force connection-close framing unless an explicit content length is supplied.
 
 SSE is implemented as a formatting/header convenience over the same response-stream path. It does not introduce a separate transport abstraction.
 

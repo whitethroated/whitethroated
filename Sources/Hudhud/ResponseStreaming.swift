@@ -6,12 +6,19 @@ public struct ResponseStream: @unchecked Sendable {
         ResponseStreamWriter
     ) -> EventLoopFuture<Void>
 
+    public typealias ErrorHandler = @Sendable (
+        Error
+    ) -> Void
+
     internal let producer: Producer
+    internal let errorHandler: ErrorHandler?
 
     internal init(
-        producer: @escaping Producer
+        producer: @escaping Producer,
+        errorHandler: ErrorHandler?
     ) {
         self.producer = producer
+        self.errorHandler = errorHandler
     }
 }
 

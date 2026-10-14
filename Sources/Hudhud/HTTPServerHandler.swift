@@ -1193,7 +1193,8 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     context: context
                 )
 
-            case .failure:
+            case .failure(let error):
+                stream.errorHandler?(error)
                 context.close(promise: nil)
             }
         }

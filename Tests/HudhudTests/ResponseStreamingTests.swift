@@ -7,6 +7,7 @@ import NIOHTTP1
 
 private final class ResponseStreamCounter: @unchecked Sendable {
     var producerCalls = 0
+    var errorCalls = 0
 }
 
 final class ResponseStreamingTests: XCTestCase {
@@ -357,6 +358,54 @@ final class ResponseStreamingTests: XCTestCase {
         else {
             return XCTFail("Expected response end")
         }
+    }
+
+    func testFailedStreamProducerInvokesErrorCleanupOnce() throws {
+        enum ProducerError: Error {
+            case failed
+        }
+
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+        let counter = ResponseStreamCounter()
+
+        app.get("/stream") { _ in
+            Response.stream(
+                onError: { error in
+                    if error is ProducerError {
+                        counter.errorCalls += 1
+                    }
+                }
+            ) { writer in
+                writer.writeString("partial").flatMap {
+                    writer.eventLoop.makeFailedFuture(
+                        ProducerError.failed
+                    )
+                }
+            }
+        }
+
+        let channel = EmbeddedChannel(
+            loop: loop
+        )
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+        loop.run()
+
+        XCTAssertEqual(
+            counter.errorCalls,
+            1
+        )
+        XCTAssertFalse(channel.isActive)
     }
 
     func testFailedStreamProducerClosesConnectionWithoutEnd() throws {

@@ -383,7 +383,7 @@ app.get("/stream") { _ in
 - `eventLoop` for scheduling NIO-native asynchronous work.
 - `closeFuture` to observe client disconnects.
 
-Stream writes must be serialized on the writer's event loop. If a stream producer fails after response headers have started, Hudhud closes the connection rather than attempting to send a second HTTP response.
+Stream writes must be serialized on the writer's event loop. If a stream producer fails after response headers have started, Hudhud closes the connection rather than attempting to send a second HTTP response. Use the optional `onError` closure on `Response.stream` or `Response.sse` to clean up producer-owned resources before the connection is closed.
 
 For HTTP/1.1 responses without a declared `Content-Length`, SwiftNIO's response encoder owns chunked transfer framing. For HTTP/1.0, Hudhud closes the connection after an unknown-length stream unless the response explicitly provides a content length.
 
