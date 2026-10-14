@@ -236,6 +236,14 @@ Streaming invariants:
 - Async middleware may delay route resolution; auto-read is paused until the middleware either reaches the stream route or short-circuits it.
 - Client disconnects and channel errors fail the active streaming session.
 - Ordinary routes never become streaming implicitly.
+- Streaming-route detection is tracked per HTTP method so unrelated methods avoid an extra route lookup.
+
+For `Expect: 100-continue`:
+
+- Valid HTTP/1.1 expectations receive an informational 100 head before body processing.
+- A declared body that already exceeds its limit receives a final 413 response and connection close immediately.
+- Unsupported expectations receive 417 and connection close.
+- Early rejection never waits for a request-body end marker that the client may intentionally withhold.
 
 Streaming therefore avoids whole-body aggregation while preserving middleware semantics and backpressure.
 

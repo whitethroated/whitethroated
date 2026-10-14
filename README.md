@@ -182,7 +182,9 @@ app.onStream(.post, ...)
 
 Route groups expose the same streaming APIs.
 
-Ordinary routes keep the existing aggregation behavior and do not pay a streaming router lookup unless the application has registered at least one streaming route.
+Ordinary routes keep the existing aggregation behavior and do not pay a streaming router lookup unless the same HTTP method has at least one streaming route.
+
+Hudhud also handles `Expect: 100-continue` for large uploads. Accepted HTTP/1.1 requests receive an informational `100 Continue` immediately. If a declared `Content-Length` already exceeds the configured limit, Hudhud returns `413 Payload Too Large` and closes the connection without waiting for a body the client has not sent. Unsupported expectations receive `417 Expectation Failed`.
 
 ## Prepared responses
 
@@ -290,6 +292,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Streaming middleware compatibility without whole-body aggregation.
 - Configurable request-body limits.
 - HTTP keep-alive and pipelining assistance.
+- `Expect: 100-continue` handling with early 413/417 rejection.
 - Express-style `HEAD` fallback to matching `GET` routes.
 - Correct `HEAD` body suppression while preserving `Content-Length`.
 - Configurable event-loop thread count and listen backlog.
