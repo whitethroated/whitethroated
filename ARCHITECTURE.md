@@ -272,6 +272,15 @@ Streaming therefore avoids whole-body aggregation while preserving middleware se
 
 Ordinary text and byte responses may allocate or serialize per request.
 
+Streaming responses use chunked HTTP/1.1 framing when no `Content-Length` is supplied. When application code explicitly supplies `Content-Length`, Hudhud enables byte accounting for that stream only:
+
+- Writes that would exceed the declared length fail before the overflow bytes are written.
+- Producer completion with fewer bytes than declared is treated as a framing error.
+- Invalid or negative declared lengths fail before the streaming response head is emitted.
+- A length mismatch after response streaming begins closes the connection instead of emitting a misleading HTTP end marker.
+
+Unknown-length streams do not allocate or update a length tracker.
+
 A `Response.fileRegion` body is written as `IOData.fileRegion` directly. Hudhud derives content length from the region and does not copy file bytes into a `ByteBuffer`. The caller retains ownership of the underlying file handle and must keep it valid until the write completes.
 
 Hudhud must not introduce a convenience API that performs blocking file-open or file-stat work on an event-loop thread.

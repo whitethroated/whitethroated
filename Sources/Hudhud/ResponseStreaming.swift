@@ -1,6 +1,77 @@
 import NIOCore
 import NIOHTTP1
 
+public enum ResponseStreamError: Error, Sendable, Equatable {
+    case invalidContentLength(String)
+    case contentLengthExceeded(
+        expected: Int,
+        attempted: Int
+    )
+    case contentLengthMismatch(
+        expected: Int,
+        actual: Int
+    )
+}
+
+internal final class ResponseStreamLengthTracker:
+    @unchecked Sendable
+{
+    let expected: Int
+    private(set) var written = 0
+    private(set) var failure: ResponseStreamError?
+
+    init(expected: Int) {
+        self.expected = expected
+    }
+
+    @inline(__always)
+    func record(_ bytes: Int) -> ResponseStreamError? {
+        guard failure == nil else {
+            return failure
+        }
+
+        guard bytes >= 0 else {
+            preconditionFailure(
+                "Stream write byte count cannot be negative"
+            )
+        }
+
+        if bytes > expected - written {
+            let attempted =
+                written > Int.max - bytes
+                ? Int.max
+                : written + bytes
+            let error = ResponseStreamError
+                .contentLengthExceeded(
+                    expected: expected,
+                    attempted: attempted
+                )
+
+            failure = error
+            return error
+        }
+
+        written += bytes
+        return nil
+    }
+
+    @inline(__always)
+    func completionError() -> ResponseStreamError? {
+        if let failure {
+            return failure
+        }
+
+        guard written == expected else {
+            return .contentLengthMismatch(
+                expected: expected,
+                actual: written
+            )
+        }
+
+        return nil
+    }
+}
+
 public struct ResponseStream: @unchecked Sendable {
     public typealias Producer = @Sendable (
         ResponseStreamWriter
@@ -24,11 +95,14 @@ public struct ResponseStream: @unchecked Sendable {
 
 public struct ResponseStreamWriter: @unchecked Sendable {
     private let context: ChannelHandlerContext
+    private let lengthTracker: ResponseStreamLengthTracker?
 
     internal init(
-        context: ChannelHandlerContext
+        context: ChannelHandlerContext,
+        lengthTracker: ResponseStreamLengthTracker? = nil
     ) {
         self.context = context
+        self.lengthTracker = lengthTracker
     }
 
     public var eventLoop: EventLoop {
@@ -45,6 +119,14 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     ) -> EventLoopFuture<Void> {
         requireEventLoop()
 
+        if let failure = record(
+            buffer.readableBytes
+        ) {
+            return context.eventLoop.makeFailedFuture(
+                failure
+            )
+        }
+
         return context.write(
             NIOAny(
                 HTTPServerResponsePart.body(
@@ -59,6 +141,14 @@ public struct ResponseStreamWriter: @unchecked Sendable {
         _ region: FileRegion
     ) -> EventLoopFuture<Void> {
         requireEventLoop()
+
+        if let failure = record(
+            region.readableBytes
+        ) {
+            return context.eventLoop.makeFailedFuture(
+                failure
+            )
+        }
 
         return context.write(
             NIOAny(
@@ -90,6 +180,14 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     ) -> EventLoopFuture<Void> {
         requireEventLoop()
 
+        if let failure = record(
+            buffer.readableBytes
+        ) {
+            return context.eventLoop.makeFailedFuture(
+                failure
+            )
+        }
+
         return context.writeAndFlush(
             NIOAny(
                 HTTPServerResponsePart.body(
@@ -104,6 +202,14 @@ public struct ResponseStreamWriter: @unchecked Sendable {
         _ region: FileRegion
     ) -> EventLoopFuture<Void> {
         requireEventLoop()
+
+        if let failure = record(
+            region.readableBytes
+        ) {
+            return context.eventLoop.makeFailedFuture(
+                failure
+            )
+        }
 
         return context.writeAndFlush(
             NIOAny(
@@ -132,6 +238,13 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     public func flush() {
         requireEventLoop()
         context.flush()
+    }
+
+    @inline(__always)
+    private func record(
+        _ bytes: Int
+    ) -> ResponseStreamError? {
+        lengthTracker?.record(bytes)
     }
 
     @inline(__always)
