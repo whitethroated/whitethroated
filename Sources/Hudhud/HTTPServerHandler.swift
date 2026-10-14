@@ -869,6 +869,10 @@ final class HTTPServerHandler: ChannelInboundHandler {
         context: ChannelHandlerContext
     ) {
         future.whenComplete { result in
+            guard context.channel.isActive else {
+                return
+            }
+
             switch result {
             case .success(let response):
                 self.write(
@@ -1178,6 +1182,10 @@ final class HTTPServerHandler: ChannelInboundHandler {
         )
 
         future.whenComplete { result in
+            guard context.channel.isActive else {
+                return
+            }
+
             switch result {
             case .success:
                 self.finishStreamResponse(

@@ -416,6 +416,63 @@ final class ResponseStreamingTests: XCTestCase {
         XCTAssertFalse(channel.isActive)
     }
 
+    func testClientCloseDoesNotWriteStreamEndAfterProducerCompletes() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/stream") { _ in
+            Response.stream { writer in
+                writer.writeStringAndFlush(
+                    "event"
+                ).flatMap {
+                    writer.closeFuture
+                }
+            }
+        }
+
+        let channel = EmbeddedChannel(
+            loop: loop
+        )
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+        loop.run()
+
+        guard case .head? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response head")
+        }
+
+        guard case .body? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected streamed body")
+        }
+
+        try channel.close().wait()
+        loop.run()
+
+        XCTAssertNil(
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        )
+        XCTAssertFalse(channel.isActive)
+    }
+
     func testStreamProducerCanFlushIndividualChunk() throws {
         let app = Application()
 
