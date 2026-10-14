@@ -943,6 +943,16 @@ final class HTTPServerHandler: ChannelInboundHandler {
         keepAlive: Bool,
         context: ChannelHandlerContext
     ) {
+        guard response.status.mayHaveResponseBody else {
+            writeBodylessStatus(
+                response,
+                version: version,
+                keepAlive: keepAlive,
+                context: context
+            )
+            return
+        }
+
         if case .stream(let stream) = response.body {
             writeStream(
                 stream,
@@ -1040,6 +1050,61 @@ final class HTTPServerHandler: ChannelInboundHandler {
                 promise: nil
             )
         }
+
+        context
+            .writeAndFlush(
+                wrapOutboundOut(.end(nil))
+            )
+            .whenComplete { _ in
+                if !keepAlive {
+                    context.close(
+                        promise: nil
+                    )
+                }
+            }
+    }
+
+
+    private func writeBodylessStatus(
+        _ response: Response,
+        version: HTTPVersion,
+        keepAlive: Bool,
+        context: ChannelHandlerContext
+    ) {
+        var headers = response.headers
+
+        headers.remove(
+            name: "transfer-encoding"
+        )
+
+        if response.status != .notModified {
+            headers.remove(
+                name: "content-length"
+            )
+        }
+
+        if !keepAlive {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "close"
+            )
+        } else if version == .http1_0 {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "keep-alive"
+            )
+        }
+
+        let head = HTTPResponseHead(
+            version: version,
+            status: response.status,
+            headers: headers
+        )
+
+        context.write(
+            wrapOutboundOut(.head(head)),
+            promise: nil
+        )
 
         context
             .writeAndFlush(
