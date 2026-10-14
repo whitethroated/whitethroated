@@ -140,16 +140,31 @@ public struct Response: Sendable {
 
     public static func stream(
         contentType: String? = nil,
+        contentLength: Int? = nil,
         status: HTTPResponseStatus = .ok,
         onError: ResponseStream.ErrorHandler? = nil,
         produce: @escaping ResponseStream.Producer
     ) -> Response {
+        if let contentLength {
+            precondition(
+                contentLength >= 0,
+                "contentLength must be zero or greater"
+            )
+        }
+
         var headers = HTTPHeaders()
 
         if let contentType {
             headers.add(
                 name: "content-type",
                 value: contentType
+            )
+        }
+
+        if let contentLength {
+            headers.add(
+                name: "content-length",
+                value: String(contentLength)
             )
         }
 
