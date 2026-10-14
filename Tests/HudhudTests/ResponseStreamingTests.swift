@@ -189,6 +189,134 @@ final class ResponseStreamingTests: XCTestCase {
         }
     }
 
+    func testHTTP10StreamWithExplicitLengthCanKeepAlive() throws {
+        let app = Application()
+
+        app.get("/stream") { _ in
+            Response
+                .stream { writer in
+                    writer.writeString("body")
+                }
+                .header(
+                    "content-length",
+                    "4"
+                )
+        }
+
+        let channel = try makeChannel(app)
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                HTTPRequestHead(
+                    version: .http1_0,
+                    method: .GET,
+                    uri: "/stream",
+                    headers: HTTPHeaders([
+                        ("connection", "keep-alive")
+                    ])
+                )
+            )
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        guard case .head(let head)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response head")
+        }
+
+        XCTAssertEqual(
+            head.headers.first(
+                name: "connection"
+            ),
+            "keep-alive"
+        )
+        XCTAssertEqual(
+            head.headers.first(
+                name: "content-length"
+            ),
+            "4"
+        )
+
+        guard case .body? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response body")
+        }
+
+        guard case .end? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response end")
+        }
+    }
+
+    func testFailedStreamProducerClosesConnectionWithoutEnd() throws {
+        enum ProducerError: Error {
+            case failed
+        }
+
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get("/stream") { _ in
+            Response.stream { writer in
+                writer.writeString("partial").flatMap {
+                    writer.eventLoop.makeFailedFuture(
+                        ProducerError.failed
+                    )
+                }
+            }
+        }
+
+        let channel = EmbeddedChannel(
+            loop: loop
+        )
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+        loop.run()
+
+        guard case .head? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response head")
+        }
+
+        guard case .body? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected partial response body")
+        }
+
+        XCTAssertNil(
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        )
+        XCTAssertFalse(channel.isActive)
+    }
+
     func testStreamProducerCanFlushIndividualChunk() throws {
         let app = Application()
 
