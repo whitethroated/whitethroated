@@ -387,7 +387,7 @@ app.get(
 )
 ```
 
-Hudhud prebuilds both the tagged 200 response and its bodyless 304 variant during route registration. On a request, the exact route checks `If-None-Match` directly from the request headers and selects cached response storage without constructing `Request` or invoking a handler.
+Hudhud prebuilds both the tagged 200 response and its bodyless 304 variant during route registration. Bodyless framing normalization is also completed at setup time, so the normal HTTP/1.1 keep-alive writer can reuse the cached response head directly. On a request, the exact route checks `If-None-Match` directly from the request headers and selects cached response storage without constructing `Request` or invoking a handler.
 
 For dynamic content, use the lower-level matcher:
 
