@@ -269,6 +269,24 @@ public struct PreparedResponse: Sendable {
         )
     }
 
+    internal var notModifiedStorage:
+        PreparedResponseStorage
+    {
+        var response = response
+        response.status = .notModified
+        response.body = .empty
+
+        return PreparedResponseStorage(
+            response: response,
+            http11Head: HTTPResponseHead(
+                version: .http1_1,
+                status: .notModified,
+                headers: response.headers
+            ),
+            bodyBuffer: nil
+        )
+    }
+
     public static func empty(
         status: HTTPResponseStatus = .noContent
     ) -> PreparedResponse {

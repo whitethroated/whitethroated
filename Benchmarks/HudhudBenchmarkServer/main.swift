@@ -55,6 +55,12 @@ app.get(
     response: hello
 )
 
+app.get(
+    "/conditional-prepared",
+    response: hello,
+    etag: EntityTag("benchmark-v1")
+)
+
 app.get("/plaintext") { _ in
     Response
         .text("Hello, World!")

@@ -16,6 +16,11 @@ public typealias AsyncHandler = @Sendable (
 
 enum RouterMatch {
     case prepared(PreparedResponseStorage)
+    case conditionalPrepared(
+        tag: EntityTag,
+        response: PreparedResponseStorage,
+        notModified: PreparedResponseStorage
+    )
     case synchronous(
         SyncHandler,
         parameterNames: RouteParameterNames,
@@ -49,6 +54,11 @@ private enum RouteResponder {
         maxBodyBytes: Int?
     )
     case prepared(PreparedResponseStorage)
+    case conditionalPrepared(
+        tag: EntityTag,
+        response: PreparedResponseStorage,
+        notModified: PreparedResponseStorage
+    )
 }
 
 private struct RouteEndpoint {
@@ -574,6 +584,29 @@ final class Router: @unchecked Sendable {
         )
     }
 
+    func add(
+        method: HTTPMethod,
+        path: String,
+        conditionalPreparedResponse:
+            PreparedResponse,
+        etag: EntityTag
+    ) {
+        let tagged =
+            conditionalPreparedResponse
+                .etag(etag)
+
+        insert(
+            method: method,
+            path: path,
+            responder: .conditionalPrepared(
+                tag: etag,
+                response: tagged.storage,
+                notModified:
+                    tagged.notModifiedStorage
+            )
+        )
+    }
+
     @inline(__always)
     func hasStreamingRoute(
         for method: NIOHTTP1.HTTPMethod
@@ -619,6 +652,20 @@ final class Router: @unchecked Sendable {
         ) {
         case .prepared(let prepared):
             return .prepared(prepared)
+
+        case .conditionalPrepared(
+            let tag,
+            let response,
+            let notModified
+        ):
+            return .prepared(
+                IfNoneMatchMatcher.matches(
+                    headers: request.headers,
+                    tag: tag
+                )
+                ? notModified
+                : response
+            )
 
         case .synchronous(
             let handler,
@@ -1089,6 +1136,17 @@ final class Router: @unchecked Sendable {
         switch match.endpoint.responder {
         case .prepared(let prepared):
             return .prepared(prepared)
+
+        case .conditionalPrepared(
+            let tag,
+            let response,
+            let notModified
+        ):
+            return .conditionalPrepared(
+                tag: tag,
+                response: response,
+                notModified: notModified
+            )
 
         case .synchronous(let handler):
             return .synchronous(
