@@ -7,6 +7,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
 
     private let application: Application
     private let maxRequestBodyBytes: Int
+    private let hasMiddleware: Bool
     private let hasStreamingRoutes: Bool
     private let emptyBody = ByteBufferAllocator().buffer(
         capacity: 0
@@ -47,6 +48,8 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         self.maxRequestBodyBytes =
             maxRequestBodyBytes
             ?? application.configuration.maxRequestBodyBytes
+        self.hasMiddleware =
+            hasMiddleware
         self.hasStreamingRoutes =
             application.hasStreamingRoutes
     }
@@ -119,7 +122,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             )
 
         if
-            !application.hasMiddleware,
+            !hasMiddleware,
             !hasStreamingRouteForRequest,
             canDispatchBodylessOnHead
         {
@@ -274,13 +277,13 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                 return
             }
 
-            if !application.hasMiddleware {
+            if !hasMiddleware {
                 preResolvedMatch = match
             }
         }
 
         if
-            !application.hasMiddleware,
+            !hasMiddleware,
             preResolvedMatch == nil
         {
             preResolvedMatch =
