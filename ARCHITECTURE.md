@@ -550,3 +550,6 @@ For the common dynamic HTTP/1.1 200 path, each channel handler owns a cached `HT
 
 
 HTTPServerHandler snapshots middleware and streaming-route presence when each channel handler is created. Application configuration is frozen before production child channels are initialized, so these immutable feature flags do not need to dereference Application collections on every request.
+
+
+The request-head fast path keeps its RouterMatch in a local value and only promotes it into general request-lifecycle state for async, concurrent, or streaming fall-through cases. Prepared, synchronous, and not-found responses return without an unnecessary optional match store.

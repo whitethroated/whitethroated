@@ -127,7 +127,6 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             canDispatchBodylessOnHead
         {
             let match = lookupTransportCached(head)
-            transportMatch = match
             let keepAlive =
                 hasMinimalHTTP11Headers
                 || requestIsKeepAlive(head)
@@ -206,7 +205,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             case .asynchronous,
                  .concurrent,
                  .streaming:
-                break
+                transportMatch = match
             }
         }
 
