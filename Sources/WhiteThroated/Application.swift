@@ -40,6 +40,11 @@ public final class Application: @unchecked Sendable {
         !middleware.isEmpty
     }
 
+    internal var requiresPipeliningAssistance: Bool {
+        hasMiddleware
+        || router.requiresPipeliningAssistance
+    }
+
     @inline(__always)
     internal func hasStreamingRoute(
         for method: NIOHTTP1.HTTPMethod
@@ -801,7 +806,8 @@ public final class Application: @unchecked Sendable {
                 .flatMap {
                     channel.pipeline
                         .configureHTTPServerPipeline(
-                            withPipeliningAssistance: true,
+                            withPipeliningAssistance:
+                                self.requiresPipeliningAssistance,
                             withErrorHandling: true
                         )
                 }
