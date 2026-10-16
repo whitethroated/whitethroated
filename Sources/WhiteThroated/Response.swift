@@ -26,7 +26,7 @@ public struct Response: Sendable {
         }
     }
 
-    internal private(set) var contentLengthIsNormalized: Bool
+    internal var contentLengthIsNormalized: Bool
 
     public init(
         status: HTTPResponseStatus = .ok,

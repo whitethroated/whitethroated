@@ -3,20 +3,38 @@ extension Response {
         _ name: String,
         _ value: String
     ) {
+        let preserveContentLength =
+            contentLengthIsNormalized
+            && !HTTPContentLength
+                .isContentLengthName(name)
+
         headers.replaceOrAdd(
             name: name,
             value: value
         )
+
+        if preserveContentLength {
+            contentLengthIsNormalized = true
+        }
     }
 
     public mutating func appendHeader(
         _ name: String,
         _ value: String
     ) {
+        let preserveContentLength =
+            contentLengthIsNormalized
+            && !HTTPContentLength
+                .isContentLengthName(name)
+
         headers.add(
             name: name,
             value: value
         )
+
+        if preserveContentLength {
+            contentLengthIsNormalized = true
+        }
     }
 
     public func header(

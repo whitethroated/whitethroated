@@ -371,6 +371,16 @@ final class CoreBenchmarkTests: XCTestCase {
             .text("Hello, World!")
         }
 
+        let syncHeaderApp = Application()
+        syncHeaderApp.get("/plaintext-header") { _ in
+            Response
+                .text("Hello, World!")
+                .header(
+                    "date",
+                    "Thu, 01 Jan 1970 00:00:00 GMT"
+                )
+        }
+
         let syncMissingLengthApp = Application()
         syncMissingLengthApp.get(
             "/missing-length"
@@ -505,6 +515,16 @@ final class CoreBenchmarkTests: XCTestCase {
             name: "sync-writer",
             app: syncApp,
             head: makeHead("/plaintext"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "sync-header-writer",
+            app: syncHeaderApp,
+            head: makeHead(
+                "/plaintext-header"
+            ),
             expectedParts: 3,
             iterations: iterations
         )

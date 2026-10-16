@@ -103,7 +103,7 @@ swift test -c release \
   --filter CoreBenchmarkTests/testTransportWriterBenchmark
 ```
 
-This compares eleven transport paths through an active `EmbeddedChannel`:
+This compares twelve transport paths through an active `EmbeddedChannel`:
 
 - minimal raw SwiftNIO writer with a cached HTTP/1.1 head and body and no framework routing.
 - direct WhiteThroated prepared lookup plus cached writer, bypassing the full request lifecycle state machine.
@@ -112,6 +112,7 @@ This compares eleven transport paths through an active `EmbeddedChannel`:
 - the same prepared GET in an application that also has a POST streaming route.
 - the same prepared GET in an application that also has an unrelated GET streaming route.
 - ordinary synchronous text 200 whose factory already carries the exact Content-Length.
+- the same factory response with a Date header added through WhiteThroated's response-header API, verifying that non-framing header edits keep the trusted Content-Length fast path.
 - the same synchronous text response with Content-Length omitted, forcing writer-side framing insertion.
 - the same synchronous text response with a stale Content-Length, forcing writer-side framing repair.
 - synchronous pre-buffered 200 with the same payload/content type, isolating text encoding/allocation from dynamic response-header work.
