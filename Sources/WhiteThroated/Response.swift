@@ -3,6 +3,23 @@ import NIOCore
 import NIOHTTP1
 
 public struct Response: Sendable {
+    private static let cachedStringHeaderLimit = 64
+
+    private static let textHeaderCache =
+        makeKnownLengthHeaderCache(
+            contentType: "text/plain; charset=utf-8"
+        )
+
+    private static let htmlHeaderCache =
+        makeKnownLengthHeaderCache(
+            contentType: "text/html; charset=utf-8"
+        )
+
+    private static let jsonHeaderCache =
+        makeKnownLengthHeaderCache(
+            contentType: "application/json; charset=utf-8"
+        )
+
     public enum Body: Sendable {
         case empty
         case text(String)
@@ -59,6 +76,7 @@ public struct Response: Sendable {
         response(
             value,
             contentType: "text/plain; charset=utf-8",
+            cachedHeaders: textHeaderCache,
             status: status
         )
     }
@@ -70,6 +88,7 @@ public struct Response: Sendable {
         response(
             value,
             contentType: "text/html; charset=utf-8",
+            cachedHeaders: htmlHeaderCache,
             status: status
         )
     }
@@ -81,6 +100,7 @@ public struct Response: Sendable {
         response(
             value,
             contentType: "application/json; charset=utf-8",
+            cachedHeaders: jsonHeaderCache,
             status: status
         )
     }
@@ -295,17 +315,20 @@ public struct Response: Sendable {
     private static func response(
         _ value: String,
         contentType: String,
+        cachedHeaders: [HTTPHeaders],
         status: HTTPResponseStatus
     ) -> Response {
-        var headers = HTTPHeaders()
-        headers.add(
-            name: "content-type",
-            value: contentType
-        )
-        headers.add(
-            name: "content-length",
-            value: String(value.utf8.count)
-        )
+        let length = value.utf8.count
+        let headers: HTTPHeaders
+
+        if length <= cachedStringHeaderLimit {
+            headers = cachedHeaders[length]
+        } else {
+            headers = makeKnownLengthHeaders(
+                contentType: contentType,
+                length: length
+            )
+        }
 
         return Response(
             status: status,
@@ -313,5 +336,32 @@ public struct Response: Sendable {
             body: .text(value),
             normalizedContentLength: true
         )
+    }
+
+    private static func makeKnownLengthHeaderCache(
+        contentType: String
+    ) -> [HTTPHeaders] {
+        (0...cachedStringHeaderLimit).map {
+            makeKnownLengthHeaders(
+                contentType: contentType,
+                length: $0
+            )
+        }
+    }
+
+    private static func makeKnownLengthHeaders(
+        contentType: String,
+        length: Int
+    ) -> HTTPHeaders {
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "content-type",
+            value: contentType
+        )
+        headers.add(
+            name: "content-length",
+            value: String(length)
+        )
+        return headers
     }
 }
