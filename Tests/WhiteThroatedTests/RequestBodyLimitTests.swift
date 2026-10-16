@@ -85,10 +85,14 @@ final class RequestBodyLimitTests: XCTestCase {
             handler: HTTPServerHandler(application: app)
         )
 
-        let head = HTTPRequestHead(
+        var head = HTTPRequestHead(
             version: .http1_1,
             method: .POST,
             uri: "/echo"
+        )
+        head.headers.add(
+            name: "transfer-encoding",
+            value: "chunked"
         )
 
         try channel.writeInbound(
@@ -129,10 +133,14 @@ final class RequestBodyLimitTests: XCTestCase {
         body: String,
         to channel: EmbeddedChannel
     ) throws {
-        let head = HTTPRequestHead(
+        var head = HTTPRequestHead(
             version: .http1_1,
             method: .POST,
             uri: "/echo"
+        )
+        head.headers.add(
+            name: "content-length",
+            value: String(body.utf8.count)
         )
 
         try channel.writeInbound(
