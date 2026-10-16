@@ -533,3 +533,5 @@ Before merging a hot-path change, ask:
 
 
 Prepared-response storage normalizes the cached HTTP/1.1 body pointer during application setup. Bodyless statuses and zero-byte payloads carry no writer body buffer, so the HTTP/1.1 prepared writer does not re-check status/body length on every request. Representation metadata such as a 304 Content-Length remains preserved in the cached head.
+
+When no middleware is registered, immutable prepared, conditional-prepared, and default not-found matches are written directly from `RouterMatch` by the transport handler. This avoids constructing a second responder enum for routes whose response is already fully resolved. Applications with middleware always use the middleware-aware responder pipeline.
