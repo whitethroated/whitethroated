@@ -126,7 +126,7 @@ Handlers performing asynchronous NIO work return an `EventLoopFuture<Response>`.
 
 `Context` and future allocation are paid only by paths that require them.
 
-Before a route future mutates transport state or writes a response, the writer checks its event loop and hops only cross-loop futures to the channel event loop. Same-loop futures remain unchanged, preserving the event-loop-native fast path.
+Before a route future mutates transport state or writes a response, the writer hops it to the channel event loop. SwiftNIO's `hop(to:)` returns the original future when it is already bound to that loop, so the event-loop-native fast path adds no bridge allocation.
 
 ### Async/await
 
