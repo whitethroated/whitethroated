@@ -568,3 +568,6 @@ Short canonical text, HTML, and JSON responses cache complete HTTP/1.1 200 respo
 
 
 Bodyless future routes bypass the Application/ResponderResult bridge after routing: HTTPServerHandler constructs the Request and invokes the future handler directly with an immutable Context cached per connection. Bodyless Swift-concurrency routes likewise create their task promise directly. Both paths retain the same future writer, event-loop hop safety, error handling, and framing semantics; middleware, streaming, Expect, and body-bearing requests still use the general application path.
+
+
+When a canonical short HTTP/1.1 response head is available, the dynamic writer decides that before materializing mutable response headers. The persistent HTTP/1.1 fast path therefore skips the otherwise-unused HTTPHeaders value copy plus framing and connection normalization branches.

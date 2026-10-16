@@ -1537,7 +1537,11 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             return
         }
 
-        var headers = response.headers
+        let canonicalHTTP11Head =
+            version == .http1_1 && keepAlive
+            ? response.canonicalHTTP11Head
+            : nil
+
         let body: IOData?
         let bodyLength: Int
 
@@ -1578,56 +1582,55 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             )
         }
 
-        if !response.contentLengthIsNormalized {
-            let contentLengthValue =
-                String(bodyLength)
-
-            if !HTTPContentLength.hasSingleExactValue(
-                headers,
-                value: contentLengthValue
-            ) {
-                headers.replaceOrAdd(
-                    name: "content-length",
-                    value: contentLengthValue
-                )
-            }
-        }
-
-        if !keepAlive {
-            headers.replaceOrAdd(
-                name: "connection",
-                value: "close"
-            )
-        } else if version == .http1_0 {
-            headers.replaceOrAdd(
-                name: "connection",
-                value: "keep-alive"
-            )
-        }
-
         let head: HTTPResponseHead
 
-        if
-            version == .http1_1,
-            keepAlive,
-            let canonicalHead =
-                response.canonicalHTTP11Head
-        {
-            head = canonicalHead
-        } else if
-            version == .http1_1,
-            response.status == .ok
-        {
-            var cachedHead =
-                http11OKHeadTemplate
-            cachedHead.headers = headers
-            head = cachedHead
+        if let canonicalHTTP11Head {
+            head = canonicalHTTP11Head
         } else {
-            head = HTTPResponseHead(
-                version: version,
-                status: response.status,
-                headers: headers
-            )
+            var headers = response.headers
+
+            if !response.contentLengthIsNormalized {
+                let contentLengthValue =
+                    String(bodyLength)
+
+                if !HTTPContentLength.hasSingleExactValue(
+                    headers,
+                    value: contentLengthValue
+                ) {
+                    headers.replaceOrAdd(
+                        name: "content-length",
+                        value: contentLengthValue
+                    )
+                }
+            }
+
+            if !keepAlive {
+                headers.replaceOrAdd(
+                    name: "connection",
+                    value: "close"
+                )
+            } else if version == .http1_0 {
+                headers.replaceOrAdd(
+                    name: "connection",
+                    value: "keep-alive"
+                )
+            }
+
+            if
+                version == .http1_1,
+                response.status == .ok
+            {
+                var cachedHead =
+                    http11OKHeadTemplate
+                cachedHead.headers = headers
+                head = cachedHead
+            } else {
+                head = HTTPResponseHead(
+                    version: version,
+                    status: response.status,
+                    headers: headers
+                )
+            }
         }
 
         context.write(
