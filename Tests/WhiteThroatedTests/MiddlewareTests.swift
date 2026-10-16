@@ -4,6 +4,12 @@ import NIOCore
 import NIOEmbedded
 import NIOHTTP1
 
+private final class MiddlewareOrderBox:
+    @unchecked Sendable
+{
+    var values: [String] = []
+}
+
 final class MiddlewareTests: XCTestCase {
     func testMiddlewareExecutesInRegistrationOrder() throws {
         let app = Application()
@@ -166,25 +172,35 @@ final class MiddlewareTests: XCTestCase {
     func testMixedFastAndAsyncMiddlewarePreserveOrder() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
-        var order: [String] = []
+        let order = MiddlewareOrderBox()
 
         app.useFast { request, _, next in
-            order.append("fast-before")
+            order.values.append(
+                "fast-before"
+            )
             let result = next(request)
-            order.append("fast-after")
+            order.values.append(
+                "fast-after"
+            )
             return result
         }
 
         app.use { request, _, next in
-            order.append("async-before")
+            order.values.append(
+                "async-before"
+            )
             return next(request).map { response in
-                order.append("async-after")
+                order.values.append(
+                    "async-after"
+                )
                 return response
             }
         }
 
         app.get("/") { _ in
-            order.append("handler")
+            order.values.append(
+                "handler"
+            )
             return .text("ok")
         }
 
@@ -196,7 +212,7 @@ final class MiddlewareTests: XCTestCase {
             .wait()
 
         XCTAssertEqual(
-            order,
+            order.values,
             [
                 "fast-before",
                 "async-before",
