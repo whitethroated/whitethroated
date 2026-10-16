@@ -392,6 +392,19 @@ public struct Response: Sendable {
     }
 
     @inline(__always)
+    internal var canonicalHTTP11BodyLength: Int? {
+        let index = canonicalHTTP11HeadIndex
+
+        guard index != Self.noCanonicalHTTP11Head else {
+            return nil
+        }
+
+        return Int(
+            index % 65
+        )
+    }
+
+    @inline(__always)
     internal var canonicalHTTP11Head:
         HTTPResponseHead?
     {
