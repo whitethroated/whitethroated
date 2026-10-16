@@ -562,3 +562,6 @@ Bodyless future and Swift-concurrency routes now use the same request-head short
 
 
 For applications with neither middleware nor request-streaming routes, a repeated prepared HTTP/1.1 request with no headers or only Host is handled before general request framing setup. A method+URI+prepared-storage cache hit writes the immutable prepared response immediately; URI or method changes fall back to normal route resolution and refresh the cache.
+
+
+Short canonical text, HTML, and JSON responses cache complete HTTP/1.1 200 response heads for body lengths through 64 bytes. Response stores only a compact UInt8 cache index; status, header, or body mutation invalidates it. The dynamic writer can therefore reuse the immutable canonical head on persistent HTTP/1.1 responses without enlarging every Response with a cached head object.

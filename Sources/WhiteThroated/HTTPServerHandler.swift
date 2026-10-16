@@ -1457,6 +1457,13 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
 
         if
             version == .http1_1,
+            keepAlive,
+            let canonicalHead =
+                response.canonicalHTTP11Head
+        {
+            head = canonicalHead
+        } else if
+            version == .http1_1,
             response.status == .ok
         {
             var cachedHead =
