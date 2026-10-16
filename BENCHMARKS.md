@@ -395,3 +395,6 @@ The `text-raw` and `text-framework` paired medians both allocate a ByteBuffer an
 The `stream-length-trusted` and `stream-length-header` paired medians emit identical known-length responses with identical two-write producers. The first uses the `contentLength:` factory parameter and trusted internal metadata; the second adds the same Content-Length through the response header API and therefore exercises the full header scan/parser. Their delta isolates redundant framing metadata recovery from the rest of known-length stream accounting.
 
 The `stream-known`, `stream-chunked`, and `stream-flush` transport cases run the EmbeddedEventLoop after request dispatch so producer completion and final response-end callbacks are included in the measurement. They use the same 13-byte payload split into two writes; the matrix therefore exposes known-length tracking, unknown-length framing setup, and explicit flush cost separately.
+
+
+The `request-copy` and `request-consume` paired medians feed identical owned HTTPRequestHead values through the same synchronous handler and canonical text writer. The only intentional difference is whether Request copies the head-backed URI/header storage or consumes the inbound head into Request, providing evidence before ownership semantics are introduced into the production fast path.
