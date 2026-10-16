@@ -57,6 +57,64 @@ final class HTTPServerHandlerTests: XCTestCase {
         }
     }
 
+    func testCanonicalHTTP11HeadResponseSuppressesTextBody() throws {
+        let app = Application()
+
+        app.head("/resource") { _ in
+            .text("payload")
+        }
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        let requestHead = HTTPRequestHead(
+            version: .http1_1,
+            method: .HEAD,
+            uri: "/resource"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                requestHead
+            )
+        )
+
+        guard case .head(let responseHead)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected response head"
+            )
+        }
+
+        XCTAssertEqual(
+            responseHead.headers.first(
+                name: "content-length"
+            ),
+            "7"
+        )
+
+        guard case .end? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "HEAD response must not emit a body part"
+            )
+        }
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        _ = try channel.finish()
+    }
+
     func testHTTP11KeepAliveDoesNotAddRedundantConnectionHeader() throws {
         let app = Application()
 
