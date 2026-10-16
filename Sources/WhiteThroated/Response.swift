@@ -91,6 +91,11 @@ public struct Response: Sendable {
             )
         }
 
+        headers.add(
+            name: "content-length",
+            value: String(value.count)
+        )
+
         return Response(
             status: status,
             headers: headers,
@@ -111,6 +116,11 @@ public struct Response: Sendable {
                 value: contentType
             )
         }
+
+        headers.add(
+            name: "content-length",
+            value: String(value.readableBytes)
+        )
 
         return Response(
             status: status,
@@ -194,6 +204,11 @@ public struct Response: Sendable {
             )
         }
 
+        headers.add(
+            name: "content-length",
+            value: String(value.readableBytes)
+        )
+
         return Response(
             status: status,
             headers: headers,
@@ -257,6 +272,10 @@ public struct Response: Sendable {
         headers.add(
             name: "content-type",
             value: contentType
+        )
+        headers.add(
+            name: "content-length",
+            value: String(value.utf8.count)
         )
 
         return Response(
