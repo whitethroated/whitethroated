@@ -817,6 +817,104 @@ final class TransportFastPathTests: XCTestCase {
         _ = try channel.finish()
     }
 
+    func testFutureBodylessRouteDispatchesOnRequestHead() throws {
+        let app = Application()
+
+        app.get("/future") { _, context in
+            context.eventLoop.makeSucceededFuture(
+                .text("future")
+            )
+        }
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                makeHead(path: "/future")
+            )
+        )
+
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "future"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        _ = try channel.finish()
+    }
+
+    func testFutureBodylessRouteWithDeclaredBodyDoesNotDispatchOnHead() throws {
+        let app = Application()
+
+        app.post("/future") { _, context in
+            context.eventLoop.makeSucceededFuture(
+                .text("future")
+            )
+        }
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .POST,
+            uri: "/future"
+        )
+        head.headers.add(
+            name: "content-length",
+            value: "1"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        XCTAssertNil(
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.body(
+                ByteBuffer(string: "x")
+            )
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "future"
+        )
+
+        _ = try channel.finish()
+    }
+
     func testPreparedSideCacheDoesNotReuseDifferentURI() throws {
         let app = Application()
 

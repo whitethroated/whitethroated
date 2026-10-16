@@ -236,8 +236,30 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                 return
 
             case .asynchronous,
-                 .concurrent,
-                 .streaming:
+                 .concurrent:
+                let keepAlive =
+                    hasMinimalHTTP11Headers
+                    || requestIsKeepAlive(head)
+                let result =
+                    application.respondTransport(
+                        match: match,
+                        head: head,
+                        body: emptyBody,
+                        on: context.eventLoop,
+                        channel: context.channel
+                    )
+
+                write(
+                    result,
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: head.version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+                return
+
+            case .streaming:
                 transportMatch = match
             }
         }
