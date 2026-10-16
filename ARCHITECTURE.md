@@ -57,6 +57,10 @@ Rules:
 4. Offload genuinely blocking work to an appropriate external executor.
 5. Keep request-local operations on the current event loop when possible.
 
+`HTTPServerHandler` is instantiated once per channel. Its mutable request and streaming state is confined to that channel's event loop. The handler is `@unchecked Sendable` only so its reference can pass through SwiftNIO's sendable bootstrap APIs; this does not permit its mutable state to be accessed from arbitrary threads.
+
+Transport callbacks that mutate handler or channel state are attached only after the future is known to belong to the channel event loop. WhiteThroated uses SwiftNIO's isolated-future callbacks for those sites. The unsafe-unchecked isolation form is intentional: the event-loop ownership invariant is established by the pipeline or an explicit `hop(to:)`, and avoiding a release-build isolation check keeps the request path allocation- and branch-neutral.
+
 ## Transport dispatch
 
 The transport path intentionally distinguishes endpoints before constructing higher-level request objects.

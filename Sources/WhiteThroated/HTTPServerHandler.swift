@@ -1,7 +1,7 @@
 import NIOCore
 import NIOHTTP1
 
-final class HTTPServerHandler: ChannelInboundHandler {
+final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
@@ -383,7 +383,9 @@ final class HTTPServerHandler: ChannelInboundHandler {
             context: context
         )
 
-        requestFuture.whenComplete { result in
+        requestFuture
+            .assumeIsolatedUnsafeUnchecked()
+            .whenComplete { result in
             guard
                 self.streamingStart?
                     .registration
@@ -518,7 +520,9 @@ final class HTTPServerHandler: ChannelInboundHandler {
             context: context
         )
 
-        registration.readyFuture.whenComplete { _ in
+        registration.readyFuture
+            .assumeIsolatedUnsafeUnchecked()
+            .whenComplete { _ in
             guard
                 self.streamingStart?
                     .registration
@@ -674,7 +678,9 @@ final class HTTPServerHandler: ChannelInboundHandler {
         context.channel.setOption(
             ChannelOptions.autoRead,
             value: false
-        ).whenFailure { _ in
+        )
+        .assumeIsolatedUnsafeUnchecked()
+        .whenFailure { _ in
             context.close(promise: nil)
         }
     }
@@ -690,7 +696,9 @@ final class HTTPServerHandler: ChannelInboundHandler {
         context.channel.setOption(
             ChannelOptions.autoRead,
             value: true
-        ).whenFailure { _ in
+        )
+        .assumeIsolatedUnsafeUnchecked()
+        .whenFailure { _ in
             context.close(promise: nil)
         }
     }
@@ -902,6 +910,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
     ) {
         future
             .hop(to: context.eventLoop)
+            .assumeIsolatedUnsafeUnchecked()
             .whenComplete { result in
                 guard context.channel.isActive else {
                     return
@@ -951,7 +960,9 @@ final class HTTPServerHandler: ChannelInboundHandler {
             )
 
         case .future(let future):
-            future.whenComplete { result in
+            future
+                .assumeIsolatedUnsafeUnchecked()
+                .whenComplete { result in
                 switch result {
                 case .success(let response):
                     self.write(
@@ -1090,6 +1101,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
             .writeAndFlush(
                 wrapOutboundOut(.end(nil))
             )
+            .assumeIsolatedUnsafeUnchecked()
             .whenComplete { _ in
                 if !keepAlive {
                     context.close(
@@ -1145,6 +1157,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
             .writeAndFlush(
                 wrapOutboundOut(.end(nil))
             )
+            .assumeIsolatedUnsafeUnchecked()
             .whenComplete { _ in
                 if !keepAlive {
                     context.close(
@@ -1241,8 +1254,10 @@ final class HTTPServerHandler: ChannelInboundHandler {
             to: context.eventLoop
         )
 
-        future.whenComplete { result in
-            guard context.channel.isActive else {
+        future
+            .assumeIsolatedUnsafeUnchecked()
+            .whenComplete { result in
+                guard context.channel.isActive else {
                 return
             }
 
@@ -1388,6 +1403,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
             .writeAndFlush(
                 wrapOutboundOut(.end(nil))
             )
+            .assumeIsolatedUnsafeUnchecked()
             .whenComplete { _ in
                 if !keepAlive {
                     context.close(
