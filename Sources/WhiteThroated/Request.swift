@@ -141,6 +141,7 @@ public struct Request: @unchecked Sendable {
         return result
     }
 
+    @inline(__always)
     public func parameter(_ name: String) -> String? {
         for index in 0..<routeParameterNames.count
         where routeParameterNames[index] == name {
@@ -150,6 +151,22 @@ public struct Request: @unchecked Sendable {
         }
 
         return nil
+    }
+
+    @inline(__always)
+    public func parameter(
+        at index: Int
+    ) -> String? {
+        guard
+            index >= 0,
+            index < routeParameterRanges.count
+        else {
+            return nil
+        }
+
+        return decodeParameter(
+            in: routeParameterRanges[index]
+        )
     }
 
     public func query(_ name: String) -> String? {
