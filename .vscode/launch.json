@@ -59,6 +59,26 @@
             "target": "raw-nio-benchmark-server",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release raw-nio-benchmark-server"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-benchmark-client",
+            "target": "whitethroated-benchmark-client",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-benchmark-client"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-benchmark-client",
+            "target": "whitethroated-benchmark-client",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-benchmark-client"
         }
     ]
 }
