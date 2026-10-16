@@ -55,6 +55,13 @@ final class CoreBenchmarkTests: XCTestCase {
             .text(request.parameter("id") ?? "")
         }
 
+        app.get("/users-indexed/:id") { request in
+            .text(
+                request.parameter(at: 0)
+                ?? ""
+            )
+        }
+
         app.get("/query") { request in
             .text(request.query("q") ?? "")
         }
@@ -111,6 +118,12 @@ final class CoreBenchmarkTests: XCTestCase {
             BenchmarkCase(
                 name: "sync-param",
                 head: makeHead("/users/42")
+            ),
+            BenchmarkCase(
+                name: "sync-param-indexed",
+                head: makeHead(
+                    "/users-indexed/42"
+                )
             ),
             BenchmarkCase(
                 name: "sync-query",
