@@ -405,6 +405,7 @@ final class ResponseStreamLengthTests: XCTestCase {
         _ = try channel.writeInbound(
             HTTPServerRequestPart.end(nil)
         )
+        channel.embeddedEventLoop.run()
     }
 
     private func readParts(

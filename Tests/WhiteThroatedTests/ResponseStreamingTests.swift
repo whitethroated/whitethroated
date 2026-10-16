@@ -815,5 +815,6 @@ final class ResponseStreamingTests: XCTestCase {
         _ = try channel.writeInbound(
             HTTPServerRequestPart.end(nil)
         )
+        channel.embeddedEventLoop.run()
     }
 }
