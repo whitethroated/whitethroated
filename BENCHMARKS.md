@@ -398,3 +398,6 @@ The `stream-known`, `stream-chunked`, and `stream-flush` transport cases run the
 
 
 The `request-copy` and `request-consume` paired medians feed identical owned HTTPRequestHead values through the same synchronous handler and canonical text writer. The only intentional difference is whether Request copies the head-backed URI/header storage or consumes the inbound head into Request, providing evidence before ownership semantics are introduced into the production fast path.
+
+
+The `text-factory` and `text-shared` paired medians use the same synchronous route cache and canonical text writer. The factory case constructs Response.text on every request; the shared case returns an immutable captured Response with identical status, headers, and body. Their delta isolates short-response factory/header metadata construction from Request dispatch and body serialization.
