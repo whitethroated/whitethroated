@@ -187,7 +187,7 @@ Set `WHITETHROATED_BENCH_LATENCY=1` to collect per-request cycle latency after t
 
 For the external concurrency matrix, run separate throughput-only and latency-enabled samples at 64, 256, and 512 concurrent connections. The throughput-only sample is the primary RPS result; the latency-enabled sample is the paired distribution result.
 
-For a raw lower-bound comparison, run `raw-nio-benchmark-server` with the same server thread count, port, client connection count, and total request count. The raw server implements `GET /prepared` plus the external `GET /`, `GET /user/:id`, and `POST /user` contract, so each framework route can be compared against a minimal SwiftNIO control with matching response semantics. The client is intended for comparative loopback or separate-host diagnostics; use an independent load generator as an additional validation before publishing benchmark claims.
+For a raw lower-bound comparison, run `raw-nio-benchmark-server` with the same server thread count, port, client connection count, and total request count. The raw server implements `GET /prepared` plus the external `GET /`, `GET /user/:id`, and `POST /user` contract, so each framework route can be compared against a minimal SwiftNIO control with matching response semantics. Its dynamic parameter route uses the same short-response header-cache strategy and reusable HTTP/1.1 response-head template as WhiteThroated, preventing the raw control from being artificially penalized by repeated header-array and response-head storage construction. The client is intended for comparative loopback or separate-host diagnostics; use an independent load generator as an additional validation before publishing benchmark claims.
 
 ## External leaderboard contract
 
