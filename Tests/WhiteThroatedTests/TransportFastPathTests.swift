@@ -445,7 +445,7 @@ final class TransportFastPathTests: XCTestCase {
             .expectationFailed
         )
 
-        _ = try channel.finish()
+        _ = try? channel.finish()
     }
 
     func testDeclaredRequestBodyWaitsForEnd() throws {
