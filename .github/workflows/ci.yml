@@ -49,3 +49,94 @@ jobs:
 
       - name: Build Swift benchmark client
         run: swift build -c release --product whitethroated-benchmark-client
+
+
+      - name: Diagnose network scaling
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -n 65535 || true
+
+          SERVER_PID=""
+
+          cleanup() {
+            if [ -n "${SERVER_PID}" ]; then
+              kill "${SERVER_PID}" 2>/dev/null || true
+              wait "${SERVER_PID}" 2>/dev/null || true
+              SERVER_PID=""
+            fi
+          }
+
+          trap cleanup EXIT
+
+          start_server() {
+            local executable="$1"
+            local threads="$2"
+
+            cleanup
+
+            WHITETHROATED_HOST=127.0.0.1 \
+            WHITETHROATED_PORT=3100 \
+            WHITETHROATED_THREADS="${threads}" \
+            ".build/release/${executable}" \
+              >"/tmp/${executable}-${threads}.log" 2>&1 &
+
+            SERVER_PID=$!
+            sleep 1
+
+            if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+              cat "/tmp/${executable}-${threads}.log" || true
+              exit 1
+            fi
+          }
+
+          run_case() {
+            local label="$1"
+            local method="$2"
+            local path="$3"
+            local connections="$4"
+            local client_threads="$5"
+            local requests="$6"
+            local latency="$7"
+
+            echo "=== ${label} method=${method} path=${path} concurrency=${connections} client_threads=${client_threads} latency=${latency} ==="
+
+            WHITETHROATED_BENCH_HOST=127.0.0.1 \
+            WHITETHROATED_BENCH_PORT=3100 \
+            WHITETHROATED_BENCH_METHOD="${method}" \
+            WHITETHROATED_BENCH_PATH="${path}" \
+            WHITETHROATED_BENCH_CONNECTIONS="${connections}" \
+            WHITETHROATED_BENCH_REQUESTS="${requests}" \
+            WHITETHROATED_BENCH_THREADS="${client_threads}" \
+            WHITETHROATED_BENCH_TCP_NODELAY=0 \
+            WHITETHROATED_BENCH_LATENCY="${latency}" \
+            .build/release/whitethroated-benchmark-client
+          }
+
+          for threads in 1 2 4; do
+            start_server raw-nio-benchmark-server "${threads}"
+            run_case "raw-scale-${threads}" GET /prepared 256 "${threads}" 100000 0
+
+            start_server whitethroated-benchmark-server "${threads}"
+            run_case "white-scale-${threads}" GET /prepared 256 "${threads}" 100000 0
+          done
+
+          start_server raw-nio-benchmark-server 4
+          for concurrency in 64 256 512; do
+            run_case raw-prepared GET /prepared "${concurrency}" 4 150000 0
+          done
+
+          start_server whitethroated-benchmark-server 4
+
+          for concurrency in 64 256 512; do
+            run_case white-prepared GET /prepared "${concurrency}" 4 150000 0
+            run_case contract-root GET / "${concurrency}" 4 150000 0
+            run_case contract-param GET /user/42 "${concurrency}" 4 150000 0
+            run_case contract-post POST /user "${concurrency}" 4 150000 0
+          done
+
+          for concurrency in 64 256 512; do
+            run_case latency-root GET / "${concurrency}" 4 50000 1
+            run_case latency-param GET /user/42 "${concurrency}" 4 50000 1
+            run_case latency-post POST /user "${concurrency}" 4 50000 1
+          done
