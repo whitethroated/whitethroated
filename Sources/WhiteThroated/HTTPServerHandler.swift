@@ -1449,6 +1449,49 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             return
         }
 
+        if
+            version == .http1_1,
+            keepAlive,
+            let canonicalHead =
+                response.canonicalHTTP11Head,
+            case .text(let value) = response.body
+        {
+            context.write(
+                wrapOutboundOut(
+                    .head(canonicalHead)
+                ),
+                promise: nil
+            )
+
+            if
+                !isHeadRequest,
+                !value.isEmpty
+            {
+                var valueBuffer =
+                    context.channel.allocator.buffer(
+                        capacity: value.utf8.count
+                    )
+                valueBuffer.writeString(value)
+
+                context.write(
+                    wrapOutboundOut(
+                        .body(
+                            .byteBuffer(
+                                valueBuffer
+                            )
+                        )
+                    ),
+                    promise: nil
+                )
+            }
+
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
+
         var headers = response.headers
         let body: IOData?
         let bodyLength: Int
