@@ -975,6 +975,74 @@ final class TransportFastPathTests: XCTestCase {
         _ = try channel.finish()
     }
 
+    func testSynchronousSideCacheDoesNotReuseDifferentURI() throws {
+        let app = Application()
+
+        app.get("/first/:id") { request in
+            .text(
+                "first:"
+                + (request.parameter(at: 0) ?? "")
+            )
+        }
+        app.get("/second/:id") { request in
+            .text(
+                "second:"
+                + (request.parameter(at: 0) ?? "")
+            )
+        }
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        try writeRequest(
+            path: "/first/a",
+            channel: channel
+        )
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "first:a"
+        )
+
+        try writeRequest(
+            path: "/first/a",
+            channel: channel
+        )
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "first:a"
+        )
+
+        try writeRequest(
+            path: "/second/b",
+            channel: channel
+        )
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "second:b"
+        )
+
+        try writeRequest(
+            path: "/first/c",
+            channel: channel
+        )
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "first:c"
+        )
+
+        _ = try channel.finish()
+    }
+
     func testPreparedSideCacheDoesNotReuseDifferentURI() throws {
         let app = Application()
 
