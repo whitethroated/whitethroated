@@ -577,3 +577,6 @@ Repeated EventLoopFuture routes retain their resolved handler and parameter meta
 
 
 Canonical short-response metadata also exposes the already-computed UTF-8 byte length from its compact cache index. The persistent HTTP/1.1 text writer uses that byte length for ByteBuffer capacity instead of scanning the String UTF-8 view a second time before serialization.
+
+
+Synchronous minimal HTTP/1.1 routes try the canonical short-text writer immediately after the handler returns. This skips generic bodyless-status, response-stream, protocol-version, and connection-framing dispatch for the common Response.text/html/json 200 path. Any noncanonical response falls back to the unchanged generic writer.

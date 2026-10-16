@@ -159,13 +159,11 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                             .parameterRanges
                 )
 
-                write(
+                writeMinimalHTTP11(
                     cachedSynchronousRoute
                         .handler(request),
                     isHeadRequest:
                         head.method == .HEAD,
-                    version: .http1_1,
-                    keepAlive: true,
                     context: context
                 )
                 return
@@ -259,15 +257,27 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                                 .parameterRanges
                     )
 
-                    write(
+                    let response =
                         cachedSynchronousRoute
-                            .handler(request),
-                        isHeadRequest:
-                            head.method == .HEAD,
-                        version: head.version,
-                        keepAlive: keepAlive,
-                        context: context
-                    )
+                            .handler(request)
+
+                    if hasMinimalHTTP11Headers {
+                        writeMinimalHTTP11(
+                            response,
+                            isHeadRequest:
+                                head.method == .HEAD,
+                            context: context
+                        )
+                    } else {
+                        write(
+                            response,
+                            isHeadRequest:
+                                head.method == .HEAD,
+                            version: head.version,
+                            keepAlive: keepAlive,
+                            context: context
+                        )
+                    }
                     return
                 }
 
@@ -373,14 +383,26 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                         parameterRanges
                 )
 
-                write(
-                    handler(request),
-                    isHeadRequest:
-                        head.method == .HEAD,
-                    version: head.version,
-                    keepAlive: keepAlive,
-                    context: context
-                )
+                let response =
+                    handler(request)
+
+                if hasMinimalHTTP11Headers {
+                    writeMinimalHTTP11(
+                        response,
+                        isHeadRequest:
+                            head.method == .HEAD,
+                        context: context
+                    )
+                } else {
+                    write(
+                        response,
+                        isHeadRequest:
+                            head.method == .HEAD,
+                        version: head.version,
+                        keepAlive: keepAlive,
+                        context: context
+                    )
+                }
                 return
 
             case .notFound:
@@ -1592,6 +1614,82 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         }
     }
 
+    @inline(__always)
+    private func writeMinimalHTTP11(
+        _ response: Response,
+        isHeadRequest: Bool,
+        context: ChannelHandlerContext
+    ) {
+        if writeCanonicalHTTP11Text(
+            response,
+            isHeadRequest: isHeadRequest,
+            context: context
+        ) {
+            return
+        }
+
+        write(
+            response,
+            isHeadRequest: isHeadRequest,
+            version: .http1_1,
+            keepAlive: true,
+            context: context
+        )
+    }
+
+    @inline(__always)
+    private func writeCanonicalHTTP11Text(
+        _ response: Response,
+        isHeadRequest: Bool,
+        context: ChannelHandlerContext
+    ) -> Bool {
+        guard
+            let canonicalHead =
+                response.canonicalHTTP11Head,
+            let canonicalBodyLength =
+                response.canonicalHTTP11BodyLength,
+            case .text(let value) = response.body
+        else {
+            return false
+        }
+
+        context.write(
+            wrapOutboundOut(
+                .head(canonicalHead)
+            ),
+            promise: nil
+        )
+
+        if
+            !isHeadRequest,
+            canonicalBodyLength > 0
+        {
+            var valueBuffer =
+                context.channel.allocator.buffer(
+                    capacity:
+                        canonicalBodyLength
+                )
+            valueBuffer.writeString(value)
+
+            context.write(
+                wrapOutboundOut(
+                    .body(
+                        .byteBuffer(
+                            valueBuffer
+                        )
+                    )
+                ),
+                promise: nil
+            )
+        }
+
+        context.writeAndFlush(
+            wrapOutboundOut(.end(nil)),
+            promise: nil
+        )
+        return true
+    }
+
     private func write(
         _ response: Response,
         isHeadRequest: Bool,
@@ -1624,46 +1722,12 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         if
             version == .http1_1,
             keepAlive,
-            let canonicalHead =
-                response.canonicalHTTP11Head,
-            let canonicalBodyLength =
-                response.canonicalHTTP11BodyLength,
-            case .text(let value) = response.body
+            writeCanonicalHTTP11Text(
+                response,
+                isHeadRequest: isHeadRequest,
+                context: context
+            )
         {
-            context.write(
-                wrapOutboundOut(
-                    .head(canonicalHead)
-                ),
-                promise: nil
-            )
-
-            if
-                !isHeadRequest,
-                canonicalBodyLength > 0
-            {
-                var valueBuffer =
-                    context.channel.allocator.buffer(
-                        capacity:
-                            canonicalBodyLength
-                    )
-                valueBuffer.writeString(value)
-
-                context.write(
-                    wrapOutboundOut(
-                        .body(
-                            .byteBuffer(
-                                valueBuffer
-                            )
-                        )
-                    ),
-                    promise: nil
-                )
-            }
-
-            context.writeAndFlush(
-                wrapOutboundOut(.end(nil)),
-                promise: nil
-            )
             return
         }
 
