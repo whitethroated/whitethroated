@@ -291,6 +291,56 @@ final class HTTPServerHandlerTests: XCTestCase {
         )
     }
 
+    func testFutureResponseFromForeignEventLoopIsWritten() throws {
+        let app = Application()
+        let foreignLoop = EmbeddedEventLoop()
+
+        app.get("/future") { _, _ in
+            foreignLoop.makeSucceededFuture(
+                Response.text("ok")
+            )
+        }
+
+        let channel = try makeChannel(app)
+
+        try sendGet(
+            "/future",
+            to: channel
+        )
+
+        foreignLoop.run()
+        channel.embeddedEventLoop.run()
+
+        guard case .head(let head)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response head")
+        }
+
+        XCTAssertEqual(
+            head.status,
+            .ok
+        )
+
+        guard case .body? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response body")
+        }
+
+        guard case .end? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response end")
+        }
+    }
+
 
     private func makeChannel(
         _ app: Application
