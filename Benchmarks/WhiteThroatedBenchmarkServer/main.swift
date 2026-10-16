@@ -50,6 +50,24 @@ let ok = PreparedResponse
     .text("ok")
     .header("date", benchmarkDate)
 
+let emptyOK = PreparedResponse.empty(
+    status: .ok
+)
+
+app.get(
+    "/",
+    response: emptyOK
+)
+
+app.get("/user/:id") { request in
+    .text(request.parameter("id") ?? "")
+}
+
+app.post(
+    "/user",
+    response: emptyOK
+)
+
 app.get(
     "/prepared",
     response: hello
@@ -149,35 +167,35 @@ if environment["WHITETHROATED_RESPONSE_STREAM_BENCHMARKS"] == "1" {
     }
 }
 
-app.post("/aggregate-upload") { request in
-    .text(
-        String(request.body.readableBytes)
-    )
-}
-
-app.postStream(
-    "/stream-upload",
-    maxBodyBytes: 16 * 1024 * 1024
-) { _, context in
-    let state = StreamingUploadState()
-
-    return BodyStreamConsumer(
-        onChunk: { chunk in
-            state.bytes += chunk.readableBytes
-        },
-        onEnd: {
-            context.eventLoop.makeSucceededFuture(
-                .text(String(state.bytes))
-            )
-        }
-    )
-}
-
 app.get("/query") { request in
     .text(request.query("q") ?? "")
 }
 
 if environment["WHITETHROATED_UPLOAD_BENCHMARKS"] == "1" {
+    app.post("/aggregate-upload") { request in
+        .text(
+            String(request.body.readableBytes)
+        )
+    }
+
+    app.postStream(
+        "/stream-upload",
+        maxBodyBytes: 16 * 1024 * 1024
+    ) { _, context in
+        let state = StreamingUploadState()
+
+        return BodyStreamConsumer(
+            onChunk: { chunk in
+                state.bytes += chunk.readableBytes
+            },
+            onEnd: {
+                context.eventLoop.makeSucceededFuture(
+                    .text(String(state.bytes))
+                )
+            }
+        )
+    }
+
     app.post("/upload-aggregated") { _ in
         .text("ok")
     }

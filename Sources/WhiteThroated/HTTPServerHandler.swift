@@ -98,7 +98,13 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         preResolvedMatch = nil
         rejectingRequestEarly = false
 
-        if hasStreamingRoutes {
+        let hasStreamingRouteForRequest =
+            hasStreamingRoutes
+            && application.hasStreamingRoute(
+                for: head.method
+            )
+
+        if hasStreamingRouteForRequest {
             streamingStart = nil
             streamingFailure = nil
             streamingEndReceived = false
@@ -108,12 +114,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             streamingChunkFuture = nil
         }
 
-        if
-            hasStreamingRoutes,
-            application.hasStreamingRoute(
-                for: head.method
-            )
-        {
+        if hasStreamingRouteForRequest {
             let match = application.lookupTransport(
                 head: head
             )
