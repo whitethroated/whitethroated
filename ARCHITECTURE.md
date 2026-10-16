@@ -559,3 +559,6 @@ Repeated prepared routes keep a side-cache reference to PreparedResponseStorage 
 
 
 Bodyless future and Swift-concurrency routes now use the same request-head shortcut as synchronous routes when middleware is absent, no streaming route exists for the method, no Expect header is present, and framing proves the request body is empty. Their response future/task is registered immediately without allocating/resetting the aggregate request lifecycle state; requests with declared or chunked bodies continue through the general path.
+
+
+For applications with neither middleware nor request-streaming routes, a repeated prepared HTTP/1.1 request with no headers or only Host is handled before general request framing setup. A method+URI+prepared-storage cache hit writes the immutable prepared response immediately; URI or method changes fall back to normal route resolution and refresh the cache.
