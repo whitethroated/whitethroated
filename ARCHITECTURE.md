@@ -530,3 +530,8 @@ Before merging a hot-path change, ask:
 - Can the work happen during application setup instead?
 - Is there a benchmark that isolates the claimed improvement?
 - Are HTTP semantics still correct?
+
+
+## Request-state lifecycle
+
+Request-scoped transport state is cleared on each request completion path rather than redundantly zeroed again when the next request head arrives. This keeps persistent HTTP/1.1 connections on a smaller state-transition path while preserving cleanup for normal, oversized, early-rejected, streaming, inactive, and error exits.
