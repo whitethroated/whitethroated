@@ -805,10 +805,8 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             )
 
             if
-                storage.response.status.mayHaveResponseBody,
                 !isHeadRequest,
-                let body = storage.bodyBuffer,
-                body.readableBytes > 0
+                let body = storage.bodyBuffer
             {
                 context.write(
                     wrapOutboundOut(

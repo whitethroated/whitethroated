@@ -62,6 +62,42 @@ final class PreparedResponseStorageTests: XCTestCase {
         )
     }
 
+    func testBodylessPreparedStorageDropsCachedWriterBody() {
+        let noContent = PreparedResponse.text(
+            "payload",
+            status: .noContent
+        )
+        let notModified = PreparedResponse.text(
+            "payload",
+            status: .notModified
+        )
+        let emptyOK = PreparedResponse.text("")
+
+        XCTAssertNil(noContent.bodyBuffer)
+        XCTAssertNil(notModified.bodyBuffer)
+        XCTAssertNil(emptyOK.bodyBuffer)
+    }
+
+    func testNotModifiedContentLengthMutationKeepsRepresentationLength() {
+        let prepared = PreparedResponse
+            .text(
+                "payload",
+                status: .notModified
+            )
+            .header(
+                "content-length",
+                "999"
+            )
+
+        XCTAssertEqual(
+            prepared.http11Head.headers.first(
+                name: "content-length"
+            ),
+            "7"
+        )
+        XCTAssertNil(prepared.bodyBuffer)
+    }
+
     func testNotModifiedCachedHeadKeepsRepresentationLength() {
         let prepared = PreparedResponse.text(
             "payload",
