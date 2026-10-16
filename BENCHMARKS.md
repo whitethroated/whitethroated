@@ -35,7 +35,7 @@ swift build -c release --product raw-nio-benchmark-server
 
 Do not benchmark a commit that does not pass the release test suite.
 
-CI also runs the committed in-process benchmark matrix with deliberately small iteration counts as a smoke test. That step verifies that benchmark routes, future callbacks, middleware matrices, router diagnostics, and transport writers remain executable. CI smoke numbers are not performance evidence: GitHub-hosted runners are not pinned hardware, so their ns/op output must not be published or used as a regression threshold.
+CI also runs the committed in-process benchmark matrix with deliberately small iteration counts as a smoke test. The transport writer matrix uses 10,000 iterations so its same-run raw-NIO/framework deltas are less dominated by timer noise while remaining cheap enough for every push. That step verifies that benchmark routes, future callbacks, middleware matrices, router diagnostics, and transport writers remain executable. CI smoke numbers are not performance evidence: GitHub-hosted runners are not pinned hardware, so their ns/op output must not be published or used as a regression threshold.
 
 ## In-process core dispatch benchmark
 
