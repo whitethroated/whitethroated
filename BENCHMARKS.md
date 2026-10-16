@@ -103,7 +103,7 @@ swift test -c release \
   --filter CoreBenchmarkTests/testTransportWriterBenchmark
 ```
 
-This compares nine transport paths through an active `EmbeddedChannel`:
+This compares eleven transport paths through an active `EmbeddedChannel`:
 
 - minimal raw SwiftNIO writer with a cached HTTP/1.1 head and body and no framework routing.
 - direct WhiteThroated prepared lookup plus cached writer, bypassing the full request lifecycle state machine.
@@ -111,11 +111,15 @@ This compares nine transport paths through an active `EmbeddedChannel`:
 - conditional prepared 304 with a cached normalized bodyless HTTP/1.1 head.
 - the same prepared GET in an application that also has a POST streaming route.
 - the same prepared GET in an application that also has an unrelated GET streaming route.
-- ordinary synchronous text 200, which UTF-8 encodes the response body and constructs the response head per request.
+- ordinary synchronous text 200 whose factory already carries the exact Content-Length.
+- the same synchronous text response with Content-Length omitted, forcing writer-side framing insertion.
+- the same synchronous text response with a stale Content-Length, forcing writer-side framing repair.
 - synchronous pre-buffered 200 with the same payload/content type, isolating text encoding/allocation from dynamic response-header work.
 - already-succeeded event-loop future 200, which adds future callback dispatch before the same dynamic response writer.
 
 The two streaming-feature cases measure request-streaming feature tax separately from response writing. They help determine whether request-streaming state should stay in the primary channel-handler object or move behind an opt-in sidecar/specialized handler.
+
+The exact, missing, and stale Content-Length synchronous cases use the same text payload and content type. Their delta isolates the cost of preserving normalized header storage versus mutating HTTPHeaders during framing repair.
 
 The raw writer, direct prepared writer, and full prepared writer use the same `/prepared` request target and identical response payload/content headers. The raw-to-direct delta isolates exact-route lookup plus prepared-match dispatch. The direct-to-full delta isolates the request lifecycle state machine around that same prepared route. The channel is activated before warm-up and timing so asynchronous writer callbacks see the same active-connection invariant as production. The prepared 304 case specifically measures the bodyless writer path after setup-time removal of forbidden framing headers.
 
