@@ -133,6 +133,65 @@ final class ResponseContentLengthTests: XCTestCase {
         )
     }
 
+    func testCanonicalHeadInvalidatesAfterStatusMutation() throws {
+        let app = Application()
+
+        app.get("/status-mutated") { _ in
+            var response = Response.text("hello")
+            response.status = .created
+            return response
+        }
+
+        let channel = try makeChannel(app)
+
+        try send(
+            method: .GET,
+            uri: "/status-mutated",
+            channel: channel
+        )
+
+        let head = try readHead(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            head.status,
+            .created
+        )
+    }
+
+    func testCanonicalHeadInvalidatesAfterHeaderMutation() throws {
+        let app = Application()
+
+        app.get("/header-added") { _ in
+            Response
+                .text("hello")
+                .header(
+                    "x-test",
+                    "1"
+                )
+        }
+
+        let channel = try makeChannel(app)
+
+        try send(
+            method: .GET,
+            uri: "/header-added",
+            channel: channel
+        )
+
+        let head = try readHead(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            head.headers.first(
+                name: "x-test"
+            ),
+            "1"
+        )
+    }
+
     func testWriterRepairsLengthAfterDirectHeaderMutation() throws {
         let app = Application()
 

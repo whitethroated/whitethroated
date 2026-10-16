@@ -5,18 +5,21 @@ import NIOHTTP1
 public struct Response: Sendable {
     private static let cachedStringHeaderLimit = 64
 
-    private static let textHeaderCache =
-        makeKnownLengthHeaderCache(
+    private static let noCanonicalHTTP11Head:
+        UInt8 = .max
+
+    private static let textHTTP11HeadCache =
+        makeKnownLengthHTTP11HeadCache(
             contentType: "text/plain; charset=utf-8"
         )
 
-    private static let htmlHeaderCache =
-        makeKnownLengthHeaderCache(
+    private static let htmlHTTP11HeadCache =
+        makeKnownLengthHTTP11HeadCache(
             contentType: "text/html; charset=utf-8"
         )
 
-    private static let jsonHeaderCache =
-        makeKnownLengthHeaderCache(
+    private static let jsonHTTP11HeadCache =
+        makeKnownLengthHTTP11HeadCache(
             contentType: "application/json; charset=utf-8"
         )
 
@@ -29,21 +32,31 @@ public struct Response: Sendable {
         case stream(ResponseStream)
     }
 
-    public var status: HTTPResponseStatus
+    public var status: HTTPResponseStatus {
+        didSet {
+            canonicalHTTP11HeadIndex =
+                Self.noCanonicalHTTP11Head
+        }
+    }
 
     public var headers: HTTPHeaders {
         didSet {
             contentLengthIsNormalized = false
+            canonicalHTTP11HeadIndex =
+                Self.noCanonicalHTTP11Head
         }
     }
 
     public var body: Body {
         didSet {
             contentLengthIsNormalized = false
+            canonicalHTTP11HeadIndex =
+                Self.noCanonicalHTTP11Head
         }
     }
 
     internal var contentLengthIsNormalized: Bool
+    internal var canonicalHTTP11HeadIndex: UInt8
 
     public init(
         status: HTTPResponseStatus = .ok,
@@ -54,19 +67,25 @@ public struct Response: Sendable {
         self.headers = headers
         self.body = body
         self.contentLengthIsNormalized = false
+        self.canonicalHTTP11HeadIndex =
+            Self.noCanonicalHTTP11Head
     }
 
     private init(
         status: HTTPResponseStatus,
         headers: HTTPHeaders,
         body: Body,
-        normalizedContentLength: Bool
+        normalizedContentLength: Bool,
+        canonicalHTTP11HeadIndex: UInt8 =
+            Self.noCanonicalHTTP11Head
     ) {
         self.status = status
         self.headers = headers
         self.body = body
         self.contentLengthIsNormalized =
             normalizedContentLength
+        self.canonicalHTTP11HeadIndex =
+            canonicalHTTP11HeadIndex
     }
 
     public static func text(
@@ -76,7 +95,8 @@ public struct Response: Sendable {
         response(
             value,
             contentType: "text/plain; charset=utf-8",
-            cachedHeaders: textHeaderCache,
+            cachedHeads: textHTTP11HeadCache,
+            cacheBase: 0,
             status: status
         )
     }
@@ -88,7 +108,8 @@ public struct Response: Sendable {
         response(
             value,
             contentType: "text/html; charset=utf-8",
-            cachedHeaders: htmlHeaderCache,
+            cachedHeads: htmlHTTP11HeadCache,
+            cacheBase: 65,
             status: status
         )
     }
@@ -100,7 +121,8 @@ public struct Response: Sendable {
         response(
             value,
             contentType: "application/json; charset=utf-8",
-            cachedHeaders: jsonHeaderCache,
+            cachedHeads: jsonHTTP11HeadCache,
+            cacheBase: 130,
             status: status
         )
     }
@@ -315,37 +337,85 @@ public struct Response: Sendable {
     private static func response(
         _ value: String,
         contentType: String,
-        cachedHeaders: [HTTPHeaders],
+        cachedHeads: [HTTPResponseHead],
+        cacheBase: UInt8,
         status: HTTPResponseStatus
     ) -> Response {
         let length = value.utf8.count
         let headers: HTTPHeaders
+        let canonicalIndex: UInt8
 
         if length <= cachedStringHeaderLimit {
-            headers = cachedHeaders[length]
+            headers =
+                cachedHeads[length].headers
+
+            if status == .ok {
+                canonicalIndex =
+                    cacheBase
+                    + UInt8(length)
+            } else {
+                canonicalIndex =
+                    noCanonicalHTTP11Head
+            }
         } else {
             headers = makeKnownLengthHeaders(
                 contentType: contentType,
                 length: length
             )
+            canonicalIndex =
+                noCanonicalHTTP11Head
         }
 
         return Response(
             status: status,
             headers: headers,
             body: .text(value),
-            normalizedContentLength: true
+            normalizedContentLength: true,
+            canonicalHTTP11HeadIndex:
+                canonicalIndex
         )
     }
 
-    private static func makeKnownLengthHeaderCache(
+    private static func makeKnownLengthHTTP11HeadCache(
         contentType: String
-    ) -> [HTTPHeaders] {
+    ) -> [HTTPResponseHead] {
         (0...cachedStringHeaderLimit).map {
-            makeKnownLengthHeaders(
-                contentType: contentType,
-                length: $0
+            HTTPResponseHead(
+                version: .http1_1,
+                status: .ok,
+                headers: makeKnownLengthHeaders(
+                    contentType: contentType,
+                    length: $0
+                )
             )
+        }
+    }
+
+    @inline(__always)
+    internal var canonicalHTTP11Head:
+        HTTPResponseHead?
+    {
+        let index = canonicalHTTP11HeadIndex
+
+        guard index != Self.noCanonicalHTTP11Head else {
+            return nil
+        }
+
+        switch index {
+        case 0...64:
+            return Self.textHTTP11HeadCache[
+                Int(index)
+            ]
+
+        case 65...129:
+            return Self.htmlHTTP11HeadCache[
+                Int(index) - 65
+            ]
+
+        default:
+            return Self.jsonHTTP11HeadCache[
+                Int(index) - 130
+            ]
         }
     }
 
