@@ -381,6 +381,19 @@ final class CoreBenchmarkTests: XCTestCase {
                 )
         }
 
+        let syncMutatingHeaderApp = Application()
+        syncMutatingHeaderApp.get(
+            "/plaintext-header-mutating"
+        ) { _ in
+            var response =
+                Response.text("Hello, World!")
+            response.setHeader(
+                "date",
+                "Thu, 01 Jan 1970 00:00:00 GMT"
+            )
+            return response
+        }
+
         let syncMissingLengthApp = Application()
         syncMissingLengthApp.get(
             "/missing-length"
@@ -526,6 +539,22 @@ final class CoreBenchmarkTests: XCTestCase {
                 "/plaintext-header"
             ),
             expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "sync-header-mutating",
+            app: syncMutatingHeaderApp,
+            head: makeHead(
+                "/plaintext-header-mutating"
+            ),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkHeaderMutationVariants(
+            chainedApp: syncHeaderApp,
+            mutatingApp: syncMutatingHeaderApp,
             iterations: iterations
         )
 
@@ -767,6 +796,135 @@ final class CoreBenchmarkTests: XCTestCase {
             expectedParts: expectedParts,
             iterations: iterations
         )
+    }
+
+    private struct HeaderMutationTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+        let head: HTTPRequestHead
+    }
+
+    private func benchmarkHeaderMutationVariants(
+        chainedApp: Application,
+        mutatingApp: Application,
+        iterations: Int
+    ) throws {
+        let cases = [
+            HeaderMutationTransportCase(
+                name: "header-chain",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: chainedApp
+                    )
+                ),
+                head: makeHead(
+                    "/plaintext-header"
+                )
+            ),
+            HeaderMutationTransportCase(
+                name: "header-mutating",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: mutatingApp
+                    )
+                ),
+                head: makeHead(
+                    "/plaintext-header-mutating"
+                )
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: benchmarkCase.head,
+                    expectedParts: 3,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: benchmarkCase.head,
+                        expectedParts: 3,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted =
+                samples[index].sorted()
+            let middle =
+                sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+            let operationsPerSecond =
+                1_000_000_000 / median
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    operationsPerSecond,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
     }
 
     private struct FramingTransportCase {

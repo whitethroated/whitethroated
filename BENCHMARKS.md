@@ -103,7 +103,7 @@ swift test -c release \
   --filter CoreBenchmarkTests/testTransportWriterBenchmark
 ```
 
-This compares twelve transport paths through an active `EmbeddedChannel`:
+This compares thirteen transport paths through an active `EmbeddedChannel`:
 
 - minimal raw SwiftNIO writer with a cached HTTP/1.1 head and body and no framework routing.
 - direct WhiteThroated prepared lookup plus cached writer, bypassing the full request lifecycle state machine.
@@ -112,13 +112,16 @@ This compares twelve transport paths through an active `EmbeddedChannel`:
 - the same prepared GET in an application that also has a POST streaming route.
 - the same prepared GET in an application that also has an unrelated GET streaming route.
 - ordinary synchronous text 200 whose factory already carries the exact Content-Length.
-- the same factory response with a Date header added through WhiteThroated's response-header API, verifying that non-framing header edits keep the trusted Content-Length fast path.
+- the same factory response with a Date header added through the fluent `.header(...)` API.
+- an identical response using mutating `setHeader(...)`, isolating fluent-copy versus in-place header mutation cost.
 - the same synchronous text response with Content-Length omitted, forcing writer-side framing insertion.
 - the same synchronous text response with a stale Content-Length, forcing writer-side framing repair.
 - synchronous pre-buffered 200 with the same payload/content type, isolating text encoding/allocation from dynamic response-header work.
 - already-succeeded event-loop future 200, which adds future callback dispatch before the same dynamic response writer.
 
 The two streaming-feature cases measure request-streaming feature tax separately from response writing. They help determine whether request-streaming state should stay in the primary channel-handler object or move behind an opt-in sidecar/specialized handler.
+
+The fluent and mutating Date-header cases produce identical status, headers, and body. The benchmark emits paired `header-chain` and `header-mutating` medians across alternating orders so the delta isolates response-copy/header COW behavior rather than wire serialization.
 
 The exact, missing, and stale Content-Length synchronous cases use the same text payload and content type. Their delta isolates the cost of preserving normalized header storage versus mutating HTTPHeaders during framing repair. The benchmark also emits `framing-exact`, `framing-missing`, and `framing-stale` medians from six rotated/reversed rounds in the same process, reducing bias from runner drift and benchmark ordering.
 
