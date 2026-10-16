@@ -103,7 +103,7 @@ swift test -c release \
   --filter CoreBenchmarkTests/testTransportWriterBenchmark
 ```
 
-This compares eight transport paths through an active `EmbeddedChannel`:
+This compares nine transport paths through an active `EmbeddedChannel`:
 
 - minimal raw SwiftNIO writer with a cached HTTP/1.1 head and body and no framework routing.
 - direct WhiteThroated prepared lookup plus cached writer, bypassing the full request lifecycle state machine.
@@ -111,7 +111,8 @@ This compares eight transport paths through an active `EmbeddedChannel`:
 - conditional prepared 304 with a cached normalized bodyless HTTP/1.1 head.
 - the same prepared GET in an application that also has a POST streaming route.
 - the same prepared GET in an application that also has an unrelated GET streaming route.
-- ordinary synchronous 200, which constructs the response head from the dynamic response.
+- ordinary synchronous text 200, which UTF-8 encodes the response body and constructs the response head per request.
+- synchronous pre-buffered 200 with the same payload/content type, isolating text encoding/allocation from dynamic response-header work.
 - already-succeeded event-loop future 200, which adds future callback dispatch before the same dynamic response writer.
 
 The two streaming-feature cases measure request-streaming feature tax separately from response writing. They help determine whether request-streaming state should stay in the primary channel-handler object or move behind an opt-in sidecar/specialized handler.

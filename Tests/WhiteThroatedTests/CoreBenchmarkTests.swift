@@ -371,6 +371,24 @@ final class CoreBenchmarkTests: XCTestCase {
             .text("Hello, World!")
         }
 
+        var sharedTextBuffer =
+            ByteBufferAllocator().buffer(
+                capacity: 13
+            )
+        sharedTextBuffer.writeString(
+            "Hello, World!"
+        )
+
+        let syncBufferApp = Application()
+        syncBufferApp.get("/buffer") { _ in
+            Response
+                .buffer(
+                    sharedTextBuffer,
+                    contentType:
+                        "text/plain; charset=utf-8"
+                )
+        }
+
         let futureApp = Application()
         futureApp.get("/future") { _, context in
             context.eventLoop.makeSucceededFuture(
@@ -448,6 +466,14 @@ final class CoreBenchmarkTests: XCTestCase {
             name: "sync-writer",
             app: syncApp,
             head: makeHead("/plaintext"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "sync-buffer-writer",
+            app: syncBufferApp,
+            head: makeHead("/buffer"),
             expectedParts: 3,
             iterations: iterations
         )
