@@ -37,6 +37,41 @@ final class ResponseContentLengthTests: XCTestCase {
         )
     }
 
+    func testNonLengthHeaderHelpersPreserveNormalizedFraming() {
+        var response = Response.text("hello")
+
+        XCTAssertTrue(
+            response.contentLengthIsNormalized
+        )
+
+        response.setHeader(
+            "date",
+            "Thu, 01 Jan 1970 00:00:00 GMT"
+        )
+
+        XCTAssertTrue(
+            response.contentLengthIsNormalized
+        )
+
+        response.appendHeader(
+            "x-benchmark",
+            "1"
+        )
+
+        XCTAssertTrue(
+            response.contentLengthIsNormalized
+        )
+
+        response.setHeader(
+            "content-length",
+            "5"
+        )
+
+        XCTAssertFalse(
+            response.contentLengthIsNormalized
+        )
+    }
+
     func testWriterRepairsLengthAfterDirectHeaderMutation() throws {
         let app = Application()
 

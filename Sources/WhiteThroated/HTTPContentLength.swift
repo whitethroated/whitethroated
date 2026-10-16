@@ -44,7 +44,7 @@ internal enum HTTPContentLength {
     }
 
     @inline(__always)
-    private static func isContentLengthName(
+    static func isContentLengthName(
         _ name: String
     ) -> Bool {
         let expected: [UInt8] = [
