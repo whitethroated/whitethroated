@@ -4,6 +4,28 @@ import NIOHTTP1
 import NIOPosix
 
 private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Sendable {
+    private static let parameterHeaderCacheLimit = 64
+
+    private static let parameterHeaderCache: [HTTPHeaders] =
+        (0...parameterHeaderCacheLimit).map {
+            makeParameterHeaders(length: $0)
+        }
+
+    private static func makeParameterHeaders(
+        length: Int
+    ) -> HTTPHeaders {
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "content-type",
+            value: "text/plain; charset=utf-8"
+        )
+        headers.add(
+            name: "content-length",
+            value: String(length)
+        )
+        return headers
+    }
+
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
@@ -13,6 +35,11 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     private let http11Head: HTTPResponseHead
     private let emptyHeaders: HTTPHeaders
     private let emptyHTTP11Head: HTTPResponseHead
+    private let dynamicHTTP11HeadTemplate =
+        HTTPResponseHead(
+            version: .http1_1,
+            status: .ok
+        )
     private var requestHead: HTTPRequestHead?
 
     init(allocator: ByteBufferAllocator) {
@@ -308,11 +335,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         let parameterBytes =
             bytes[parameterStart...]
 
-        guard
-            !parameterBytes.isEmpty,
-            !parameterBytes.contains(47),
-            !parameterBytes.contains(63)
-        else {
+        guard !parameterBytes.isEmpty else {
             writeNotFound(
                 requestHead: requestHead,
                 context: context
@@ -320,23 +343,72 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             return
         }
 
+        for byte in parameterBytes {
+            if byte == 47 || byte == 63 {
+                writeNotFound(
+                    requestHead: requestHead,
+                    context: context
+                )
+                return
+            }
+        }
+
+        let parameterLength =
+            parameterBytes.count
+
         var parameterBody = allocator.buffer(
-            capacity: parameterBytes.count
+            capacity: parameterLength
         )
         parameterBody.writeBytes(parameterBytes)
 
-        var headers = HTTPHeaders()
-        headers.add(
-            name: "content-type",
-            value: "text/plain; charset=utf-8"
-        )
-        headers.add(
-            name: "content-length",
-            value: String(parameterBody.readableBytes)
-        )
+        var headers: HTTPHeaders
+
+        if
+            parameterLength
+            <= Self.parameterHeaderCacheLimit
+        {
+            headers =
+                Self.parameterHeaderCache[
+                    parameterLength
+                ]
+        } else {
+            headers =
+                Self.makeParameterHeaders(
+                    length: parameterLength
+                )
+        }
 
         let keepAlive =
             requestIsKeepAlive(requestHead)
+
+        if
+            requestHead.version == .http1_1,
+            keepAlive
+        {
+            var responseHead =
+                dynamicHTTP11HeadTemplate
+            responseHead.headers = headers
+
+            context.write(
+                wrapOutboundOut(
+                    .head(responseHead)
+                ),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(
+                    .body(
+                        .byteBuffer(parameterBody)
+                    )
+                ),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
 
         if !keepAlive {
             headers.replaceOrAdd(
