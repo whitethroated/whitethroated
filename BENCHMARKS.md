@@ -163,6 +163,8 @@ swift run -c release whitethroated-benchmark-client
 
 The client opens all connections before starting the timer and keeps exactly one request in flight per connection. Connection establishment is therefore excluded from measured throughput, and raw-NIO/WhiteThroated comparisons use the same HTTP client implementation. `WHITETHROATED_BENCH_THREADS` can override the client event-loop thread count.
 
+Set `WHITETHROATED_BENCH_LATENCY=1` to collect per-request cycle latency after the first request on each connection. The client reports average, p50, p90, and p99 microseconds. Latency samples are sorted only after the throughput timer stops; timestamp collection itself remains part of the measured client workload, so use the same latency setting on every server being compared.
+
 For a raw lower-bound comparison, run `raw-nio-benchmark-server` with the same server thread count, port, client connection count, and total request count. The client is intended for comparative loopback or separate-host diagnostics; use an independent load generator as an additional validation before publishing benchmark claims.
 
 ## Middleware measurements

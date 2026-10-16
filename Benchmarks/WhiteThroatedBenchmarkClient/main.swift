@@ -11,6 +11,7 @@ private struct BenchmarkConfiguration {
     let connections: Int
     let requests: Int
     let threads: Int
+    let collectLatency: Bool
 
     static func load() -> BenchmarkConfiguration {
         let environment =
@@ -64,13 +65,19 @@ private struct BenchmarkConfiguration {
             defaultValue: System.coreCount
         )
 
+        let collectLatency =
+            environment[
+                "WHITETHROATED_BENCH_LATENCY"
+            ] == "1"
+
         return BenchmarkConfiguration(
             host: host,
             port: port,
             path: path,
             connections: connections,
             requests: requests,
-            threads: threads
+            threads: threads,
+            collectLatency: collectLatency
         )
     }
 
@@ -109,6 +116,11 @@ private enum BenchmarkClientError:
     }
 }
 
+private struct BenchmarkConnectionResult: Sendable {
+    let completedRequests: Int
+    let latencyNanoseconds: [UInt64]
+}
+
 private final class BenchmarkClientHandler:
     ChannelInboundHandler,
     @unchecked Sendable
@@ -118,22 +130,40 @@ private final class BenchmarkClientHandler:
 
     private let requestHead: HTTPRequestHead
     private let targetRequests: Int
-    private let donePromise: EventLoopPromise<Int>
+    private let collectLatency: Bool
+    private let donePromise:
+        EventLoopPromise<BenchmarkConnectionResult>
 
     private var completedRequests = 0
     private var finished = false
+    private var requestStartedAt: UInt64?
+    private var latencyNanoseconds: [UInt64] = []
 
     init(
         requestHead: HTTPRequestHead,
         targetRequests: Int,
-        donePromise: EventLoopPromise<Int>
+        collectLatency: Bool,
+        donePromise:
+            EventLoopPromise<BenchmarkConnectionResult>
     ) {
         self.requestHead = requestHead
         self.targetRequests = targetRequests
+        self.collectLatency = collectLatency
         self.donePromise = donePromise
+
+        if collectLatency {
+            latencyNanoseconds.reserveCapacity(
+                max(
+                    0,
+                    targetRequests - 1
+                )
+            )
+        }
     }
 
-    func wait() throws -> Int {
+    func wait() throws
+        -> BenchmarkConnectionResult
+    {
         try donePromise.futureResult.wait()
     }
 
@@ -162,14 +192,36 @@ private final class BenchmarkClientHandler:
                 return
             }
 
+            if
+                collectLatency,
+                let requestStartedAt
+            {
+                latencyNanoseconds.append(
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+                        - requestStartedAt
+                )
+            }
+
             completedRequests += 1
 
             if completedRequests >= targetRequests {
                 finished = true
                 donePromise.succeed(
-                    completedRequests
+                    BenchmarkConnectionResult(
+                        completedRequests:
+                            completedRequests,
+                        latencyNanoseconds:
+                            latencyNanoseconds
+                    )
                 )
                 return
+            }
+
+            if collectLatency {
+                requestStartedAt =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
             }
 
             sendRequest(context: context)
@@ -290,12 +342,14 @@ for index in 0..<configuration.connections {
 
     let donePromise =
         group.next().makePromise(
-            of: Int.self
+            of: BenchmarkConnectionResult.self
         )
 
     let handler = BenchmarkClientHandler(
         requestHead: requestHead,
         targetRequests: targetRequests,
+        collectLatency:
+            configuration.collectLatency,
         donePromise: donePromise
     )
 
@@ -347,16 +401,45 @@ for connection in connections {
     connection.start()
 }
 
-var completedRequests = 0
+var results: [BenchmarkConnectionResult] = []
+results.reserveCapacity(
+    connections.count
+)
 
 for connection in connections {
-    completedRequests +=
+    results.append(
         try connection.handler.wait()
+    )
 }
 
 let end =
     DispatchTime.now()
         .uptimeNanoseconds
+
+var completedRequests = 0
+var latencyNanoseconds: [UInt64] = []
+
+if configuration.collectLatency {
+    latencyNanoseconds.reserveCapacity(
+        max(
+            0,
+            configuration.requests
+                - configuration.connections
+        )
+    )
+}
+
+for result in results {
+    completedRequests +=
+        result.completedRequests
+
+    if configuration.collectLatency {
+        latencyNanoseconds.append(
+            contentsOf:
+                result.latencyNanoseconds
+        )
+    }
+}
 
 let elapsedNanoseconds =
     end - start
@@ -385,6 +468,12 @@ print(
     + String(configuration.connections)
     + " threads="
     + String(configuration.threads)
+    + " latency="
+    + (
+        configuration.collectLatency
+        ? "on"
+        : "off"
+    )
 )
 print(
     "requests="
@@ -402,4 +491,70 @@ print(
         requestsPerSecond
     )
 )
+
+if configuration.collectLatency {
+    latencyNanoseconds.sort()
+
+    if !latencyNanoseconds.isEmpty {
+        let average =
+            latencyNanoseconds.reduce(
+                0.0
+            ) {
+                $0 + Double($1)
+            }
+            / Double(
+                latencyNanoseconds.count
+            )
+
+        func percentile(
+            _ percentile: Double
+        ) -> Double {
+            let index = Int(
+                Double(
+                    latencyNanoseconds.count - 1
+                ) * percentile
+            )
+
+            return Double(
+                latencyNanoseconds[index]
+            ) / 1_000
+        }
+
+        print(
+            "latency_samples="
+            + String(
+                latencyNanoseconds.count
+            )
+        )
+        print(
+            "latency_avg_us="
+            + String(
+                format: "%.3f",
+                average / 1_000
+            )
+        )
+        print(
+            "latency_p50_us="
+            + String(
+                format: "%.3f",
+                percentile(0.50)
+            )
+        )
+        print(
+            "latency_p90_us="
+            + String(
+                format: "%.3f",
+                percentile(0.90)
+            )
+        )
+        print(
+            "latency_p99_us="
+            + String(
+                format: "%.3f",
+                percentile(0.99)
+            )
+        )
+    }
+}
+
 print("")
