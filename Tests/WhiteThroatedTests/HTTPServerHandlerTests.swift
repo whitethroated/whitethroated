@@ -242,6 +242,116 @@ final class HTTPServerHandlerTests: XCTestCase {
         }
     }
 
+    func testSequentialRequestsDoNotLeakAggregatedBodyState() throws {
+        let app = Application()
+
+        app.post("/size") { request in
+            .text(
+                String(request.body.readableBytes)
+            )
+        }
+
+        let channel = try makeChannel(app)
+
+        try sendRequest(
+            method: .POST,
+            uri: "/size",
+            body: "abc",
+            to: channel
+        )
+        XCTAssertEqual(
+            try readTextResponse(from: channel),
+            "3"
+        )
+
+        try sendRequest(
+            method: .POST,
+            uri: "/size",
+            body: "x",
+            to: channel
+        )
+        XCTAssertEqual(
+            try readTextResponse(from: channel),
+            "1"
+        )
+    }
+
+    func testSequentialRequestAfterPayloadTooLargeUsesCleanState() throws {
+        let app = Application()
+
+        app.post("/size") { request in
+            .text(
+                String(request.body.readableBytes)
+            )
+        }
+
+        let channel = EmbeddedChannel()
+
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app,
+                    maxRequestBodyBytes: 3
+                )
+            )
+
+        var oversizedHead = HTTPRequestHead(
+            version: .http1_1,
+            method: .POST,
+            uri: "/size"
+        )
+        oversizedHead.headers.add(
+            name: "content-length",
+            value: "4"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                oversizedHead
+            )
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.body(
+                ByteBuffer(
+                    string: "abcd"
+                )
+            )
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        guard case .head(let oversizedResponse)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected oversized response head"
+            )
+        }
+
+        XCTAssertEqual(
+            oversizedResponse.status,
+            .payloadTooLarge
+        )
+
+        while let _ = try channel.readOutbound(
+            as: HTTPServerResponsePart.self
+        ) {}
+
+        try sendRequest(
+            method: .POST,
+            uri: "/size",
+            body: "ok",
+            to: channel
+        )
+        XCTAssertEqual(
+            try readTextResponse(from: channel),
+            "2"
+        )
+    }
+
     func testNoContentStreamDoesNotRunProducer() throws {
         let app = Application()
         let counter = ResponseStreamCounterForHandlerTests()
@@ -310,19 +420,100 @@ final class HTTPServerHandlerTests: XCTestCase {
         _ uri: String,
         to channel: EmbeddedChannel
     ) throws {
+        try sendRequest(
+            method: .GET,
+            uri: uri,
+            to: channel
+        )
+    }
+
+    private func sendRequest(
+        method: NIOHTTP1.HTTPMethod,
+        uri: String,
+        body: String? = nil,
+        to channel: EmbeddedChannel
+    ) throws {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: method,
+            uri: uri
+        )
+
+        if let body {
+            head.headers.add(
+                name: "content-length",
+                value: String(body.utf8.count)
+            )
+        }
+
         _ = try channel.writeInbound(
-            HTTPServerRequestPart.head(
-                HTTPRequestHead(
-                    version: .http1_1,
-                    method: .GET,
-                    uri: uri
+            HTTPServerRequestPart.head(head)
+        )
+
+        if let body {
+            _ = try channel.writeInbound(
+                HTTPServerRequestPart.body(
+                    ByteBuffer(string: body)
                 )
             )
-        )
+        }
+
         _ = try channel.writeInbound(
             HTTPServerRequestPart.end(nil)
         )
     }
+
+    private func readTextResponse(
+        from channel: EmbeddedChannel
+    ) throws -> String {
+        guard case .head? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            throw HTTPServerHandlerTestError
+                .missingHead
+        }
+
+        var body = ""
+
+        while let part = try channel.readOutbound(
+            as: HTTPServerResponsePart.self
+        ) {
+            switch part {
+            case .head:
+                throw HTTPServerHandlerTestError
+                    .unexpectedHead
+
+            case .body(let data):
+                switch data {
+                case .byteBuffer(let buffer):
+                    body +=
+                        buffer.getString(
+                            at: buffer.readerIndex,
+                            length: buffer.readableBytes
+                        ) ?? ""
+
+                case .fileRegion:
+                    throw HTTPServerHandlerTestError
+                        .unexpectedFileRegion
+                }
+
+            case .end:
+                return body
+            }
+        }
+
+        throw HTTPServerHandlerTestError
+            .missingEnd
+    }
+}
+
+private enum HTTPServerHandlerTestError: Error {
+    case missingHead
+    case unexpectedHead
+    case unexpectedFileRegion
+    case missingEnd
 }
 
 private final class ResponseStreamCounterForHandlerTests:
