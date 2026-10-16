@@ -3339,7 +3339,18 @@ private final class RawDynamicTextTransportBenchmarkHandler:
         data: NIOAny
     ) {
         switch unwrapInboundIn(data) {
-        case .head:
+        case .head(let head):
+            guard
+                head.version == .http1_1,
+                head.method == .GET,
+                head.uri == "/plaintext",
+                hasMinimalHTTP11Headers(head)
+            else {
+                preconditionFailure(
+                    "Raw dynamic text benchmark expected minimal HTTP/1.1 GET /plaintext"
+                )
+            }
+
             var body =
                 context.channel.allocator.buffer(
                     capacity: 13
@@ -3368,6 +3379,54 @@ private final class RawDynamicTextTransportBenchmarkHandler:
         case .body, .end:
             break
         }
+    }
+
+    @inline(__always)
+    private func hasMinimalHTTP11Headers(
+        _ head: HTTPRequestHead
+    ) -> Bool {
+        switch head.headers.count {
+        case 0:
+            return true
+
+        case 1:
+            guard let header = head.headers.first else {
+                return false
+            }
+
+            let bytes = header.name.utf8
+
+            guard bytes.count == 4 else {
+                return false
+            }
+
+            var index = bytes.startIndex
+            let h = lowercaseASCII(bytes[index])
+            bytes.formIndex(after: &index)
+            let o = lowercaseASCII(bytes[index])
+            bytes.formIndex(after: &index)
+            let s = lowercaseASCII(bytes[index])
+            bytes.formIndex(after: &index)
+            let t = lowercaseASCII(bytes[index])
+
+            return
+                h == 104
+                && o == 111
+                && s == 115
+                && t == 116
+
+        default:
+            return false
+        }
+    }
+
+    @inline(__always)
+    private func lowercaseASCII(
+        _ byte: UInt8
+    ) -> UInt8 {
+        byte >= 65 && byte <= 90
+            ? byte + 32
+            : byte
     }
 }
 
