@@ -118,6 +118,7 @@ private enum BenchmarkClientError:
 
 private struct BenchmarkConnectionResult: Sendable {
     let completedRequests: Int
+    let responseBodyBytes: Int
     let latencyNanoseconds: [UInt64]
 }
 
@@ -135,6 +136,7 @@ private final class BenchmarkClientHandler:
         EventLoopPromise<BenchmarkConnectionResult>
 
     private var completedRequests = 0
+    private var responseBodyBytes = 0
     private var finished = false
     private var requestStartedAt: UInt64?
     private var latencyNanoseconds: [UInt64] = []
@@ -184,8 +186,9 @@ private final class BenchmarkClientHandler:
                 return
             }
 
-        case .body:
-            break
+        case .body(let buffer):
+            responseBodyBytes +=
+                buffer.readableBytes
 
         case .end:
             guard !finished else {
@@ -211,6 +214,8 @@ private final class BenchmarkClientHandler:
                     BenchmarkConnectionResult(
                         completedRequests:
                             completedRequests,
+                        responseBodyBytes:
+                            responseBodyBytes,
                         latencyNanoseconds:
                             latencyNanoseconds
                     )
@@ -417,6 +422,7 @@ let end =
         .uptimeNanoseconds
 
 var completedRequests = 0
+var responseBodyBytes = 0
 var latencyNanoseconds: [UInt64] = []
 
 if configuration.collectLatency {
@@ -432,6 +438,8 @@ if configuration.collectLatency {
 for result in results {
     completedRequests +=
         result.completedRequests
+    responseBodyBytes +=
+        result.responseBodyBytes
 
     if configuration.collectLatency {
         latencyNanoseconds.append(
@@ -449,6 +457,11 @@ let elapsedSeconds =
 let requestsPerSecond =
     Double(completedRequests)
     / elapsedSeconds
+let bodyMiBPerSecond =
+    (
+        Double(responseBodyBytes)
+        / 1_048_576
+    ) / elapsedSeconds
 
 for connection in connections {
     try? connection.channel.close().wait()
@@ -489,6 +502,17 @@ print(
     + String(
         format: "%.0f",
         requestsPerSecond
+    )
+)
+print(
+    "response_body_bytes="
+    + String(responseBodyBytes)
+)
+print(
+    "response_body_mib_per_second="
+    + String(
+        format: "%.3f",
+        bodyMiBPerSecond
     )
 )
 
