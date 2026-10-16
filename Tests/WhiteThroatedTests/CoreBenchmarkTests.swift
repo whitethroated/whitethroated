@@ -625,11 +625,24 @@ final class CoreBenchmarkTests: XCTestCase {
             iterations: iterations
         )
 
+        try benchmarkRawDynamicTextTransport(
+            name: "raw-dynamic-text",
+            head: makeHead("/plaintext"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
         try benchmarkTransport(
             name: "sync-writer",
             app: syncApp,
             head: makeHead("/plaintext"),
             expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkDynamicTextVariants(
+            app: syncApp,
+            head: makeHead("/plaintext"),
             iterations: iterations
         )
 
@@ -1018,6 +1031,141 @@ final class CoreBenchmarkTests: XCTestCase {
                 name: cases[index].name,
                 nanosecondsPerOperation:
                     median,
+                operationsPerSecond:
+                    1_000_000_000 / median,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
+    }
+
+    private func benchmarkRawDynamicTextTransport(
+        name: String,
+        head: HTTPRequestHead,
+        expectedParts: Int,
+        iterations: Int
+    ) throws {
+        let channel = EmbeddedChannel(
+            handler:
+                RawDynamicTextTransportBenchmarkHandler()
+        )
+
+        try benchmarkTransportChannel(
+            name: name,
+            channel: channel,
+            head: head,
+            expectedParts: expectedParts,
+            iterations: iterations
+        )
+    }
+
+    private struct DynamicTextTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+    }
+
+    private func benchmarkDynamicTextVariants(
+        app: Application,
+        head: HTTPRequestHead,
+        iterations: Int
+    ) throws {
+        let cases = [
+            DynamicTextTransportCase(
+                name: "text-raw",
+                channel: EmbeddedChannel(
+                    handler:
+                        RawDynamicTextTransportBenchmarkHandler()
+                )
+            ),
+            DynamicTextTransportCase(
+                name: "text-framework",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: app
+                    )
+                )
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: head,
+                    expectedParts: 3,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase = cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: head,
+                        expectedParts: 3,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted = samples[index].sorted()
+            let middle = sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation: median,
                 operationsPerSecond:
                     1_000_000_000 / median,
                 checksum: checksum
@@ -3158,6 +3306,68 @@ private final class RawEmptyTransportBenchmarkHandler:
         byte >= 65 && byte <= 90
             ? byte + 32
             : byte
+    }
+}
+
+private final class RawDynamicTextTransportBenchmarkHandler:
+    ChannelInboundHandler,
+    @unchecked Sendable
+{
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    private let responseHead: HTTPResponseHead = {
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "content-type",
+            value: "text/plain; charset=utf-8"
+        )
+        headers.add(
+            name: "content-length",
+            value: "13"
+        )
+
+        return HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: headers
+        )
+    }()
+
+    func channelRead(
+        context: ChannelHandlerContext,
+        data: NIOAny
+    ) {
+        switch unwrapInboundIn(data) {
+        case .head:
+            var body =
+                context.channel.allocator.buffer(
+                    capacity: 13
+                )
+            body.writeString(
+                "Hello, World!"
+            )
+
+            context.write(
+                wrapOutboundOut(
+                    .head(responseHead)
+                ),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(
+                    .body(.byteBuffer(body))
+                ),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+
+        case .body, .end:
+            break
+        }
     }
 }
 

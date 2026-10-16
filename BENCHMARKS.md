@@ -115,6 +115,7 @@ This compares the following transport paths through an active `EmbeddedChannel`:
 - conditional prepared 304 with a cached normalized bodyless HTTP/1.1 head.
 - the same prepared GET in an application that also has a POST streaming route.
 - the same prepared GET in an application that also has an unrelated GET streaming route.
+- raw SwiftNIO dynamic text 200 that allocates and UTF-8 encodes the same "Hello, World!" body on every request while reusing the canonical HTTP/1.1 response head.
 - ordinary synchronous text 200 whose factory already carries the exact Content-Length.
 - the same factory response with a Date header added through the fluent `.header(...)` API.
 - an identical response using mutating `setHeader(...)`, isolating fluent-copy versus in-place header mutation cost.
@@ -383,3 +384,6 @@ The `param-raw` and `param-framework` paired medians use the same `/user/42` req
 
 
 The `empty-raw` and `empty-framework` paired medians model the public `GET /` contract with the same Host-only HTTP/1.1 request and Content-Length: 0 response. The raw control validates HTTP/1.1, GET, the exact root URI, and the case-insensitive single Host header before writing its cached head, so this comparison includes equivalent request-contract checks instead of using an artificially branchless raw writer.
+
+
+The `text-raw` and `text-framework` paired medians both allocate a ByteBuffer and UTF-8 encode the same short text body per request while reusing an equivalent canonical HTTP/1.1 response head. Their delta isolates WhiteThroated's Request construction, cached synchronous handler dispatch, Response.text factory, and dynamic writer orchestration without giving the raw control a pre-buffered body advantage.
