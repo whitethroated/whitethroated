@@ -401,3 +401,6 @@ The `request-copy` and `request-consume` paired medians feed identical owned HTT
 
 
 The `text-factory` and `text-shared` paired medians use the same synchronous route cache and canonical text writer. The factory case constructs Response.text on every request; the shared case returns an immutable captured Response with identical status, headers, and body. Their delta isolates short-response factory/header metadata construction from Request dispatch and body serialization.
+
+
+CI transport diagnostics use 50,000 iterations per sample while router, middleware, and generic core smoke benchmarks remain at 10,000. Transport paired benchmarks already rotate/reverse ordering; the larger sample reduces timer and scheduler noise for the sub-microsecond deltas now being optimized.
