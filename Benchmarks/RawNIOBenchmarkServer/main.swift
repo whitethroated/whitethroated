@@ -674,7 +674,7 @@ let bootstrap = ServerBootstrap(group: group)
         .flatMap {
             channel.pipeline
                 .configureHTTPServerPipeline(
-                    withPipeliningAssistance: true,
+                    withPipeliningAssistance: false,
                     withErrorHandling: true
                 )
         }
