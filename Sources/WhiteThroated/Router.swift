@@ -547,6 +547,8 @@ final class Router: @unchecked Sendable {
         path: String,
         syncHandler: @escaping SyncHandler
     ) {
+        requiresPipeliningAssistance = true
+
         insert(
             method: method,
             path: path,
