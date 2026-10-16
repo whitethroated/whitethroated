@@ -915,6 +915,66 @@ final class TransportFastPathTests: XCTestCase {
         _ = try channel.finish()
     }
 
+    func testMinimalHTTP11PreparedCacheHitInvalidatesOnMethodChange() throws {
+        let app = Application()
+
+        app.get(
+            "/same",
+            response: .text("get")
+        )
+        app.post(
+            "/same",
+            response: .text("post")
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        for item in [
+            (HTTPMethod.GET, "get"),
+            (HTTPMethod.GET, "get"),
+            (HTTPMethod.POST, "post"),
+            (HTTPMethod.GET, "get")
+        ] {
+            var head = HTTPRequestHead(
+                version: .http1_1,
+                method: item.0,
+                uri: "/same"
+            )
+            head.headers.add(
+                name: "Host",
+                value: "localhost"
+            )
+
+            _ = try channel.writeInbound(
+                HTTPServerRequestPart.head(
+                    head
+                )
+            )
+
+            XCTAssertEqual(
+                try readResponseBody(channel),
+                item.1
+            )
+
+            _ = try channel.writeInbound(
+                HTTPServerRequestPart.end(nil)
+            )
+        }
+
+        _ = try channel.finish()
+    }
+
     func testMinimalHTTP11PreparedCacheHitStillInvalidatesOnURIChange() throws {
         let app = Application()
 
