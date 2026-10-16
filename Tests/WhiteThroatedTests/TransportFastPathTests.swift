@@ -1139,6 +1139,68 @@ final class TransportFastPathTests: XCTestCase {
         _ = try channel.finish()
     }
 
+    func testSynchronousMinimalHTTP11FastPathFallsBackForNoContent() throws {
+        let app = Application()
+
+        app.get("/empty") { _ in
+            .noContent()
+        }
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        for _ in 0..<2 {
+            _ = try channel.writeInbound(
+                HTTPServerRequestPart.head(
+                    makeHead(path: "/empty")
+                )
+            )
+
+            guard case .head(let head)? =
+                try channel.readOutbound(
+                    as:
+                        HTTPServerResponsePart.self
+                )
+            else {
+                return XCTFail(
+                    "Expected response head"
+                )
+            }
+
+            XCTAssertEqual(
+                head.status,
+                .noContent
+            )
+
+            guard case .end? =
+                try channel.readOutbound(
+                    as:
+                        HTTPServerResponsePart.self
+                )
+            else {
+                return XCTFail(
+                    "Expected response end"
+                )
+            }
+
+            _ = try channel.writeInbound(
+                HTTPServerRequestPart.end(nil)
+            )
+        }
+
+        _ = try channel.finish()
+    }
+
     func testSynchronousSideCacheDoesNotReuseDifferentURI() throws {
         let app = Application()
 
