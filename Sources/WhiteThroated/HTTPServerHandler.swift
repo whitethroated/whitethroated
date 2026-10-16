@@ -22,14 +22,20 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     private let hasMiddleware: Bool
     private let hasStreamingRoutes: Bool
     private let canUseMinimalRouteCacheFastPath: Bool
-    private let emptyBody = ByteBufferAllocator().buffer(
-        capacity: 0
-    )
-    private let http11OKHeadTemplate =
+    private static let sharedEmptyBody =
+        ByteBufferAllocator().buffer(capacity: 0)
+    private static let sharedHTTP11OKHead =
         HTTPResponseHead(
             version: .http1_1,
             status: .ok
         )
+
+    private var emptyBody: ByteBuffer {
+        Self.sharedEmptyBody
+    }
+    private var http11OKHeadTemplate: HTTPResponseHead {
+        Self.sharedHTTP11OKHead
+    }
 
     private var requestHead: HTTPRequestHead?
     private var requestBody: ByteBuffer?
