@@ -124,7 +124,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     isHeadRequest:
                         head.method == .HEAD,
                     version: head.version,
-                    keepAlive: head.isKeepAlive,
+                    keepAlive: requestIsKeepAlive(head),
                     context: context
                 )
                 return
@@ -147,7 +147,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     isHeadRequest:
                         head.method == .HEAD,
                     version: head.version,
-                    keepAlive: head.isKeepAlive,
+                    keepAlive: requestIsKeepAlive(head),
                     context: context
                 )
                 return
@@ -171,7 +171,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     isHeadRequest:
                         head.method == .HEAD,
                     version: head.version,
-                    keepAlive: head.isKeepAlive,
+                    keepAlive: requestIsKeepAlive(head),
                     context: context
                 )
                 return
@@ -183,7 +183,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     isHeadRequest:
                         head.method == .HEAD,
                     version: head.version,
-                    keepAlive: head.isKeepAlive,
+                    keepAlive: requestIsKeepAlive(head),
                     context: context
                 )
                 return
@@ -310,10 +310,25 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             result,
             isHeadRequest: head.method == .HEAD,
             version: head.version,
-            keepAlive: head.isKeepAlive,
+            keepAlive: requestIsKeepAlive(head),
             context: context
         )
         resetRequestState()
+    }
+
+    @inline(__always)
+    private func requestIsKeepAlive(
+        _ head: HTTPRequestHead
+    ) -> Bool {
+        guard head.headers.first(
+            name: "connection"
+        ) != nil else {
+            return
+                head.version.major == 1
+                && head.version.minor >= 1
+        }
+
+        return head.isKeepAlive
     }
 
     @inline(__always)
@@ -417,7 +432,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             return
         }
 
-        let keepAlive = head.isKeepAlive
+        let keepAlive = requestIsKeepAlive(head)
         let version = head.version
         let isHead = head.method == .HEAD
 
