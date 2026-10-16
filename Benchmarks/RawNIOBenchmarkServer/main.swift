@@ -3,7 +3,7 @@ import NIOCore
 import NIOHTTP1
 import NIOPosix
 
-private final class RawBenchmarkHandler: ChannelInboundHandler {
+private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
@@ -170,6 +170,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler {
     ) {
         context
             .writeAndFlush(wrapOutboundOut(.end(nil)))
+            .assumeIsolatedUnsafeUnchecked()
             .whenComplete { _ in
                 if !keepAlive {
                     context.close(promise: nil)
