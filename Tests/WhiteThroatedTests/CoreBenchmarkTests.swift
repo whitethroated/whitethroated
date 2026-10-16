@@ -338,6 +338,13 @@ final class CoreBenchmarkTests: XCTestCase {
             .text("Hello, World!")
         }
 
+        let futureApp = Application()
+        futureApp.get("/future") { _, context in
+            context.eventLoop.makeSucceededFuture(
+                Response.text("Hello, World!")
+            )
+        }
+
         let conditionalApp = Application()
         let conditionalTag =
             EntityTag("writer-v1")
@@ -377,6 +384,14 @@ final class CoreBenchmarkTests: XCTestCase {
             name: "sync-writer",
             app: syncApp,
             head: makeHead("/plaintext"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "future-writer",
+            app: futureApp,
+            head: makeHead("/future"),
             expectedParts: 3,
             iterations: iterations
         )
@@ -553,6 +568,13 @@ final class CoreBenchmarkTests: XCTestCase {
                 application: app
             )
         )
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
         var checksum = 0
 
         for _ in 0..<1_000 {
