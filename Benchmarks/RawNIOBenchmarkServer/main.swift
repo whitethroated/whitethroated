@@ -197,6 +197,17 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         )
     }
 
+    func errorCaught(
+        context: ChannelHandlerContext,
+        error: Error
+    ) {
+        fputs(
+            "raw-nio channel error: \(error)\n",
+            stderr
+        )
+        context.close(promise: nil)
+    }
+
     private func finish(
         keepAlive: Bool,
         context: ChannelHandlerContext
