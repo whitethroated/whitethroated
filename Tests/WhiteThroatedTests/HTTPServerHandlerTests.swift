@@ -341,7 +341,6 @@ final class HTTPServerHandlerTests: XCTestCase {
         }
     }
 
-
     private func makeChannel(
         _ app: Application
     ) throws -> EmbeddedChannel {
@@ -374,9 +373,7 @@ final class HTTPServerHandlerTests: XCTestCase {
             HTTPServerRequestPart.end(nil)
         )
     }
-
 }
-
 
 private final class ResponseStreamCounterForHandlerTests:
     @unchecked Sendable
