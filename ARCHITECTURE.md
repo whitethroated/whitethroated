@@ -541,3 +541,6 @@ Keep-alive response completion uses a no-promise write-and-flush fast path. A wr
 Channel handlers cache whether request-streaming routes exist. When none are registered, request start skips resetting streaming-only state such as pending chunk buffers and streaming futures; ordinary request state is still explicitly initialized on every request.
 
 Dynamic response factories seed Content-Length when the body size is known and mark that framing metadata as normalized. Mutating a Response body or headers invalidates that internal marker automatically. The transport writer therefore skips Content-Length string construction and header scanning for untouched factory responses, while mutated or manually constructed responses still validate and repair stale, missing, or duplicate framing from the actual encoded body length.
+
+
+The fluent `Response.header(...)` helper consumes its temporary Response value before mutating headers. Swift can therefore preserve unique HTTPHeaders storage for chained response construction, while Copyable value semantics remain unchanged when callers reuse the original response.
