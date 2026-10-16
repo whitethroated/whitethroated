@@ -380,4 +380,4 @@ The raw SwiftNIO network control recognizes the same minimal HTTP/1.1 request sh
 The `param-raw` and `param-framework` paired medians use the same `/user/42` request and dynamic text response shape. This exposes the full framework tax for trie parameter capture, Request construction, positional parameter access, Response construction, and dynamic writing relative to the raw external-contract implementation.
 
 
-The `empty-raw` and `empty-framework` paired medians model the public `GET /` contract with the same Host-only HTTP/1.1 request and Content-Length: 0 response. This is the most direct in-process lower-bound comparison for WhiteThroated's prepared empty route.
+The `empty-raw` and `empty-framework` paired medians model the public `GET /` contract with the same Host-only HTTP/1.1 request and Content-Length: 0 response. The raw control validates HTTP/1.1, GET, the exact root URI, and the case-insensitive single Host header before writing its cached head, so this comparison includes equivalent request-contract checks instead of using an artificially branchless raw writer.
