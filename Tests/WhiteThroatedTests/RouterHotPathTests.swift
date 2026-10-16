@@ -176,9 +176,28 @@ final class RouterHotPathTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
-        guard case .text(let body) = response.body else {
+        let body: String
+
+        switch response.body {
+        case .text(let value):
+            body = value
+
+        case .buffer(let buffer):
+            body =
+                buffer.getString(
+                    at: buffer.readerIndex,
+                    length: buffer.readableBytes
+                ) ?? ""
+
+        case .bytes(let bytes):
+            body = String(
+                decoding: bytes,
+                as: UTF8.self
+            )
+
+        default:
             return XCTFail(
-                "Expected text body",
+                "Expected textual response body",
                 file: file,
                 line: line
             )

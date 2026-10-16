@@ -164,7 +164,7 @@ final class ResponseContentLengthTests: XCTestCase {
         )
     }
 
-    func testPreparedEmptyNormalizesContentLengthToZero() {
+    func testPreparedNoContentRemovesContentLength() {
         let prepared = PreparedResponse
             .empty()
             .header(
@@ -172,11 +172,10 @@ final class ResponseContentLengthTests: XCTestCase {
                 "999"
             )
 
-        XCTAssertEqual(
+        XCTAssertNil(
             prepared.http11Head.headers.first(
                 name: "content-length"
-            ),
-            "0"
+            )
         )
     }
 
