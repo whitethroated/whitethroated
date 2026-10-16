@@ -37,6 +37,28 @@ final class ResponseContentLengthTests: XCTestCase {
         )
     }
 
+    func testFluentHeaderPreservesValueSemantics() {
+        let original =
+            Response.text("hello")
+
+        let modified = original.header(
+            "x-test",
+            "1"
+        )
+
+        XCTAssertNil(
+            original.headers.first(
+                name: "x-test"
+            )
+        )
+        XCTAssertEqual(
+            modified.headers.first(
+                name: "x-test"
+            ),
+            "1"
+        )
+    }
+
     func testNonLengthHeaderHelpersPreserveNormalizedFraming() {
         var response = Response.text("hello")
 

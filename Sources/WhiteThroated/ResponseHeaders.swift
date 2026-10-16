@@ -37,12 +37,14 @@ extension Response {
         }
     }
 
-    public func header(
+    public consuming func header(
         _ name: String,
         _ value: String
     ) -> Response {
-        var copy = self
-        copy.setHeader(name, value)
-        return copy
+        self.setHeader(
+            name,
+            value
+        )
+        return self
     }
 }
