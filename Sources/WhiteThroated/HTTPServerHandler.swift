@@ -1057,17 +1057,19 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             )
         }
 
-        let contentLengthValue =
-            String(bodyLength)
+        if !response.contentLengthIsNormalized {
+            let contentLengthValue =
+                String(bodyLength)
 
-        if !HTTPContentLength.hasSingleExactValue(
-            headers,
-            value: contentLengthValue
-        ) {
-            headers.replaceOrAdd(
-                name: "content-length",
+            if !HTTPContentLength.hasSingleExactValue(
+                headers,
                 value: contentLengthValue
-            )
+            ) {
+                headers.replaceOrAdd(
+                    name: "content-length",
+                    value: contentLengthValue
+                )
+            }
         }
 
         if !keepAlive {

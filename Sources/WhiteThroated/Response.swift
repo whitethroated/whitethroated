@@ -13,8 +13,20 @@ public struct Response: Sendable {
     }
 
     public var status: HTTPResponseStatus
-    public var headers: HTTPHeaders
-    public var body: Body
+
+    public var headers: HTTPHeaders {
+        didSet {
+            contentLengthIsNormalized = false
+        }
+    }
+
+    public var body: Body {
+        didSet {
+            contentLengthIsNormalized = false
+        }
+    }
+
+    internal private(set) var contentLengthIsNormalized: Bool
 
     public init(
         status: HTTPResponseStatus = .ok,
@@ -24,6 +36,20 @@ public struct Response: Sendable {
         self.status = status
         self.headers = headers
         self.body = body
+        self.contentLengthIsNormalized = false
+    }
+
+    private init(
+        status: HTTPResponseStatus,
+        headers: HTTPHeaders,
+        body: Body,
+        normalizedContentLength: Bool
+    ) {
+        self.status = status
+        self.headers = headers
+        self.body = body
+        self.contentLengthIsNormalized =
+            normalizedContentLength
     }
 
     public static func text(
@@ -99,7 +125,8 @@ public struct Response: Sendable {
         return Response(
             status: status,
             headers: headers,
-            body: .bytes(value)
+            body: .bytes(value),
+            normalizedContentLength: true
         )
     }
 
@@ -125,7 +152,8 @@ public struct Response: Sendable {
         return Response(
             status: status,
             headers: headers,
-            body: .fileRegion(value)
+            body: .fileRegion(value),
+            normalizedContentLength: true
         )
     }
 
@@ -212,7 +240,8 @@ public struct Response: Sendable {
         return Response(
             status: status,
             headers: headers,
-            body: .buffer(value)
+            body: .buffer(value),
+            normalizedContentLength: true
         )
     }
 
@@ -281,7 +310,8 @@ public struct Response: Sendable {
         return Response(
             status: status,
             headers: headers,
-            body: .text(value)
+            body: .text(value),
+            normalizedContentLength: true
         )
     }
 }
