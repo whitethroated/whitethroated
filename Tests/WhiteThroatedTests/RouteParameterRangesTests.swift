@@ -17,6 +17,32 @@ final class RouteParameterRangesTests: XCTestCase {
         XCTAssertEqual(ranges[1], 3..<5)
     }
 
+    func testDecodingHintsFollowInlineStorage() {
+        var ranges = RouteParameterRanges.none
+
+        ranges.append(
+            1..<2,
+            requiresDecoding: false
+        )
+        ranges.append(
+            3..<8,
+            requiresDecoding: true
+        )
+
+        XCTAssertFalse(
+            ranges.requiresDecoding(at: 0)
+        )
+        XCTAssertTrue(
+            ranges.requiresDecoding(at: 1)
+        )
+
+        ranges.removeLast()
+
+        XCTAssertFalse(
+            ranges.requiresDecoding(at: 0)
+        )
+    }
+
     func testThirdRangePromotesToManyStorage() {
         var ranges = RouteParameterRanges.none
 
