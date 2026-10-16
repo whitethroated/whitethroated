@@ -535,3 +535,5 @@ Before merging a hot-path change, ask:
 ## Request-state lifecycle
 
 Request-scoped transport state is cleared on each request completion path rather than redundantly zeroed again when the next request head arrives. This keeps persistent HTTP/1.1 connections on a smaller state-transition path while preserving cleanup for normal, oversized, early-rejected, streaming, inactive, and error exits.
+
+Prepared-response storage normalizes the cached HTTP/1.1 body pointer during application setup. Bodyless statuses and zero-byte payloads carry no writer body buffer, so the HTTP/1.1 prepared writer does not re-check status/body length on every request. Representation metadata such as a 304 Content-Length remains preserved in the cached head.

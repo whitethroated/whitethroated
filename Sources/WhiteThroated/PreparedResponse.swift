@@ -18,7 +18,16 @@ internal final class PreparedResponseStorage: Sendable {
                 response: response,
                 http11Head: http11Head
             )
-        self.bodyBuffer = bodyBuffer
+
+        if
+            response.status.mayHaveResponseBody,
+            let bodyBuffer,
+            bodyBuffer.readableBytes > 0
+        {
+            self.bodyBuffer = bodyBuffer
+        } else {
+            self.bodyBuffer = nil
+        }
     }
 
     private static func normalizedHTTP11Head(
@@ -217,9 +226,13 @@ public struct PreparedResponse: Sendable {
                 options: .caseInsensitive
             ) == .orderedSame
         {
-            normalizedValue = String(
-                bodyBuffer?.readableBytes ?? 0
-            )
+            normalizedValue =
+                response.headers.first(
+                    name: "content-length"
+                )
+                ?? String(
+                    bodyBuffer?.readableBytes ?? 0
+                )
         } else {
             normalizedValue = value
         }
