@@ -551,6 +551,15 @@ if configuration.collectLatency {
             )
         )
         print(
+            "latency_min_us="
+            + String(
+                format: "%.3f",
+                Double(
+                    latencyNanoseconds[0]
+                ) / 1_000
+            )
+        )
+        print(
             "latency_avg_us="
             + String(
                 format: "%.3f",
@@ -565,6 +574,13 @@ if configuration.collectLatency {
             )
         )
         print(
+            "latency_p75_us="
+            + String(
+                format: "%.3f",
+                percentile(0.75)
+            )
+        )
+        print(
             "latency_p90_us="
             + String(
                 format: "%.3f",
@@ -576,6 +592,24 @@ if configuration.collectLatency {
             + String(
                 format: "%.3f",
                 percentile(0.99)
+            )
+        )
+        print(
+            "latency_p99_999_us="
+            + String(
+                format: "%.3f",
+                percentile(0.99999)
+            )
+        )
+        print(
+            "latency_max_us="
+            + String(
+                format: "%.3f",
+                Double(
+                    latencyNanoseconds[
+                        latencyNanoseconds.count - 1
+                    ]
+                ) / 1_000
             )
         )
     }
