@@ -523,6 +523,20 @@ final class CoreBenchmarkTests: XCTestCase {
             iterations: iterations
         )
 
+        try benchmarkDirectUncachedPreparedTransport(
+            name: "direct-prepared-uncached",
+            app: preparedApp,
+            head: makeHead("/prepared"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkRouteCacheVariants(
+            app: preparedApp,
+            head: makeHead("/prepared"),
+            iterations: iterations
+        )
+
         try benchmarkTransport(
             name: "prepared-writer",
             app: preparedApp,
@@ -994,6 +1008,153 @@ final class CoreBenchmarkTests: XCTestCase {
             expectedParts: expectedParts,
             iterations: iterations
         )
+    }
+
+    private func benchmarkDirectUncachedPreparedTransport(
+        name: String,
+        app: Application,
+        head: HTTPRequestHead,
+        expectedParts: Int,
+        iterations: Int
+    ) throws {
+        let channel = EmbeddedChannel(
+            handler:
+                DirectUncachedPreparedTransportBenchmarkHandler(
+                    application: app
+                )
+        )
+
+        try benchmarkTransportChannel(
+            name: name,
+            channel: channel,
+            head: head,
+            expectedParts: expectedParts,
+            iterations: iterations
+        )
+    }
+
+    private struct RouteCacheTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+    }
+
+    private func benchmarkRouteCacheVariants(
+        app: Application,
+        head: HTTPRequestHead,
+        iterations: Int
+    ) throws {
+        let cases = [
+            RouteCacheTransportCase(
+                name: "route-cache",
+                channel: EmbeddedChannel(
+                    handler:
+                        DirectPreparedTransportBenchmarkHandler(
+                            application: app
+                        )
+                )
+            ),
+            RouteCacheTransportCase(
+                name: "route-lookup",
+                channel: EmbeddedChannel(
+                    handler:
+                        DirectUncachedPreparedTransportBenchmarkHandler(
+                            application: app
+                        )
+                )
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: head,
+                    expectedParts: 3,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: head,
+                        expectedParts: 3,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted =
+                samples[index].sorted()
+            let middle =
+                sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+            let operationsPerSecond =
+                1_000_000_000 / median
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    operationsPerSecond,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
     }
 
     private struct HeaderMutationTransportCase {
@@ -1488,6 +1649,64 @@ private struct RouterBenchmarkCase {
     let name: String
     let method: NIOHTTP1.HTTPMethod
     let uri: String
+}
+
+private final class DirectUncachedPreparedTransportBenchmarkHandler:
+    ChannelInboundHandler,
+    @unchecked Sendable
+{
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    private let application: Application
+
+    init(application: Application) {
+        self.application = application
+    }
+
+    func channelRead(
+        context: ChannelHandlerContext,
+        data: NIOAny
+    ) {
+        switch unwrapInboundIn(data) {
+        case .head(let head):
+            let match =
+                application.lookupTransport(
+                    head: head
+                )
+
+            guard case .prepared(let storage) = match
+            else {
+                preconditionFailure(
+                    "Direct uncached prepared benchmark expected prepared route"
+                )
+            }
+
+            context.write(
+                wrapOutboundOut(
+                    .head(storage.http11Head)
+                ),
+                promise: nil
+            )
+
+            if let body = storage.bodyBuffer {
+                context.write(
+                    wrapOutboundOut(
+                        .body(.byteBuffer(body))
+                    ),
+                    promise: nil
+                )
+            }
+
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+
+        case .body, .end:
+            break
+        }
+    }
 }
 
 private final class DirectPreparedTransportBenchmarkHandler:
