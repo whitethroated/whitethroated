@@ -2063,6 +2063,39 @@ private struct RouterBenchmarkCase {
     let uri: String
 }
 
+private func benchmarkResponseBodyBuffer(
+    _ response: Response,
+    allocator: ByteBufferAllocator
+) -> ByteBuffer {
+    switch response.body {
+    case .empty:
+        return allocator.buffer(capacity: 0)
+
+    case .text(let value):
+        var buffer = allocator.buffer(
+            capacity: value.utf8.count
+        )
+        buffer.writeString(value)
+        return buffer
+
+    case .bytes(let value):
+        var buffer = allocator.buffer(
+            capacity: value.count
+        )
+        buffer.writeBytes(value)
+        return buffer
+
+    case .buffer(let value):
+        return value
+
+    case .fileRegion,
+         .stream:
+        preconditionFailure(
+            "Future benchmark expected an in-memory response body"
+        )
+    }
+}
+
 private final class FutureBridgeBenchmarkHandler:
     ChannelInboundHandler,
     @unchecked Sendable
@@ -2129,7 +2162,10 @@ private final class FutureBridgeBenchmarkHandler:
         _ response: Response,
         context: ChannelHandlerContext
     ) {
-        let body = response.body.buffer
+        let body = benchmarkResponseBodyBuffer(
+            response,
+            allocator: context.channel.allocator
+        )
 
         var head = HTTPResponseHead(
             version: .http1_1,
@@ -2178,7 +2214,7 @@ private final class FutureDirectBenchmarkHandler:
 
     private let application: Application
     private var cachedHandler: Handler?
-    private var cachedNames = RouteParameterNames()
+    private var cachedNames: RouteParameterNames = .none
     private var cachedRanges: RouteParameterRanges = .none
     private var cachedContext: Context?
 
@@ -2256,7 +2292,10 @@ private final class FutureDirectBenchmarkHandler:
         _ response: Response,
         context: ChannelHandlerContext
     ) {
-        let body = response.body.buffer
+        let body = benchmarkResponseBodyBuffer(
+            response,
+            allocator: context.channel.allocator
+        )
 
         var head = HTTPResponseHead(
             version: .http1_1,
