@@ -57,9 +57,17 @@ final class ErrorHandlingTests: XCTestCase {
         )
     }
 
-    func testFutureErrorHandlerHandlesAsyncAwaitThrow() throws {
+    func testFutureErrorHandlerReturnsFutureResponse() throws {
         let app = Application()
-        let loop = EmbeddedEventLoop()
+        let group = MultiThreadedEventLoopGroup(
+            numberOfThreads: 1
+        )
+
+        defer {
+            try? group.syncShutdownGracefully()
+        }
+
+        let eventLoop = group.next()
 
         let errorHandler: ErrorHandler = {
             _, context in
@@ -74,33 +82,32 @@ final class ErrorHandlingTests: XCTestCase {
 
         app.onError(errorHandler)
 
-        app.get("/failed") {
-            _ async throws -> Response in
+        let result = app.respondError(
+            TestApplicationError.failed,
+            on: eventLoop
+        )
 
-            throw TestApplicationError.failed
+        guard case .future(let future) = result else {
+            return XCTFail(
+                "Expected future error handler response"
+            )
         }
 
-        let channel = try makeChannel(
-            app,
-            loop: loop
-        )
-
-        try writeRequest(
-            "/failed",
-            to: channel
-        )
-        loop.run()
-
-        let response = try readResponse(
-            from: channel
-        )
+        let response = try future.wait()
 
         XCTAssertEqual(
-            response.head.status,
+            response.status,
             .serviceUnavailable
         )
+
+        guard case .text(let body) = response.body else {
+            return XCTFail(
+                "Expected text response"
+            )
+        }
+
         XCTAssertEqual(
-            response.body,
+            body,
             "future-error"
         )
     }
