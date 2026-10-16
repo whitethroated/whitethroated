@@ -117,7 +117,8 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             let match = lookupTransportCached(head)
             transportMatch = match
 
-            if case .prepared(let storage) = match {
+            switch match {
+            case .prepared(let storage):
                 writePrepared(
                     storage,
                     isHeadRequest:
@@ -127,6 +128,70 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     context: context
                 )
                 return
+
+            case .conditionalPrepared(
+                let tag,
+                let response,
+                let notModified
+            ):
+                let storage =
+                    IfNoneMatchMatcher.matches(
+                        headers: head.headers,
+                        tag: tag
+                    )
+                    ? notModified
+                    : response
+
+                writePrepared(
+                    storage,
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: head.version,
+                    keepAlive: head.isKeepAlive,
+                    context: context
+                )
+                return
+
+            case .synchronous(
+                let handler,
+                let parameterNames,
+                let parameterRanges
+            ):
+                let request = Request(
+                    head: head,
+                    body: emptyBody,
+                    routeParameterNames:
+                        parameterNames,
+                    routeParameterRanges:
+                        parameterRanges
+                )
+
+                write(
+                    handler(request),
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: head.version,
+                    keepAlive: head.isKeepAlive,
+                    context: context
+                )
+                return
+
+            case .notFound:
+                writePrepared(
+                    PreparedResponse
+                        .defaultNotFoundStorage,
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: head.version,
+                    keepAlive: head.isKeepAlive,
+                    context: context
+                )
+                return
+
+            case .asynchronous,
+                 .concurrent,
+                 .streaming:
+                break
             }
         }
 
