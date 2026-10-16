@@ -1,8 +1,50 @@
+internal struct RouteParameterCapture: Sendable {
+    private let lowerBound: Int
+    private let packedUpperBound: Int
+
+    init(
+        range: Range<Int>,
+        requiresDecoding: Bool
+    ) {
+        precondition(
+            range.lowerBound >= 0
+            && range.upperBound >= 0,
+            "Route parameter offsets must be nonnegative"
+        )
+
+        self.lowerBound = range.lowerBound
+        self.packedUpperBound =
+            requiresDecoding
+            ? ~range.upperBound
+            : range.upperBound
+    }
+
+    @inline(__always)
+    var range: Range<Int> {
+        lowerBound..<upperBound
+    }
+
+    @inline(__always)
+    var requiresDecoding: Bool {
+        packedUpperBound < 0
+    }
+
+    @inline(__always)
+    private var upperBound: Int {
+        requiresDecoding
+            ? ~packedUpperBound
+            : packedUpperBound
+    }
+}
+
 internal enum RouteParameterRanges: Sendable {
     case none
-    case one(Range<Int>)
-    case two(Range<Int>, Range<Int>)
-    case many([Range<Int>])
+    case one(RouteParameterCapture)
+    case two(
+        RouteParameterCapture,
+        RouteParameterCapture
+    )
+    case many([RouteParameterCapture])
 
     var count: Int {
         switch self {
@@ -18,56 +60,44 @@ internal enum RouteParameterRanges: Sendable {
     }
 
     subscript(index: Int) -> Range<Int> {
-        switch self {
-        case .none:
-            preconditionFailure(
-                "Route parameter index out of range"
-            )
-
-        case .one(let first):
-            precondition(
-                index == 0,
-                "Route parameter index out of range"
-            )
-            return first
-
-        case .two(let first, let second):
-            switch index {
-            case 0:
-                return first
-            case 1:
-                return second
-            default:
-                preconditionFailure(
-                    "Route parameter index out of range"
-                )
-            }
-
-        case .many(let ranges):
-            return ranges[index]
-        }
+        capture(at: index).range
     }
 
-    mutating func append(_ range: Range<Int>) {
+    @inline(__always)
+    func requiresDecoding(
+        at index: Int
+    ) -> Bool {
+        capture(at: index).requiresDecoding
+    }
+
+    mutating func append(
+        _ range: Range<Int>,
+        requiresDecoding: Bool = true
+    ) {
+        let capture = RouteParameterCapture(
+            range: range,
+            requiresDecoding: requiresDecoding
+        )
+
         switch self {
         case .none:
-            self = .one(range)
+            self = .one(capture)
 
         case .one(let first):
             self = .two(
                 first,
-                range
+                capture
             )
 
         case .two(let first, let second):
             self = .many([
                 first,
                 second,
-                range
+                capture
             ])
 
         case .many(var ranges):
-            ranges.append(range)
+            ranges.append(capture)
             self = .many(ranges)
         }
     }
@@ -104,6 +134,40 @@ internal enum RouteParameterRanges: Sendable {
             default:
                 self = .many(ranges)
             }
+        }
+    }
+
+    @inline(__always)
+    private func capture(
+        at index: Int
+    ) -> RouteParameterCapture {
+        switch self {
+        case .none:
+            preconditionFailure(
+                "Route parameter index out of range"
+            )
+
+        case .one(let first):
+            precondition(
+                index == 0,
+                "Route parameter index out of range"
+            )
+            return first
+
+        case .two(let first, let second):
+            switch index {
+            case 0:
+                return first
+            case 1:
+                return second
+            default:
+                preconditionFailure(
+                    "Route parameter index out of range"
+                )
+            }
+
+        case .many(let ranges):
+            return ranges[index]
         }
     }
 }
