@@ -1160,11 +1160,13 @@ public final class Application: @unchecked Sendable {
             }
         }
 
+        let compiled = responder
+
         return {
             request,
             context in
 
-            responder(
+            compiled(
                 request,
                 context
             ).responderResult
