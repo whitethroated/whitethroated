@@ -513,6 +513,61 @@ final class CoreBenchmarkTests: XCTestCase {
             value: "chunked"
         )
 
+        let knownLengthStreamApp = Application()
+        knownLengthStreamApp.get(
+            "/stream-known"
+        ) { _ in
+            Response.stream(
+                contentType:
+                    "text/plain; charset=utf-8",
+                contentLength: 13
+            ) { writer in
+                writer.writeString(
+                    "Hello, "
+                ).flatMap {
+                    writer.writeString(
+                        "World!"
+                    )
+                }
+            }
+        }
+
+        let chunkedStreamApp = Application()
+        chunkedStreamApp.get(
+            "/stream-chunked"
+        ) { _ in
+            Response.stream(
+                contentType:
+                    "text/plain; charset=utf-8"
+            ) { writer in
+                writer.writeString(
+                    "Hello, "
+                ).flatMap {
+                    writer.writeString(
+                        "World!"
+                    )
+                }
+            }
+        }
+
+        let flushStreamApp = Application()
+        flushStreamApp.get(
+            "/stream-flush"
+        ) { _ in
+            Response.stream(
+                contentType:
+                    "text/plain; charset=utf-8"
+            ) { writer in
+                writer.writeStringAndFlush(
+                    "Hello, "
+                ).flatMap {
+                    writer.writeString(
+                        "World!"
+                    )
+                }
+            }
+        }
+
         let conditionalApp = Application()
         let conditionalTag =
             EntityTag("writer-v1")
@@ -764,6 +819,30 @@ final class CoreBenchmarkTests: XCTestCase {
         try benchmarkFutureDispatchVariants(
             app: futureApp,
             head: makeHead("/future"),
+            iterations: iterations
+        )
+
+        try benchmarkStreamingTransport(
+            name: "stream-known",
+            app: knownLengthStreamApp,
+            head: makeHead("/stream-known"),
+            expectedParts: 4,
+            iterations: iterations
+        )
+
+        try benchmarkStreamingTransport(
+            name: "stream-chunked",
+            app: chunkedStreamApp,
+            head: makeHead("/stream-chunked"),
+            expectedParts: 4,
+            iterations: iterations
+        )
+
+        try benchmarkStreamingTransport(
+            name: "stream-flush",
+            app: flushStreamApp,
+            head: makeHead("/stream-flush"),
+            expectedParts: 4,
             iterations: iterations
         )
 
@@ -2407,6 +2486,70 @@ final class CoreBenchmarkTests: XCTestCase {
         }
     }
 
+    private func benchmarkStreamingTransport(
+        name: String,
+        app: Application,
+        head: HTTPRequestHead,
+        expectedParts: Int,
+        iterations: Int
+    ) throws {
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        var checksum = 0
+
+        for _ in 0..<1_000 {
+            try writeAndDrainStreaming(
+                head: head,
+                expectedParts: expectedParts,
+                channel: channel,
+                checksum: &checksum
+            )
+        }
+
+        let start =
+            DispatchTime.now()
+                .uptimeNanoseconds
+
+        for _ in 0..<iterations {
+            try writeAndDrainStreaming(
+                head: head,
+                expectedParts: expectedParts,
+                channel: channel,
+                checksum: &checksum
+            )
+        }
+
+        let end =
+            DispatchTime.now()
+                .uptimeNanoseconds
+        let nanosecondsPerOperation =
+            Double(end - start)
+            / Double(iterations)
+
+        printBenchmarkLine(
+            name: name,
+            nanosecondsPerOperation:
+                nanosecondsPerOperation,
+            operationsPerSecond:
+                1_000_000_000
+                / nanosecondsPerOperation,
+            checksum: checksum
+        )
+
+        _ = try channel.finish()
+    }
+
     private func benchmarkTransport(
         name: String,
         app: Application,
@@ -2482,6 +2625,49 @@ final class CoreBenchmarkTests: XCTestCase {
         )
 
         _ = try channel.finish()
+    }
+
+    @inline(__always)
+    private func writeAndDrainStreaming(
+        head: HTTPRequestHead,
+        expectedParts: Int,
+        channel: EmbeddedChannel,
+        checksum: inout Int
+    ) throws {
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        channel.embeddedEventLoop.run()
+
+        for _ in 0..<expectedParts {
+            guard let part =
+                try channel.readOutbound(
+                    as:
+                        HTTPServerResponsePart.self
+                )
+            else {
+                preconditionFailure(
+                    "Expected \(expectedParts) outbound streaming response parts"
+                )
+            }
+
+            switch part {
+            case .head(let responseHead):
+                checksum &+= Int(
+                    responseHead.status.code
+                )
+
+            case .body:
+                checksum &+= 1
+
+            case .end:
+                checksum &+= 1
+            }
+        }
     }
 
     @inline(__always)

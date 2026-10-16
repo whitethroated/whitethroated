@@ -126,6 +126,9 @@ This compares the following transport paths through an active `EmbeddedChannel`:
 - synchronous dynamic-parameter echo using positional parameter access, covering the external `GET /user/:id` response shape through the full writer.
 - already-succeeded event-loop future 200 on the request-head bodyless shortcut.
 - the same future handler behind a zero-chunk `Transfer-Encoding: chunked` request, forcing the general request lifecycle path without changing the response payload.
+- known-length response streaming split into two text writes.
+- unknown-length HTTP/1.1 response streaming with the same two writes.
+- the same unknown-length stream with an explicit flush after the first chunk.
 
 The two streaming-feature cases measure request-streaming feature tax separately from response writing. Streaming bookkeeping is scoped to HTTP methods that actually have streaming routes: an unrelated POST streaming route must not tax an ordinary GET, while a GET streaming route still exercises the method-local streaming machinery.
 
@@ -387,3 +390,6 @@ The `empty-raw` and `empty-framework` paired medians model the public `GET /` co
 
 
 The `text-raw` and `text-framework` paired medians both allocate a ByteBuffer and UTF-8 encode the same short text body per request while reusing an equivalent canonical HTTP/1.1 response head. The raw control also validates HTTP/1.1, GET, the exact `/plaintext` URI, and the same minimal zero/Host-only header shape before writing, so it remains a strict but structurally fair lower bound. Their delta isolates WhiteThroated's Request construction, cached synchronous handler dispatch, Response.text factory, and dynamic writer orchestration without giving the raw control a pre-buffered body or branchless request-contract advantage.
+
+
+The `stream-known`, `stream-chunked`, and `stream-flush` transport cases run the EmbeddedEventLoop after request dispatch so producer completion and final response-end callbacks are included in the measurement. They use the same 13-byte payload split into two writes; the matrix therefore exposes known-length tracking, unknown-length framing setup, and explicit flush cost separately.
