@@ -413,13 +413,21 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         keepAlive: Bool,
         context: ChannelHandlerContext
     ) {
+        if keepAlive {
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
+
         context
-            .writeAndFlush(wrapOutboundOut(.end(nil)))
+            .writeAndFlush(
+                wrapOutboundOut(.end(nil))
+            )
             .assumeIsolatedUnsafeUnchecked()
             .whenComplete { _ in
-                if !keepAlive {
-                    context.close(promise: nil)
-                }
+                context.close(promise: nil)
             }
     }
 }
