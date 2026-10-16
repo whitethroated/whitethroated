@@ -49,3 +49,84 @@ jobs:
 
       - name: Build Swift benchmark client
         run: swift build -c release --product whitethroated-benchmark-client
+
+
+      - name: Diagnose current network floor
+        shell: bash
+        run: |
+          set -uo pipefail
+          ulimit -n 65535 || true
+
+          SERVER_PID=""
+          SERVER_LOG=""
+
+          cleanup() {
+            if [ -n "${SERVER_PID}" ]; then
+              kill "${SERVER_PID}" 2>/dev/null || true
+              wait "${SERVER_PID}" 2>/dev/null || true
+            fi
+
+            if [ -n "${SERVER_LOG}" ] && [ -f "${SERVER_LOG}" ]; then
+              echo "--- server log: ${SERVER_LOG} ---"
+              cat "${SERVER_LOG}" || true
+            fi
+          }
+
+          trap cleanup EXIT
+
+          start_server() {
+            local executable="$1"
+
+            cleanup
+            SERVER_LOG="/tmp/${executable}.log"
+
+            WHITETHROATED_HOST=127.0.0.1 \
+            WHITETHROATED_PORT=3100 \
+            WHITETHROATED_THREADS=1 \
+            ".build/release/${executable}" \
+              >"${SERVER_LOG}" 2>&1 &
+
+            SERVER_PID=$!
+
+            for _ in $(seq 1 50); do
+              if kill -0 "${SERVER_PID}" 2>/dev/null; then
+                sleep 0.1
+                continue
+              fi
+
+              echo "${executable} exited during startup"
+              cat "${SERVER_LOG}" || true
+              exit 1
+            done
+          }
+
+          run_client() {
+            local label="$1"
+            local connections="$2"
+
+            echo "=== ${label} concurrency=${connections} ==="
+
+            WHITETHROATED_BENCH_HOST=127.0.0.1 \
+            WHITETHROATED_BENCH_PORT=3100 \
+            WHITETHROATED_BENCH_PATH=/prepared \
+            WHITETHROATED_BENCH_CONNECTIONS="${connections}" \
+            WHITETHROATED_BENCH_REQUESTS=100000 \
+            WHITETHROATED_BENCH_THREADS=1 \
+            .build/release/whitethroated-benchmark-client
+
+            local status=$?
+
+            if [ "${status}" -ne 0 ]; then
+              echo "client failed with status ${status}"
+              cat "${SERVER_LOG}" || true
+              exit "${status}"
+            fi
+          }
+
+          for server in raw-nio-benchmark-server whitethroated-benchmark-server; do
+            start_server "${server}"
+
+            for concurrency in 64 256 512; do
+              run_client "${server}" "${concurrency}"
+            done
+          done
