@@ -2129,39 +2129,35 @@ private final class FutureBridgeBenchmarkHandler:
         _ response: Response,
         context: ChannelHandlerContext
     ) {
-        let body = response.body.buffer
+        guard case .text(let value) = response.body
+        else {
+            preconditionFailure(
+                "Future dispatch benchmark expected text response"
+            )
+        }
 
-        var head = HTTPResponseHead(
+        var body =
+            context.channel.allocator.buffer(
+                capacity: value.utf8.count
+            )
+        body.writeString(value)
+
+        let head = HTTPResponseHead(
             version: .http1_1,
             status: response.status,
             headers: response.headers
         )
 
-        if
-            head.headers.first(
-                name: "content-length"
-            ) == nil
-        {
-            head.headers.add(
-                name: "content-length",
-                value: String(
-                    body.readableBytes
-                )
-            )
-        }
-
         context.write(
             wrapOutboundOut(.head(head)),
             promise: nil
         )
-        if body.readableBytes > 0 {
-            context.write(
-                wrapOutboundOut(
-                    .body(.byteBuffer(body))
-                ),
-                promise: nil
-            )
-        }
+        context.write(
+            wrapOutboundOut(
+                .body(.byteBuffer(body))
+            ),
+            promise: nil
+        )
         context.writeAndFlush(
             wrapOutboundOut(.end(nil)),
             promise: nil
@@ -2178,8 +2174,8 @@ private final class FutureDirectBenchmarkHandler:
 
     private let application: Application
     private var cachedHandler: Handler?
-    private var cachedNames = RouteParameterNames()
-    private var cachedRanges: RouteParameterRanges = .none
+    private var cachedNames: RouteParameterNames?
+    private var cachedRanges: RouteParameterRanges?
     private var cachedContext: Context?
 
     init(application: Application) {
@@ -2193,14 +2189,22 @@ private final class FutureDirectBenchmarkHandler:
         switch unwrapInboundIn(data) {
         case .head(let head):
             let handler: Handler
+            let names: RouteParameterNames
+            let ranges: RouteParameterRanges
 
-            if let cachedHandler {
+            if
+                let cachedHandler,
+                let cachedNames,
+                let cachedRanges
+            {
                 handler = cachedHandler
+                names = cachedNames
+                ranges = cachedRanges
             } else {
                 guard case .asynchronous(
                     let resolved,
-                    let names,
-                    let ranges
+                    let resolvedNames,
+                    let resolvedRanges
                 ) = application.lookupTransport(
                     head: head
                 ) else {
@@ -2210,16 +2214,18 @@ private final class FutureDirectBenchmarkHandler:
                 }
 
                 cachedHandler = resolved
-                cachedNames = names
-                cachedRanges = ranges
+                cachedNames = resolvedNames
+                cachedRanges = resolvedRanges
                 handler = resolved
+                names = resolvedNames
+                ranges = resolvedRanges
             }
 
             let request = Request(
                 head: head,
                 body: ByteBuffer(),
-                routeParameterNames: cachedNames,
-                routeParameterRanges: cachedRanges
+                routeParameterNames: names,
+                routeParameterRanges: ranges
             )
 
             let requestContext: Context
@@ -2256,39 +2262,35 @@ private final class FutureDirectBenchmarkHandler:
         _ response: Response,
         context: ChannelHandlerContext
     ) {
-        let body = response.body.buffer
+        guard case .text(let value) = response.body
+        else {
+            preconditionFailure(
+                "Future dispatch benchmark expected text response"
+            )
+        }
 
-        var head = HTTPResponseHead(
+        var body =
+            context.channel.allocator.buffer(
+                capacity: value.utf8.count
+            )
+        body.writeString(value)
+
+        let head = HTTPResponseHead(
             version: .http1_1,
             status: response.status,
             headers: response.headers
         )
 
-        if
-            head.headers.first(
-                name: "content-length"
-            ) == nil
-        {
-            head.headers.add(
-                name: "content-length",
-                value: String(
-                    body.readableBytes
-                )
-            )
-        }
-
         context.write(
             wrapOutboundOut(.head(head)),
             promise: nil
         )
-        if body.readableBytes > 0 {
-            context.write(
-                wrapOutboundOut(
-                    .body(.byteBuffer(body))
-                ),
-                promise: nil
-            )
-        }
+        context.write(
+            wrapOutboundOut(
+                .body(.byteBuffer(body))
+            ),
+            promise: nil
+        )
         context.writeAndFlush(
             wrapOutboundOut(.end(nil)),
             promise: nil
