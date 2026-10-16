@@ -1,4 +1,4 @@
-private struct RouteParameterCapture: Sendable {
+internal struct RouteParameterCapture: Sendable {
     let range: Range<Int>
     let requiresDecoding: Bool
 }
