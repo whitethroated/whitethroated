@@ -201,6 +201,133 @@ final class TransportFastPathTests: XCTestCase {
         _ = try channel.finish()
     }
 
+    func testConditionalPreparedRequestRespondsOnHead() throws {
+        let app = Application()
+        let tag = EntityTag("transport-v1")
+
+        app.get(
+            "/conditional",
+            response: .text("cached"),
+            etag: tag
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        var head = makeHead(path: "/conditional")
+        head.headers.add(
+            name: "if-none-match",
+            value: tag.headerValue
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        guard case .head(let responseHead)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected conditional response head"
+            )
+        }
+
+        XCTAssertEqual(
+            responseHead.status,
+            .notModified
+        )
+
+        guard case .end? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected conditional response end"
+            )
+        }
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        _ = try channel.finish()
+    }
+
+    func testNotFoundRequestRespondsOnHead() throws {
+        let app = Application()
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                makeHead(path: "/missing")
+            )
+        )
+
+        guard case .head(let responseHead)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected not-found response head"
+            )
+        }
+
+        XCTAssertEqual(
+            responseHead.status,
+            .notFound
+        )
+
+        guard case .body? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected not-found response body"
+            )
+        }
+
+        guard case .end? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected not-found response end"
+            )
+        }
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        _ = try channel.finish()
+    }
+
     func testPreparedRouteWithDeclaredBodyWaitsForEnd() throws {
         let app = Application()
 
