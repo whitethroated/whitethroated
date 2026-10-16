@@ -103,14 +103,15 @@ swift test -c release \
   --filter CoreBenchmarkTests/testTransportWriterBenchmark
 ```
 
-This compares four transport paths through an active `EmbeddedChannel`:
+This compares five transport paths through an active `EmbeddedChannel`:
 
+- minimal raw SwiftNIO writer with a cached HTTP/1.1 head and body and no framework routing.
 - prepared 200 with a cached HTTP/1.1 head and body buffer.
 - conditional prepared 304 with a cached normalized bodyless HTTP/1.1 head.
 - ordinary synchronous 200, which constructs the response head from the dynamic response.
 - already-succeeded event-loop future 200, which adds future callback dispatch before the same dynamic response writer.
 
-The channel is activated before warm-up and timing so asynchronous writer callbacks see the same active-connection invariant as production. The prepared 304 case specifically measures the bodyless writer path after setup-time removal of forbidden framing headers.
+The raw writer and prepared writer use the same `/prepared` request target and identical response payload/content headers. The channel is activated before warm-up and timing so asynchronous writer callbacks see the same active-connection invariant as production. The prepared 304 case specifically measures the bodyless writer path after setup-time removal of forbidden framing headers.
 
 Treat these in-process measurements as diagnostic ns/op data. They are not substitutes for network measurements.
 

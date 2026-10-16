@@ -360,6 +360,13 @@ final class CoreBenchmarkTests: XCTestCase {
             + "iterations=\(iterations)"
         )
 
+        try benchmarkRawTransport(
+            name: "raw-nio-writer",
+            head: makeHead("/prepared"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
         try benchmarkTransport(
             name: "prepared-writer",
             app: preparedApp,
@@ -556,6 +563,25 @@ final class CoreBenchmarkTests: XCTestCase {
         )
     }
 
+    private func benchmarkRawTransport(
+        name: String,
+        head: HTTPRequestHead,
+        expectedParts: Int,
+        iterations: Int
+    ) throws {
+        let channel = EmbeddedChannel(
+            handler: RawTransportBenchmarkHandler()
+        )
+
+        try benchmarkTransportChannel(
+            name: name,
+            channel: channel,
+            head: head,
+            expectedParts: expectedParts,
+            iterations: iterations
+        )
+    }
+
     private func benchmarkTransport(
         name: String,
         app: Application,
@@ -568,6 +594,23 @@ final class CoreBenchmarkTests: XCTestCase {
                 application: app
             )
         )
+
+        try benchmarkTransportChannel(
+            name: name,
+            channel: channel,
+            head: head,
+            expectedParts: expectedParts,
+            iterations: iterations
+        )
+    }
+
+    private func benchmarkTransportChannel(
+        name: String,
+        channel: EmbeddedChannel,
+        head: HTTPRequestHead,
+        expectedParts: Int,
+        iterations: Int
+    ) throws {
         try channel.connect(
             to: SocketAddress(
                 ipAddress: "127.0.0.1",
@@ -757,4 +800,69 @@ private struct RouterBenchmarkCase {
     let name: String
     let method: NIOHTTP1.HTTPMethod
     let uri: String
+}
+
+private final class RawTransportBenchmarkHandler:
+    ChannelInboundHandler,
+    @unchecked Sendable
+{
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    private let responseHead: HTTPResponseHead
+    private let body: ByteBuffer
+
+    init() {
+        var body = ByteBufferAllocator().buffer(
+            capacity: 13
+        )
+        body.writeString("Hello, World!")
+        self.body = body
+
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "content-type",
+            value: "text/plain; charset=utf-8"
+        )
+        headers.add(
+            name: "content-length",
+            value: "13"
+        )
+
+        self.responseHead = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: headers
+        )
+    }
+
+    func channelRead(
+        context: ChannelHandlerContext,
+        data: NIOAny
+    ) {
+        switch unwrapInboundIn(data) {
+        case .head, .body:
+            break
+
+        case .end:
+            context.write(
+                wrapOutboundOut(
+                    .head(responseHead)
+                ),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(
+                    .body(
+                        .byteBuffer(body)
+                    )
+                ),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+        }
+    }
 }
