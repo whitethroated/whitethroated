@@ -72,6 +72,8 @@ final class ServerSentEventTests: XCTestCase {
                 )
             )
 
+        try activateHTTPTestChannel(channel)
+
         _ = try channel.writeInbound(
             HTTPServerRequestPart.head(
                 HTTPRequestHead(
@@ -138,6 +140,8 @@ final class ServerSentEventTests: XCTestCase {
                     application: app
                 )
             )
+
+        try activateHTTPTestChannel(channel)
 
         _ = try channel.writeInbound(
             HTTPServerRequestPart.head(

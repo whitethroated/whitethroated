@@ -388,6 +388,8 @@ final class ResponseStreamLengthTests: XCTestCase {
                     application: app
                 )
             )
+
+        try activateHTTPTestChannel(channel)
     }
 
     private func sendRequest(

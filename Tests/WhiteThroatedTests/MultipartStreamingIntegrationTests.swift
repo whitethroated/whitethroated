@@ -487,6 +487,8 @@ final class MultipartStreamingIntegrationTests:
                 )
             )
 
+        try activateHTTPTestChannel(channel)
+
         return channel
     }
 
