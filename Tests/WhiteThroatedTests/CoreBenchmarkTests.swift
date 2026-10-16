@@ -407,6 +407,16 @@ final class CoreBenchmarkTests: XCTestCase {
             return response
         }
 
+        let syncRebuiltHeadApp = Application()
+        syncRebuiltHeadApp.get(
+            "/plaintext-rebuilt-head"
+        ) { _ in
+            var response =
+                Response.text("Hello, World!")
+            response.status = .ok
+            return response
+        }
+
         let syncMissingLengthApp = Application()
         syncMissingLengthApp.get(
             "/missing-length"
@@ -632,6 +642,12 @@ final class CoreBenchmarkTests: XCTestCase {
         try benchmarkHeaderMutationVariants(
             chainedApp: syncHeaderApp,
             mutatingApp: syncMutatingHeaderApp,
+            iterations: iterations
+        )
+
+        try benchmarkCanonicalHeadVariants(
+            cachedApp: syncApp,
+            rebuiltApp: syncRebuiltHeadApp,
             iterations: iterations
         )
 
@@ -1709,6 +1725,128 @@ final class CoreBenchmarkTests: XCTestCase {
                     median,
                 operationsPerSecond:
                     operationsPerSecond,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
+    }
+
+    private struct CanonicalHeadTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+        let head: HTTPRequestHead
+    }
+
+    private func benchmarkCanonicalHeadVariants(
+        cachedApp: Application,
+        rebuiltApp: Application,
+        iterations: Int
+    ) throws {
+        let cases = [
+            CanonicalHeadTransportCase(
+                name: "canonical-head",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: cachedApp
+                    )
+                ),
+                head: makeHead("/plaintext")
+            ),
+            CanonicalHeadTransportCase(
+                name: "rebuilt-head",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: rebuiltApp
+                    )
+                ),
+                head: makeHead(
+                    "/plaintext-rebuilt-head"
+                )
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: benchmarkCase.head,
+                    expectedParts: 3,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: benchmarkCase.head,
+                        expectedParts: 3,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted = samples[index].sorted()
+            let middle = sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    1_000_000_000 / median,
                 checksum: checksum
             )
         }
