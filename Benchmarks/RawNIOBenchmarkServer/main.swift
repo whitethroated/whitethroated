@@ -251,26 +251,32 @@ let bootstrap = ServerBootstrap(group: group)
         value: 1
     )
     .childChannelOption(
-        ChannelOptions.socketOption(.tcp_nodelay),
-        value: 1
-    )
-    .childChannelOption(
         ChannelOptions.socketOption(.so_reuseaddr),
         value: 1
     )
     .childChannelInitializer { channel in
-        channel.pipeline
-            .configureHTTPServerPipeline(
-                withPipeliningAssistance: true,
-                withErrorHandling: true
-            )
-            .flatMap {
-                channel.pipeline.addHandler(
-                    RawBenchmarkHandler(
-                        allocator: channel.allocator
-                    )
+        channel.setOption(
+            ChannelOptions.socketOption(.tcp_nodelay),
+            value: 1
+        )
+        .flatMapError { _ in
+            channel.eventLoop
+                .makeSucceededVoidFuture()
+        }
+        .flatMap {
+            channel.pipeline
+                .configureHTTPServerPipeline(
+                    withPipeliningAssistance: true,
+                    withErrorHandling: true
                 )
-            }
+        }
+        .flatMap {
+            channel.pipeline.addHandler(
+                RawBenchmarkHandler(
+                    allocator: channel.allocator
+                )
+            )
+        }
     }
 
 do {
