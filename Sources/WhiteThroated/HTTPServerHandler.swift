@@ -1161,18 +1161,10 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             )
         }
 
-        context
-            .writeAndFlush(
-                wrapOutboundOut(.end(nil))
-            )
-            .assumeIsolatedUnsafeUnchecked()
-            .whenComplete { _ in
-                if !keepAlive {
-                    context.close(
-                        promise: nil
-                    )
-                }
-            }
+        finishResponse(
+            keepAlive: keepAlive,
+            context: context
+        )
     }
 
 
@@ -1217,18 +1209,10 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             promise: nil
         )
 
-        context
-            .writeAndFlush(
-                wrapOutboundOut(.end(nil))
-            )
-            .assumeIsolatedUnsafeUnchecked()
-            .whenComplete { _ in
-                if !keepAlive {
-                    context.close(
-                        promise: nil
-                    )
-                }
-            }
+        finishResponse(
+            keepAlive: keepAlive,
+            context: context
+        )
     }
 
     private func writeStream(
@@ -1459,22 +1443,39 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         return result
     }
 
-    private func finishStreamResponse(
+    @inline(__always)
+    private func finishResponse(
         keepAlive: Bool,
         context: ChannelHandlerContext
     ) {
+        if keepAlive {
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
+
         context
             .writeAndFlush(
                 wrapOutboundOut(.end(nil))
             )
             .assumeIsolatedUnsafeUnchecked()
             .whenComplete { _ in
-                if !keepAlive {
-                    context.close(
-                        promise: nil
-                    )
-                }
+                context.close(
+                    promise: nil
+                )
             }
+    }
+
+    private func finishStreamResponse(
+        keepAlive: Bool,
+        context: ChannelHandlerContext
+    ) {
+        finishResponse(
+            keepAlive: keepAlive,
+            context: context
+        )
     }
 
 }
