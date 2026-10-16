@@ -90,14 +90,13 @@ final class RouterHotPathTests: XCTestCase {
             let response = try app
                 .respond(
                     to: makeRequest(
-                        path:
-                            "/fanout/r\(index)/"
+                        "/fanout/r\(index)/"
                     ),
                     on: loop
                 )
                 .wait()
 
-            XCTAssertTextBody(
+            XCTAssertBody(
                 response,
                 equals: String(index)
             )
@@ -125,13 +124,13 @@ final class RouterHotPathTests: XCTestCase {
         let response = try app
             .respond(
                 to: makeRequest(
-                    path: "/users/me/"
+                    "/users/me/"
                 ),
                 on: loop
             )
             .wait()
 
-        XCTAssertTextBody(
+        XCTAssertBody(
             response,
             equals: "static"
         )
