@@ -60,7 +60,10 @@ app.get(
 )
 
 app.get("/user/:id") { request in
-    .text(request.parameter("id") ?? "")
+    .text(
+        request.parameter(at: 0)
+        ?? ""
+    )
 }
 
 app.post(
