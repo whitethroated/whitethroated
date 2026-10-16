@@ -166,13 +166,14 @@ With either benchmark server already running:
 ```bash
 WHITETHROATED_BENCH_HOST=127.0.0.1 \
 WHITETHROATED_BENCH_PORT=3000 \
+WHITETHROATED_BENCH_METHOD=GET \
 WHITETHROATED_BENCH_PATH=/prepared \
 WHITETHROATED_BENCH_CONNECTIONS=128 \
 WHITETHROATED_BENCH_REQUESTS=1000000 \
 swift run -c release whitethroated-benchmark-client
 ```
 
-The client opens all connections before starting the timer and keeps exactly one request in flight per connection. Connection establishment is therefore excluded from measured throughput, and raw-NIO/WhiteThroated comparisons use the same HTTP client implementation. `WHITETHROATED_BENCH_THREADS` can override the client event-loop thread count. It always reports completed requests, requests per second, response-body bytes, and response-body MiB/s. Body throughput intentionally excludes HTTP framing/header bytes; use the same response payload and headers when comparing servers.
+The client opens all connections before starting the timer and keeps exactly one request in flight per connection. Connection establishment is therefore excluded from measured throughput, and raw-NIO/WhiteThroated comparisons use the same HTTP client implementation. `WHITETHROATED_BENCH_METHOD` selects the request method and defaults to `GET`, which allows the same client to exercise the external `GET /`, `GET /user/:id`, and `POST /user` contract without changing source. `WHITETHROATED_BENCH_THREADS` can override the client event-loop thread count. `WHITETHROATED_BENCH_TCP_NODELAY=0` disables the client-side TCP_NODELAY socket option for restricted or diagnostic environments; keep the same setting across compared servers. Connection-close errors report completed versus target requests for the failed connection. The client always reports completed requests, requests per second, response-body bytes, and response-body MiB/s. Body throughput intentionally excludes HTTP framing/header bytes; use the same response payload and headers when comparing servers.
 
 Set `WHITETHROATED_BENCH_LATENCY=1` to collect per-request cycle latency after the first request on each connection. The client reports minimum, average, p50, p75, p90, p99, p99.999, and maximum microseconds. Latency samples are sorted only after the throughput timer stops; timestamp collection itself remains part of the measured client workload, so use the same latency setting on every server being compared.
 
