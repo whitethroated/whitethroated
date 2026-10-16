@@ -37,6 +37,45 @@ final class ResponseContentLengthTests: XCTestCase {
         )
     }
 
+    func testShortTextHeaderCachePreservesIsolation() {
+        var first = Response.text("hello")
+        let second = Response.text("hello")
+
+        first.headers.replaceOrAdd(
+            name: "x-test",
+            value: "1"
+        )
+
+        XCTAssertEqual(
+            first.headers.first(name: "x-test"),
+            "1"
+        )
+        XCTAssertNil(
+            second.headers.first(name: "x-test")
+        )
+        XCTAssertEqual(
+            second.headers.first(
+                name: "content-length"
+            ),
+            "5"
+        )
+    }
+
+    func testLongTextFallsBackToExactContentLength() {
+        let value = String(
+            repeating: "a",
+            count: 65
+        )
+
+        XCTAssertEqual(
+            Response
+                .text(value)
+                .headers
+                .first(name: "content-length"),
+            "65"
+        )
+    }
+
     func testFluentHeaderPreservesValueSemantics() {
         let original =
             Response.text("hello")

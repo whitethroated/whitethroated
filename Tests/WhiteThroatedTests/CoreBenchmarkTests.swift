@@ -464,6 +464,16 @@ final class CoreBenchmarkTests: XCTestCase {
                 )
         }
 
+        let dynamicParameterApp = Application()
+        dynamicParameterApp.get(
+            "/user/:id"
+        ) { request in
+            .text(
+                request.parameter(at: 0)
+                ?? ""
+            )
+        }
+
         let futureApp = Application()
         futureApp.get("/future") { _, context in
             context.eventLoop.makeSucceededFuture(
@@ -610,6 +620,14 @@ final class CoreBenchmarkTests: XCTestCase {
             name: "sync-buffer-writer",
             app: syncBufferApp,
             head: makeHead("/buffer"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "sync-param-writer",
+            app: dynamicParameterApp,
+            head: makeHead("/user/42"),
             expectedParts: 3,
             iterations: iterations
         )
