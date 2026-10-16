@@ -165,7 +165,7 @@ Core routes include:
 - `/users/:id/posts/:post` — two dynamic parameters.
 - `/conditional-prepared` — conditional prepared ETag path.
 
-The default server registers no request-streaming route. Upload and multipart streaming routes remain opt-in so the baseline transport path is not charged request-streaming bookkeeping merely because benchmark-only feature routes exist. Applications containing only prepared and synchronous routes also omit SwiftNIO's response-ordering pipeline assistant because every response completes inline on the channel event loop. Registering future-based, async/await, streaming, or middleware execution restores pipelining assistance so deferred responses cannot reorder pipelined requests.
+The default server registers no request-streaming route. Upload and multipart streaming routes remain opt-in so the baseline transport path is not charged request-streaming bookkeeping merely because benchmark-only feature routes exist. Applications containing only prepared routes omit SwiftNIO's response-ordering pipeline assistant because prepared responses always complete inline on the channel event loop. Synchronous handlers retain the assistant because a synchronous handler can still return a streaming response. Registering synchronous, future-based, async/await, streaming, or middleware execution therefore keeps response ordering for potentially deferred responses.
 
 WhiteThroated also ships a SwiftNIO benchmark client, so raw-NIO and framework network throughput can be compared without vendoring `wrk`, Python, or shell benchmark code.
 
