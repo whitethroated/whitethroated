@@ -322,7 +322,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             result,
             isHeadRequest: head.method == .HEAD,
             version: head.version,
-            keepAlive: keepAlive,
+            keepAlive: requestIsKeepAlive(head),
             context: context
         )
         resetRequestState()
