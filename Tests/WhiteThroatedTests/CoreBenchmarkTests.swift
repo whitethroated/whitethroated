@@ -1639,7 +1639,16 @@ final class CoreBenchmarkTests: XCTestCase {
                 )
             ),
             FutureDispatchTransportCase(
-                name: "future-direct",
+                name: "future-match-direct",
+                channel: EmbeddedChannel(
+                    handler:
+                        FutureMatchDirectBenchmarkHandler(
+                            application: app
+                        )
+                )
+            ),
+            FutureDispatchTransportCase(
+                name: "future-handler-cache",
                 channel: EmbeddedChannel(
                     handler:
                         FutureDirectBenchmarkHandler(
@@ -1672,12 +1681,12 @@ final class CoreBenchmarkTests: XCTestCase {
         }
 
         let orders = [
-            [0, 1],
-            [1, 0],
-            [1, 0],
-            [0, 1],
-            [0, 1],
-            [1, 0]
+            [0, 1, 2],
+            [2, 1, 0],
+            [1, 2, 0],
+            [0, 2, 1],
+            [1, 0, 2],
+            [2, 0, 1]
         ]
 
         var samples = Array(
@@ -2537,6 +2546,127 @@ private final class FutureBridgeBenchmarkHandler:
                         context: context
                     )
                 }
+
+        case .body, .end:
+            break
+        }
+    }
+
+    private func writeResponse(
+        _ response: Response,
+        context: ChannelHandlerContext
+    ) {
+        guard case .text(let value) = response.body
+        else {
+            preconditionFailure(
+                "Future dispatch benchmark expected text response"
+            )
+        }
+
+        var body =
+            context.channel.allocator.buffer(
+                capacity: value.utf8.count
+            )
+        body.writeString(value)
+
+        let head = HTTPResponseHead(
+            version: .http1_1,
+            status: response.status,
+            headers: response.headers
+        )
+
+        context.write(
+            wrapOutboundOut(.head(head)),
+            promise: nil
+        )
+        context.write(
+            wrapOutboundOut(
+                .body(.byteBuffer(body))
+            ),
+            promise: nil
+        )
+        context.writeAndFlush(
+            wrapOutboundOut(.end(nil)),
+            promise: nil
+        )
+    }
+}
+
+private final class FutureMatchDirectBenchmarkHandler:
+    ChannelInboundHandler,
+    @unchecked Sendable
+{
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    private let application: Application
+    private var cachedMatch: RouterMatch?
+    private var cachedContext: Context?
+
+    init(application: Application) {
+        self.application = application
+    }
+
+    func channelRead(
+        context: ChannelHandlerContext,
+        data: NIOAny
+    ) {
+        switch unwrapInboundIn(data) {
+        case .head(let head):
+            let match: RouterMatch
+
+            if let cachedMatch {
+                match = cachedMatch
+            } else {
+                let resolved =
+                    application.lookupTransport(
+                        head: head
+                    )
+                cachedMatch = resolved
+                match = resolved
+            }
+
+            guard case .asynchronous(
+                let handler,
+                let names,
+                let ranges
+            ) = match else {
+                preconditionFailure(
+                    "Future match-direct benchmark expected future route"
+                )
+            }
+
+            let request = Request(
+                head: head,
+                body: ByteBuffer(),
+                routeParameterNames: names,
+                routeParameterRanges: ranges
+            )
+
+            let requestContext: Context
+            if let cachedContext {
+                requestContext = cachedContext
+            } else {
+                let value = Context(
+                    eventLoop: context.eventLoop,
+                    remoteAddress:
+                        context.channel.remoteAddress
+                )
+                cachedContext = value
+                requestContext = value
+            }
+
+            handler(
+                request,
+                requestContext
+            )
+            .assumeIsolatedUnsafeUnchecked()
+            .whenSuccess { response in
+                self.writeResponse(
+                    response,
+                    context: context
+                )
+            }
 
         case .body, .end:
             break
