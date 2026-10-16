@@ -58,7 +58,7 @@ It measures:
 - conditional prepared 200 and 304 dispatch.
 - synchronous static dispatch.
 - already-succeeded event-loop future dispatch, including `Context` construction.
-- dynamic parameter capture.
+- dynamic parameter capture, including router-provided percent-decoding hints that let ordinary unescaped parameters skip a second byte scan on access.
 - targeted query and cookie access.
 - not-found dispatch.
 - lazy HTTP method conversion.

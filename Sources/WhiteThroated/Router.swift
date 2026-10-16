@@ -500,6 +500,7 @@ private final class RouterNode {
 final class Router: @unchecked Sendable {
     private static let slash: UInt8 = 47
     private static let query: UInt8 = 63
+    private static let percent: UInt8 = 37
     private static let hashOffset: UInt64 =
         14_695_981_039_346_656_037
     private static let hashPrime: UInt64 =
@@ -1502,6 +1503,7 @@ final class Router: @unchecked Sendable {
 
         let segmentStart = cursor
         let segmentStartOffset = cursorOffset
+        var segmentRequiresDecoding = false
 
         if
             node.staticChildren.isEmpty,
@@ -1513,12 +1515,18 @@ final class Router: @unchecked Sendable {
                 cursor != bytes.endIndex,
                 bytes[cursor] != Self.query
             {
+                if bytes[cursor] == Self.percent {
+                    segmentRequiresDecoding = true
+                }
+
                 bytes.formIndex(after: &cursor)
                 cursorOffset += 1
             }
 
             parameterRanges.append(
-                segmentStartOffset..<cursorOffset
+                segmentStartOffset..<cursorOffset,
+                requiresDecoding:
+                    segmentRequiresDecoding
             )
 
             return endpoint
@@ -1534,6 +1542,10 @@ final class Router: @unchecked Sendable {
                     break
                 }
 
+                if byte == Self.percent {
+                    segmentRequiresDecoding = true
+                }
+
                 bytes.formIndex(after: &cursor)
                 cursorOffset += 1
             }
@@ -1543,6 +1555,10 @@ final class Router: @unchecked Sendable {
 
                 if byte == Self.slash || byte == Self.query {
                     break
+                }
+
+                if byte == Self.percent {
+                    segmentRequiresDecoding = true
                 }
 
                 segmentHash ^= UInt64(byte)
@@ -1580,7 +1596,9 @@ final class Router: @unchecked Sendable {
 
         if let parameterChild = node.parameterChild {
             parameterRanges.append(
-                segmentStartOffset..<cursorOffset
+                segmentStartOffset..<cursorOffset,
+                requiresDecoding:
+                    segmentRequiresDecoding
             )
 
             if
@@ -1614,12 +1632,18 @@ final class Router: @unchecked Sendable {
             cursor != bytes.endIndex,
             bytes[cursor] != Self.query
         {
+            if bytes[cursor] == Self.percent {
+                segmentRequiresDecoding = true
+            }
+
             bytes.formIndex(after: &cursor)
             cursorOffset += 1
         }
 
         parameterRanges.append(
-            segmentStartOffset..<cursorOffset
+            segmentStartOffset..<cursorOffset,
+            requiresDecoding:
+                segmentRequiresDecoding
         )
 
         return endpoint
