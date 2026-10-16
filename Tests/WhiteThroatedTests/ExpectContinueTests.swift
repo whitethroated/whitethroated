@@ -340,6 +340,8 @@ final class ExpectContinueTests: XCTestCase {
                 )
             )
 
+        try activateHTTPTestChannel(channel)
+
         return channel
     }
 

@@ -667,6 +667,8 @@ final class BodyStreamingTests: XCTestCase {
                 )
             )
 
+        try activateHTTPTestChannel(channel)
+
         try write(
             .head(makeHead("/upload")),
             to: channel
@@ -805,6 +807,8 @@ final class BodyStreamingTests: XCTestCase {
                 )
             )
 
+        try activateHTTPTestChannel(channel)
+
         try write(
             .head(makeHead("/upload")),
             to: channel
@@ -880,6 +884,8 @@ final class BodyStreamingTests: XCTestCase {
                     application: app
                 )
             )
+
+        try activateHTTPTestChannel(channel)
 
         try write(
             .head(makeHead("/upload")),
@@ -965,6 +971,8 @@ final class BodyStreamingTests: XCTestCase {
                     application: app
                 )
             )
+
+        try activateHTTPTestChannel(channel)
 
         try write(
             .head(makeHead("/upload")),
@@ -1100,6 +1108,8 @@ final class BodyStreamingTests: XCTestCase {
                     application: app
                 )
             )
+
+        try activateHTTPTestChannel(channel)
 
         return channel
     }

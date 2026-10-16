@@ -327,6 +327,8 @@ final class ErrorHandlingTests: XCTestCase {
                 )
             )
 
+        try activateHTTPTestChannel(channel)
+
         return channel
     }
 

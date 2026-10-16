@@ -472,6 +472,8 @@ final class ResponseStreamingTests: XCTestCase {
                 )
             )
 
+        try activateHTTPTestChannel(channel)
+
         try sendRequest(
             method: .GET,
             channel: channel
@@ -512,6 +514,8 @@ final class ResponseStreamingTests: XCTestCase {
                     application: app
                 )
             )
+
+        try activateHTTPTestChannel(channel)
 
         try sendRequest(
             method: .GET,
@@ -566,6 +570,8 @@ final class ResponseStreamingTests: XCTestCase {
                     application: app
                 )
             )
+
+        try activateHTTPTestChannel(channel)
 
         try sendRequest(
             method: .GET,
@@ -754,6 +760,8 @@ final class ResponseStreamingTests: XCTestCase {
                 )
             )
 
+        try activateHTTPTestChannel(channel)
+
         return channel
     }
 
@@ -795,6 +803,8 @@ final class ResponseStreamingTests: XCTestCase {
                     application: app
                 )
             )
+
+        try activateHTTPTestChannel(channel)
 
         return channel
     }
