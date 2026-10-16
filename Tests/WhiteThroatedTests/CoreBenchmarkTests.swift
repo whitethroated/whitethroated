@@ -371,6 +371,42 @@ final class CoreBenchmarkTests: XCTestCase {
             .text("Hello, World!")
         }
 
+        let syncMissingLengthApp = Application()
+        syncMissingLengthApp.get(
+            "/missing-length"
+        ) { _ in
+            Response(
+                status: .ok,
+                headers: HTTPHeaders([
+                    (
+                        "content-type",
+                        "text/plain; charset=utf-8"
+                    )
+                ]),
+                body: .text("Hello, World!")
+            )
+        }
+
+        let syncStaleLengthApp = Application()
+        syncStaleLengthApp.get(
+            "/stale-length"
+        ) { _ in
+            Response(
+                status: .ok,
+                headers: HTTPHeaders([
+                    (
+                        "content-type",
+                        "text/plain; charset=utf-8"
+                    ),
+                    (
+                        "content-length",
+                        "1"
+                    )
+                ]),
+                body: .text("Hello, World!")
+            )
+        }
+
         let sharedTextBuffer: ByteBuffer = {
             var buffer =
                 ByteBufferAllocator().buffer(
@@ -469,6 +505,22 @@ final class CoreBenchmarkTests: XCTestCase {
             name: "sync-writer",
             app: syncApp,
             head: makeHead("/plaintext"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "sync-missing-length",
+            app: syncMissingLengthApp,
+            head: makeHead("/missing-length"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "sync-stale-length",
+            app: syncStaleLengthApp,
+            head: makeHead("/stale-length"),
             expectedParts: 3,
             iterations: iterations
         )
