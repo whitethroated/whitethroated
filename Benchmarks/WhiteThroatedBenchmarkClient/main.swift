@@ -12,6 +12,7 @@ private struct BenchmarkConfiguration {
     let requests: Int
     let threads: Int
     let collectLatency: Bool
+    let tcpNoDelay: Bool
 
     static func load() -> BenchmarkConfiguration {
         let environment =
@@ -70,6 +71,11 @@ private struct BenchmarkConfiguration {
                 "WHITETHROATED_BENCH_LATENCY"
             ] == "1"
 
+        let tcpNoDelay =
+            environment[
+                "WHITETHROATED_BENCH_TCP_NODELAY"
+            ] != "0"
+
         return BenchmarkConfiguration(
             host: host,
             port: port,
@@ -77,7 +83,8 @@ private struct BenchmarkConfiguration {
             connections: connections,
             requests: requests,
             threads: threads,
-            collectLatency: collectLatency
+            collectLatency: collectLatency,
+            tcpNoDelay: tcpNoDelay
         )
     }
 
@@ -358,16 +365,20 @@ for index in 0..<configuration.connections {
         donePromise: donePromise
     )
 
-    let bootstrap = ClientBootstrap(
+    var bootstrap = ClientBootstrap(
         group: group
     )
-    .channelOption(
-        ChannelOptions.socketOption(
-            .tcp_nodelay
-        ),
-        value: 1
-    )
-    .channelInitializer { channel in
+
+    if configuration.tcpNoDelay {
+        bootstrap = bootstrap.channelOption(
+            ChannelOptions.socketOption(
+                .tcp_nodelay
+            ),
+            value: 1
+        )
+    }
+
+    bootstrap = bootstrap.channelInitializer { channel in
         channel.eventLoop
             .makeCompletedFuture {
                 let pipeline =
@@ -484,6 +495,12 @@ print(
     + " latency="
     + (
         configuration.collectLatency
+        ? "on"
+        : "off"
+    )
+    + " tcp_nodelay="
+    + (
+        configuration.tcpNoDelay
         ? "on"
         : "off"
     )
