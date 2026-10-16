@@ -1,12 +1,12 @@
-# Hudhud architecture
+# WhiteThroated architecture
 
-This document defines the runtime invariants for Hudhud.
+This document defines the runtime invariants for WhiteThroated.
 
 The framework is pre-alpha, so implementation details may change. These invariants should change only when benchmark or correctness evidence justifies it.
 
 ## Goals
 
-Hudhud aims to provide:
+WhiteThroated aims to provide:
 
 - Swift-native server APIs with an Express.js-like level of ergonomics.
 - Predictable non-blocking execution.
@@ -19,7 +19,7 @@ The performance target is not a specific requests-per-second number. The target 
 
 ## Non-goals
 
-Hudhud does not currently optimize for:
+WhiteThroated does not currently optimize for:
 
 - Source compatibility during pre-alpha.
 - A large batteries-included ecosystem.
@@ -45,9 +45,9 @@ Router data structures are therefore setup-mutable and serving-read-only.
 
 ## Event-loop model
 
-Hudhud uses SwiftNIO event loops as its primary concurrency model.
+WhiteThroated uses SwiftNIO event loops as its primary concurrency model.
 
-The configured SwiftNIO HTTP server pipeline keeps outbound response-header validation enabled. Invalid field values such as CR/LF response-splitting attempts are rejected before the HTTP encoder and the connection is closed. Hudhud convenience APIs may add stricter validation, but must not disable this transport-level safety boundary.
+The configured SwiftNIO HTTP server pipeline keeps outbound response-header validation enabled. Invalid field values such as CR/LF response-splitting attempts are rejected before the HTTP encoder and the connection is closed. WhiteThroated convenience APIs may add stricter validation, but must not disable this transport-level safety boundary.
 
 Rules:
 
@@ -87,16 +87,16 @@ A prepared endpoint therefore does not require:
 
 - `Request` construction.
 - `Context` construction.
-- Conversion from `NIOHTTP1.HTTPMethod` to Hudhud's public `HTTPMethod`.
+- Conversion from `NIOHTTP1.HTTPMethod` to WhiteThroated's public `HTTPMethod`.
 - Handler closure invocation.
 
-When middleware exists, Hudhud constructs `Request` before the middleware pipeline because middleware is allowed to inspect or transform the request.
+When middleware exists, WhiteThroated constructs `Request` before the middleware pipeline because middleware is allowed to inspect or transform the request.
 
-`Request` stores the original SwiftNIO HTTP method and converts it to Hudhud's public `HTTPMethod` only when application code reads `request.method`. Internal routing uses the original NIO method even when middleware is installed, so middleware does not accidentally force public-method conversion merely to resolve an endpoint. On the middleware-free transport path, matched route parameter metadata is installed during request initialization rather than through follow-up mutation.
+`Request` stores the original SwiftNIO HTTP method and converts it to WhiteThroated's public `HTTPMethod` only when application code reads `request.method`. Internal routing uses the original NIO method even when middleware is installed, so middleware does not accidentally force public-method conversion merely to resolve an endpoint. On the middleware-free transport path, matched route parameter metadata is installed during request initialization rather than through follow-up mutation.
 
 ## Responder paths
 
-Hudhud has three internal response paths.
+WhiteThroated has three internal response paths.
 
 ### Prepared
 
@@ -128,7 +128,7 @@ Handlers performing asynchronous NIO work return an `EventLoopFuture<Response>`.
 
 ### Async/await
 
-An `AsyncHandler` is an opt-in Swift concurrency path. Hudhud bridges it through SwiftNIO's `EventLoopPromise.completeWithTask`.
+An `AsyncHandler` is an opt-in Swift concurrency path. WhiteThroated bridges it through SwiftNIO's `EventLoopPromise.completeWithTask`.
 
 This path intentionally creates a Swift `Task` for that request. It must never become an implicit wrapper around synchronous, prepared, or NIO-future handlers.
 
@@ -147,7 +147,7 @@ Forwarded client-IP resolution is an explicit opt-in via `ProxyTrustPolicy`.
 - `X-Forwarded-For` is evaluated right-to-left.
 - Resolution stops at the first untrusted or malformed hop.
 - No forwarded-header work occurs unless application code calls the resolver.
-- Hudhud does not enable a global "trust all proxies" mode by default.
+- WhiteThroated does not enable a global "trust all proxies" mode by default.
 
 ## Error paths
 
@@ -186,7 +186,7 @@ Canonical static routes are registered in two setup-time structures:
 1. An exact full-path table keyed by FNV-1a hash.
 2. The segment trie used by dynamic parameters, catch-all routes, and semantic fallbacks.
 
-For a canonical static URI, Hudhud hashes the path bytes once up to the query marker and performs one exact-table lookup. No `String` is created and route parameters are not involved.
+For a canonical static URI, WhiteThroated hashes the path bytes once up to the query marker and performs one exact-table lookup. No `String` is created and route parameters are not involved.
 
 If exact lookup misses, routing falls back to the existing UTF-8 trie. This preserves trailing-slash behavior and mixed static/dynamic route precedence.
 
@@ -204,7 +204,7 @@ Static endpoints are duplicated as lightweight setup-time metadata between the e
 
 The router is method-aware.
 
-Common NIO HTTP methods dispatch directly to dedicated roots. Custom or uncommon methods use the Hudhud method mapping and fallback root dictionary.
+Common NIO HTTP methods dispatch directly to dedicated roots. Custom or uncommon methods use the WhiteThroated method mapping and fallback root dictionary.
 
 Path matching operates directly on URI UTF-8 bytes.
 
@@ -291,11 +291,11 @@ JSON convenience must never add encoding or Foundation parsing to requests that 
 
 ## HTTP/1 framing validation
 
-Hudhud uses SwiftNIO's production HTTP/1 server pipeline with protocol error handling enabled. Framing validation remains in the decoder rather than being duplicated in Hudhud's request hot path.
+WhiteThroated uses SwiftNIO's production HTTP/1 server pipeline with protocol error handling enabled. Framing validation remains in the decoder rather than being duplicated in WhiteThroated's request hot path.
 
-Regression tests feed raw HTTP bytes through the same configured pipeline and verify that ambiguous request framing such as simultaneous `Content-Length` plus `Transfer-Encoding`, or invalid duplicate Content-Length syntax, produces a 400 response before a Hudhud route is invoked.
+Regression tests feed raw HTTP bytes through the same configured pipeline and verify that ambiguous request framing such as simultaneous `Content-Length` plus `Transfer-Encoding`, or invalid duplicate Content-Length syntax, produces a 400 response before a WhiteThroated route is invoked.
 
-Hudhud adds only framework-specific body-limit logic after decoding. Its early declared-length comparison is overflow-safe so extremely large decimal Content-Length values can still be rejected before `100 Continue`.
+WhiteThroated adds only framework-specific body-limit logic after decoding. Its early declared-length comparison is overflow-safe so extremely large decimal Content-Length values can still be rejected before `100 Continue`.
 
 ## Request bodies
 
@@ -345,7 +345,7 @@ Runtime invariants:
 
 - The complete multipart request body is never intentionally accumulated.
 - Part headers are buffered only until `\r\n\r\n` and are capped by `maxHeaderBytesPerPart`.
-- Part headers are scanned directly from `ByteBufferView`; Hudhud does not construct a full header-block `String` or split it into an intermediate line array.
+- Part headers are scanned directly from `ByteBufferView`; WhiteThroated does not construct a full header-block `String` or split it into an intermediate line array.
 - Obsolete folded headers and unsafe control bytes in header values are rejected.
 - Part count and header count are independently bounded.
 - An optional `maxPartBodyBytes` limit is checked incrementally before each part-body chunk is emitted; bytes that would cross the limit are not delivered to the application sink.
@@ -356,7 +356,7 @@ Runtime invariants:
 - A closing delimiter may terminate exactly at the request-body end or be followed by CRLF and an ignored epilogue.
 - The parser accepts binary part bodies and does not decode part payload bytes as text.
 - `Content-Disposition: form-data; name=...` is required for every part.
-- Parser state is expected to remain confined to the request event-loop flow. The parser is marked `@unchecked Sendable` only so it can be captured by Hudhud's `@Sendable` streaming closures without introducing locking on every chunk.
+- Parser state is expected to remain confined to the request event-loop flow. The parser is marked `@unchecked Sendable` only so it can be captured by WhiteThroated's `@Sendable` streaming closures without introducing locking on every chunk.
 - Multipart parsing should normally use the throwing-synchronous chunk responder so successful parsing does not allocate an `EventLoopFuture` per inbound chunk.
 - Client-provided filenames are metadata only and must not be trusted as filesystem paths.
 
@@ -383,7 +383,7 @@ Byte-range parsing is opt-in and header-only.
 - `request.byteRange(totalLength:)` parses one `bytes` range only when application code asks for it.
 - Parsing is byte-oriented and does not split the header into intermediate strings.
 - Closed, open-ended, and suffix ranges are supported.
-- Multiple ranges are surfaced as `.unsupportedMultiple`; Hudhud does not implicitly allocate a multipart/byteranges response.
+- Multiple ranges are surfaced as `.unsupportedMultiple`; WhiteThroated does not implicitly allocate a multipart/byteranges response.
 - `Response.partialFileRegion` constructs a sliced `FileRegion`, preserving zero-copy transport behavior.
 - 206 and 416 helpers set the required `Content-Range` and `Accept-Ranges` metadata without filesystem I/O.
 
@@ -391,7 +391,7 @@ Byte-range parsing is opt-in and header-only.
 
 Ordinary text and byte responses may allocate or serialize per request.
 
-Streaming responses use chunked HTTP/1.1 framing when no `Content-Length` is supplied. When application code explicitly supplies `Content-Length`, Hudhud enables byte accounting for that stream only:
+Streaming responses use chunked HTTP/1.1 framing when no `Content-Length` is supplied. When application code explicitly supplies `Content-Length`, WhiteThroated enables byte accounting for that stream only:
 
 - Writes that would exceed the declared length fail before the overflow bytes are written.
 - Producer completion with fewer bytes than declared is treated as a framing error.
@@ -404,19 +404,19 @@ Unknown-length streams do not allocate or update a length tracker.
 
 `ResponseStreamWriter.write(...)` is a buffered enqueue operation. It writes into the NIO pipeline without installing a per-write completion promise and returns the event loop's cached succeeded `Void` future. This lets producers compose buffered writes with `flatMap` without waiting for a flush that only occurs when the producer completes. `writeAndFlush(...)` remains the explicit API for callers that need a future tied to a flushed transport write.
 
-A `Response.fileRegion` body is written as `IOData.fileRegion` directly. Hudhud derives content length from the region and does not copy file bytes into a `ByteBuffer`. The caller retains ownership of the underlying file handle and must keep it valid until the write completes.
+A `Response.fileRegion` body is written as `IOData.fileRegion` directly. WhiteThroated derives content length from the region and does not copy file bytes into a `ByteBuffer`. The caller retains ownership of the underlying file handle and must keep it valid until the write completes.
 
-Hudhud must not introduce a convenience API that performs blocking file-open or file-stat work on an event-loop thread.
+WhiteThroated must not introduce a convenience API that performs blocking file-open or file-stat work on an event-loop thread.
 
 Use `PreparedResponse` for immutable in-memory payloads where avoiding repeated serialization matters.
 
-Streaming responses are opt-in. Hudhud writes the response head, lets the producer emit HTTP body parts on the channel event loop, and writes the terminal HTTP end after the producer future succeeds. SwiftNIO's HTTP response encoder remains responsible for wire framing such as HTTP/1.1 chunked transfer encoding.
+Streaming responses are opt-in. WhiteThroated writes the response head, lets the producer emit HTTP body parts on the channel event loop, and writes the terminal HTTP end after the producer future succeeds. SwiftNIO's HTTP response encoder remains responsible for wire framing such as HTTP/1.1 chunked transfer encoding.
 
-If a streaming producer fails after headers have started, Hudhud invokes the optional response-stream error cleanup hook and closes the connection rather than attempting to emit a second response. Client disconnects can be observed through the stream writer's close future. HEAD requests suppress the producer. HTTP/1.0 unknown-length streams force connection-close framing unless an explicit content length is supplied.
+If a streaming producer fails after headers have started, WhiteThroated invokes the optional response-stream error cleanup hook and closes the connection rather than attempting to emit a second response. Client disconnects can be observed through the stream writer's close future. HEAD requests suppress the producer. HTTP/1.0 unknown-length streams force connection-close framing unless an explicit content length is supplied.
 
 SSE is implemented as a formatting/header convenience over the same response-stream path. It does not introduce a separate transport abstraction.
 
-Hudhud normalizes `Content-Length` from the actual `Response.Body` for every ordinary non-stream response. User-supplied values cannot desynchronize the HTTP/1 keep-alive stream. Prepared-response header mutation applies the same invariant at setup time, so its cached head cannot advertise a length different from its cached body.
+WhiteThroated normalizes `Content-Length` from the actual `Response.Body` for every ordinary non-stream response. User-supplied values cannot desynchronize the HTTP/1 keep-alive stream. Prepared-response header mutation applies the same invariant at setup time, so its cached head cannot advertise a length different from its cached body.
 
 304 remains the intentional exception: its body is suppressed while Content-Length may describe the selected representation, as allowed by HTTP semantics. Streaming responses use their separate declared-length tracker.
 
@@ -474,21 +474,21 @@ This path is opt-in and has no effect on ordinary responses.
 
 Performance work should proceed in this order:
 
-1. Hudhud versus minimal raw SwiftNIO with identical behavior.
-2. Hudhud feature deltas, such as prepared versus normal responses.
+1. WhiteThroated versus minimal raw SwiftNIO with identical behavior.
+2. WhiteThroated feature deltas, such as prepared versus normal responses.
 3. Router depth, fan-out, and parameter-capture scaling.
 4. Middleware scaling.
 5. ARC and allocation profiling.
 6. Cross-framework Swift comparisons.
 7. Actix Web comparison.
 
-If Hudhud is materially slower than the raw-NIO control, investigate Hudhud before blaming Swift.
+If WhiteThroated is materially slower than the raw-NIO control, investigate WhiteThroated before blaming Swift.
 
 ## Benchmark invariants
 
 Every published result should record:
 
-- Hudhud commit SHA.
+- WhiteThroated commit SHA.
 - Compiler version.
 - SwiftNIO version.
 - Hardware.

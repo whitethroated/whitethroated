@@ -1,0 +1,978 @@
+import XCTest
+@testable import WhiteThroated
+import NIOCore
+import NIOHTTP1
+
+private final class MultipartCollector {
+    struct Part {
+        var name: String
+        var filename: String?
+        var contentType: String?
+        var bytes: [UInt8]
+    }
+
+    var parts: [Part] = []
+
+    func receive(
+        _ event: MultipartFormDataEvent
+    ) {
+        switch event {
+        case .partBegin(let part):
+            parts.append(
+                Part(
+                    name: part.name,
+                    filename: part.filename,
+                    contentType:
+                        part.contentType,
+                    bytes: []
+                )
+            )
+
+        case .partBody(let buffer):
+            parts[
+                parts.index(before: parts.endIndex)
+            ].bytes.append(
+                contentsOf:
+                    buffer.readableBytesView
+            )
+
+        case .partEnd:
+            break
+        }
+    }
+}
+
+final class MultipartFormDataTests: XCTestCase {
+    func testBoundaryParsingSupportsQuotedValue() throws {
+        XCTAssertEqual(
+            try MultipartFormDataParser.boundary(
+                from:
+                    "multipart/form-data; boundary=\"abc-123\""
+            ),
+            "abc-123"
+        )
+    }
+
+    func testBoundaryParsingTrimsASCIIWhitespaceWithoutFoundation()
+        throws
+    {
+        XCTAssertEqual(
+            try MultipartFormDataParser.boundary(
+                from:
+                    "  multipart/form-data  ; boundary = \"trimmed\""
+            ),
+            "trimmed"
+        )
+    }
+
+    func testBoundaryParsingRejectsWrongMediaType() {
+        XCTAssertThrowsError(
+            try MultipartFormDataParser.boundary(
+                from: "application/json"
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? MultipartFormDataError,
+                .invalidContentType
+            )
+        }
+    }
+
+    func testParsesTextAndFilePartsAcrossSingleByteChunks() throws {
+        let boundary = "AaB03x"
+        let body =
+            "--AaB03x\r\n"
+            + "Content-Disposition: form-data; name=\"title\"\r\n"
+            + "\r\n"
+            + "WhiteThroated\r\n"
+            + "--AaB03x\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"hello.txt\"\r\n"
+            + "Content-Type: text/plain\r\n"
+            + "\r\n"
+            + "hello file\r\n"
+            + "--AaB03x--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: boundary
+        )
+        let collector = MultipartCollector()
+
+        for byte in body.utf8 {
+            var chunk = ByteBufferAllocator()
+                .buffer(capacity: 1)
+            chunk.writeInteger(byte)
+
+            try parser.receive(
+                chunk,
+                onEvent: collector.receive
+            )
+        }
+
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertTrue(parser.isFinished)
+        XCTAssertEqual(
+            collector.parts.count,
+            2
+        )
+        XCTAssertEqual(
+            collector.parts[0].name,
+            "title"
+        )
+        XCTAssertNil(
+            collector.parts[0].filename
+        )
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            "WhiteThroated"
+        )
+        XCTAssertEqual(
+            collector.parts[1].name,
+            "file"
+        )
+        XCTAssertEqual(
+            collector.parts[1].filename,
+            "hello.txt"
+        )
+        XCTAssertEqual(
+            collector.parts[1].contentType,
+            "text/plain"
+        )
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[1].bytes,
+                as: UTF8.self
+            ),
+            "hello file"
+        )
+    }
+
+    func testBodyWithoutBoundaryPrefixRetainsNoStagingTail()
+        throws
+    {
+        let parser = try MultipartFormDataParser(
+            boundary: "copy-test"
+        )
+        let collector = MultipartCollector()
+        let prefix =
+            "--copy-test\r\n"
+            + "Content-Disposition: form-data; name=\"file\"\r\n"
+            + "\r\n"
+        let payload = String(
+            repeating: "a",
+            count: 4096
+        )
+
+        var first = ByteBufferAllocator()
+            .buffer(
+                capacity:
+                    prefix.utf8.count
+                    + payload.utf8.count
+            )
+        first.writeString(prefix)
+        first.writeString(payload)
+
+        try parser.receive(
+            first,
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].bytes.count,
+            4096
+        )
+        XCTAssertEqual(
+            parser.bufferedByteCount,
+            0
+        )
+
+        var final = ByteBufferAllocator()
+            .buffer(capacity: 32)
+        final.writeString(
+            "\r\n--copy-test--\r\n"
+        )
+
+        try parser.receive(
+            final,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertTrue(parser.isFinished)
+    }
+
+    func testPartialBoundaryPrefixIsRetainedAcrossChunks()
+        throws
+    {
+        let parser = try MultipartFormDataParser(
+            boundary: "split"
+        )
+        let collector = MultipartCollector()
+        let first =
+            "--split\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "\r\n"
+            + "hello\r\n--sp"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: first.utf8.count)
+        chunk.writeString(first)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+
+        XCTAssertGreaterThan(
+            parser.bufferedByteCount,
+            0
+        )
+        XCTAssertLessThanOrEqual(
+            parser.bufferedByteCount,
+            "\r\n--split".utf8.count - 1
+        )
+
+        var rest = ByteBufferAllocator()
+            .buffer(capacity: 16)
+        rest.writeString(
+            "lit--\r\n"
+        )
+
+        try parser.receive(
+            rest,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            "hello"
+        )
+    }
+
+    func testBoundaryTransportPaddingIsAccepted() throws {
+        let body =
+            "--pad \t\r\n"
+            + "Content-Disposition: form-data; name=\"a\"\r\n"
+            + "\r\n"
+            + "one\r\n"
+            + "--pad\t \r\n"
+            + "Content-Disposition: form-data; name=\"b\"\r\n"
+            + "\r\n"
+            + "two\r\n"
+            + "--pad-- \t\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "pad"
+        )
+        let collector = MultipartCollector()
+
+        for byte in body.utf8 {
+            var chunk = ByteBufferAllocator()
+                .buffer(capacity: 1)
+            chunk.writeInteger(byte)
+
+            try parser.receive(
+                chunk,
+                onEvent: collector.receive
+            )
+        }
+
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts.count,
+            2
+        )
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            "one"
+        )
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[1].bytes,
+                as: UTF8.self
+            ),
+            "two"
+        )
+    }
+
+    func testClosingBoundaryCanEndExactlyAtRequestEnd()
+        throws
+    {
+        let body =
+            "--eof\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "\r\n"
+            + "ok\r\n"
+            + "--eof--"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "eof"
+        )
+        let collector = MultipartCollector()
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+
+        XCTAssertFalse(parser.isFinished)
+
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertTrue(parser.isFinished)
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            "ok"
+        )
+    }
+
+    func testFalseClosingBoundarySequenceRemainsPartBody()
+        throws
+    {
+        let boundary = "boundary"
+        let payload =
+            "before\r\n--boundary--Xafter"
+        let body =
+            "--boundary\r\n"
+            + "Content-Disposition: form-data; name=\"data\"\r\n"
+            + "\r\n"
+            + payload
+            + "\r\n--boundary--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: boundary
+        )
+        let collector = MultipartCollector()
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            payload
+        )
+    }
+
+    func testBoundaryPaddingLimitIsEnforced() throws {
+        let parser = try MultipartFormDataParser(
+            boundary: "padding",
+            limits: MultipartFormDataLimits(
+                maxBoundaryPaddingBytes: 2
+            )
+        )
+        let body =
+            "--padding   \r\n"
+            + "Content-Disposition: form-data; name=\"x\"\r\n"
+            + "\r\n"
+            + "value\r\n"
+            + "--padding--\r\n"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                chunk,
+                onEvent: { _ in }
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? MultipartFormDataError,
+                .boundaryPaddingTooLarge(
+                    limit: 2
+                )
+            )
+        }
+    }
+
+    func testFalseBoundaryPrefixRemainsPartBody() throws {
+        let boundary = "boundary"
+        let payload =
+            "before\r\n--boundaryXafter"
+        let body =
+            "--boundary\r\n"
+            + "Content-Disposition: form-data; name=\"data\"\r\n"
+            + "\r\n"
+            + payload
+            + "\r\n--boundary--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: boundary
+        )
+        let collector = MultipartCollector()
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            String(
+                decoding: collector.parts[0].bytes,
+                as: UTF8.self
+            ),
+            payload
+        )
+    }
+
+    func testBinaryPartPreservesNullAndCRLFBytes() throws {
+        let boundary = "binary"
+        let prefix =
+            "--binary\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"x.bin\"\r\n"
+            + "Content-Type: application/octet-stream\r\n"
+            + "\r\n"
+        let suffix = "\r\n--binary--\r\n"
+        let binary: [UInt8] = [
+            0,
+            1,
+            2,
+            13,
+            10,
+            3,
+            255
+        ]
+
+        var body = ByteBufferAllocator()
+            .buffer(
+                capacity:
+                    prefix.utf8.count
+                    + binary.count
+                    + suffix.utf8.count
+            )
+        body.writeString(prefix)
+        body.writeBytes(binary)
+        body.writeString(suffix)
+
+        let parser = try MultipartFormDataParser(
+            boundary: boundary
+        )
+        let collector = MultipartCollector()
+
+        try parser.receive(
+            body,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            binary
+        )
+    }
+
+    func testEmptyPartBodyIsSupported() throws {
+        let body =
+            "--empty\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "\r\n"
+            + "\r\n--empty--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "empty"
+        )
+        let collector = MultipartCollector()
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            []
+        )
+    }
+
+    func testQuotedDispositionParametersSupportSemicolonAndEscape()
+        throws
+    {
+        let body =
+            "--quoted\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"semi;quote\\\".txt\"\r\n"
+            + "Content-Type: text/plain\r\n"
+            + "\r\n"
+            + "x\r\n"
+            + "--quoted--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "quoted"
+        )
+        let collector = MultipartCollector()
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].filename,
+            "semi;quote\".txt"
+        )
+    }
+
+    func testObsoleteFoldedPartHeaderIsRejected() throws {
+        let body =
+            "--fold\r\n"
+            + "Content-Disposition: form-data; name=\"x\"\r\n"
+            + " continuation\r\n"
+            + "\r\n"
+            + "x\r\n"
+            + "--fold--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "fold"
+        )
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                chunk,
+                onEvent: { _ in }
+            )
+        ) { error in
+            guard
+                case .malformedHeader =
+                    error as? MultipartFormDataError
+            else {
+                return XCTFail(
+                    "Expected malformed header"
+                )
+            }
+        }
+    }
+
+    func testControlByteInPartHeaderValueIsRejected()
+        throws
+    {
+        let prefix =
+            "--control\r\n"
+            + "Content-Disposition: form-data; name=\"x\"\r\n"
+            + "X-Test: good"
+        let suffix =
+            "bad\r\n\r\n"
+            + "x\r\n"
+            + "--control--\r\n"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(
+                capacity:
+                    prefix.utf8.count
+                    + 1
+                    + suffix.utf8.count
+            )
+        chunk.writeString(prefix)
+        chunk.writeInteger(
+            UInt8(10)
+        )
+        chunk.writeString(suffix)
+
+        let parser = try MultipartFormDataParser(
+            boundary: "control"
+        )
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                chunk,
+                onEvent: { _ in }
+            )
+        ) { error in
+            guard
+                case .malformedHeader =
+                    error as? MultipartFormDataError
+            else {
+                return XCTFail(
+                    "Expected malformed header"
+                )
+            }
+        }
+    }
+
+    func testLargePartHeaderCanArriveOneByteAtATime() throws {
+        let padding = String(
+            repeating: "a",
+            count: 8 * 1024
+        )
+        let body =
+            "--incremental\r\n"
+            + "Content-Disposition: form-data; name=\"file\"\r\n"
+            + "X-Padding: \(padding)\r\n"
+            + "\r\n"
+            + "x\r\n"
+            + "--incremental--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "incremental",
+            limits: MultipartFormDataLimits(
+                maxHeaderBytesPerPart: 12 * 1024
+            )
+        )
+        let collector = MultipartCollector()
+
+        for byte in body.utf8 {
+            var chunk = ByteBufferAllocator()
+                .buffer(capacity: 1)
+            chunk.writeInteger(byte)
+
+            try parser.receive(
+                chunk,
+                onEvent: collector.receive
+            )
+        }
+
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts.count,
+            1
+        )
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            Array("x".utf8)
+        )
+        XCTAssertTrue(parser.isFinished)
+    }
+
+    func testFragmentedOversizedPartHeaderStillRespectsLimit() throws {
+        let limits = MultipartFormDataLimits(
+            maxHeaderBytesPerPart: 128
+        )
+        let parser = try MultipartFormDataParser(
+            boundary: "header-limit",
+            limits: limits
+        )
+        let padding = String(
+            repeating: "x",
+            count: 256
+        )
+        let body =
+            "--header-limit\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "X-Padding: \(padding)\r\n"
+            + "\r\n"
+            + "value\r\n"
+            + "--header-limit--\r\n"
+
+        var thrown: MultipartFormDataError?
+
+        for byte in body.utf8 {
+            var chunk = ByteBufferAllocator()
+                .buffer(capacity: 1)
+            chunk.writeInteger(byte)
+
+            do {
+                try parser.receive(
+                    chunk,
+                    onEvent: { _ in }
+                )
+            } catch let error as MultipartFormDataError {
+                thrown = error
+                break
+            }
+        }
+
+        XCTAssertEqual(
+            thrown,
+            .headerBlockTooLarge(limit: 128)
+        )
+    }
+
+    func testPerPartBodyLimitRejectsBeforeOverflowChunkIsEmitted()
+        throws
+    {
+        let parser = try MultipartFormDataParser(
+            boundary: "part-limit",
+            limits: MultipartFormDataLimits(
+                maxPartBodyBytes: 4
+            )
+        )
+        let collector = MultipartCollector()
+        let first =
+            "--part-limit\r\n"
+            + "Content-Disposition: form-data; name=\"file\"; filename=\"x.bin\"\r\n"
+            + "\r\n"
+            + "123"
+
+        var firstChunk = ByteBufferAllocator()
+            .buffer(capacity: first.utf8.count)
+        firstChunk.writeString(first)
+
+        try parser.receive(
+            firstChunk,
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            Array("123".utf8)
+        )
+
+        var secondChunk = ByteBufferAllocator()
+            .buffer(capacity: 32)
+        secondChunk.writeString(
+            "45\r\n--part-limit--\r\n"
+        )
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                secondChunk,
+                onEvent: collector.receive
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? MultipartFormDataError,
+                .partBodyTooLarge(limit: 4)
+            )
+        }
+
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            Array("123".utf8)
+        )
+    }
+
+    func testZeroPartBodyLimitAllowsEmptyPart() throws {
+        let parser = try MultipartFormDataParser(
+            boundary: "zero-limit",
+            limits: MultipartFormDataLimits(
+                maxPartBodyBytes: 0
+            )
+        )
+        let collector = MultipartCollector()
+        let body =
+            "--zero-limit\r\n"
+            + "Content-Disposition: form-data; name=\"empty\"\r\n"
+            + "\r\n"
+            + "\r\n--zero-limit--\r\n"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: collector.receive
+        )
+        try parser.finish(
+            onEvent: collector.receive
+        )
+
+        XCTAssertEqual(
+            collector.parts[0].bytes,
+            []
+        )
+    }
+
+    func testHeaderLimitRejectsOversizedPartHeaders() throws {
+        let limits = MultipartFormDataLimits(
+            maxParts: 2,
+            maxHeadersPerPart: 4,
+            maxHeaderBytesPerPart: 16
+        )
+        let parser = try MultipartFormDataParser(
+            boundary: "limit",
+            limits: limits
+        )
+        let body =
+            "--limit\r\n"
+            + "Content-Disposition: form-data; name=\"x\"\r\n"
+            + "\r\nvalue\r\n"
+            + "--limit--\r\n"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                chunk,
+                onEvent: { _ in }
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? MultipartFormDataError,
+                .headerBlockTooLarge(limit: 16)
+            )
+        }
+    }
+
+    func testPartLimitRejectsExcessParts() throws {
+        let limits = MultipartFormDataLimits(
+            maxParts: 1
+        )
+        let parser = try MultipartFormDataParser(
+            boundary: "parts",
+            limits: limits
+        )
+        let body =
+            "--parts\r\n"
+            + "Content-Disposition: form-data; name=\"a\"\r\n\r\n"
+            + "1\r\n"
+            + "--parts\r\n"
+            + "Content-Disposition: form-data; name=\"b\"\r\n\r\n"
+            + "2\r\n"
+            + "--parts--\r\n"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        XCTAssertThrowsError(
+            try parser.receive(
+                chunk,
+                onEvent: { _ in }
+            )
+        ) { error in
+            XCTAssertEqual(
+                error as? MultipartFormDataError,
+                .tooManyParts(limit: 1)
+            )
+        }
+    }
+
+    func testEventHandlerCanThrowWithoutFutureAllocation() throws {
+        enum SinkError: Error {
+            case rejected
+        }
+
+        let body =
+            "--events\r\n"
+            + "Content-Disposition: form-data; name=\"value\"\r\n"
+            + "\r\n"
+            + "payload\r\n"
+            + "--events--\r\n"
+
+        let parser = try MultipartFormDataParser(
+            boundary: "events"
+        )
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        XCTAssertThrowsError(
+            try parser.receive(chunk) { event in
+                if case .partBody = event {
+                    throw SinkError.rejected
+                }
+            }
+        ) { error in
+            XCTAssertTrue(error is SinkError)
+        }
+    }
+
+    func testFinishRejectsMissingClosingBoundary() throws {
+        let parser = try MultipartFormDataParser(
+            boundary: "missing"
+        )
+        let body =
+            "--missing\r\n"
+            + "Content-Disposition: form-data; name=\"a\"\r\n\r\n"
+            + "value"
+
+        var chunk = ByteBufferAllocator()
+            .buffer(capacity: body.utf8.count)
+        chunk.writeString(body)
+
+        try parser.receive(
+            chunk,
+            onEvent: { _ in }
+        )
+
+        XCTAssertThrowsError(
+            try parser.finish()
+        ) { error in
+            XCTAssertEqual(
+                error as? MultipartFormDataError,
+                .unexpectedEnd
+            )
+        }
+    }
+
+    func testStreamRequestInitializerReadsContentTypeBoundary() throws {
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .POST,
+            uri: "/upload"
+        )
+        head.headers.add(
+            name: "content-type",
+            value:
+                "multipart/form-data; boundary=request-boundary"
+        )
+
+        let request = Request(
+            head: head,
+            body: ByteBufferAllocator()
+                .buffer(capacity: 0)
+        )
+        let parser = try MultipartFormDataParser(
+            request: StreamRequest(request)
+        )
+
+        XCTAssertFalse(parser.isFinished)
+    }
+}

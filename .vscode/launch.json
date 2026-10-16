@@ -1,0 +1,64 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-example",
+            "target": "whitethroated-example",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-example"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-example",
+            "target": "whitethroated-example",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-example"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-benchmark-server",
+            "target": "whitethroated-benchmark-server",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-benchmark-server"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-benchmark-server",
+            "target": "whitethroated-benchmark-server",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-benchmark-server"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug raw-nio-benchmark-server",
+            "target": "raw-nio-benchmark-server",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug raw-nio-benchmark-server"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release raw-nio-benchmark-server",
+            "target": "raw-nio-benchmark-server",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release raw-nio-benchmark-server"
+        }
+    ]
+}

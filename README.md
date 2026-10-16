@@ -1,13 +1,13 @@
-# Hudhud
+# WhiteThroated
 
-Hudhud is an experimental high-performance web framework written entirely in Swift.
+WhiteThroated is an experimental high-performance web framework written entirely in Swift.
 
 The project has two non-negotiable goals:
 
 1. An ergonomic developer experience inspired by Express.js.
 2. A low-overhead runtime architecture designed to push Swift server performance as far as practical.
 
-Hudhud is pre-alpha. API compatibility is intentionally secondary to establishing a fast, measurable runtime architecture.
+WhiteThroated is pre-alpha. API compatibility is intentionally secondary to establishing a fast, measurable runtime architecture.
 
 ## Requirements
 
@@ -18,12 +18,12 @@ Hudhud is pre-alpha. API compatibility is intentionally secondary to establishin
 ## Quick start
 
 ```swift
-import Hudhud
+import WhiteThroated
 
 let app = Application()
 
 app.get("/") { _ in
-    .text("Hello from Hudhud")
+    .text("Hello from WhiteThroated")
 }
 
 app.get("/users/:id") { request in
@@ -69,7 +69,7 @@ v1.get("/users/:id") { request in
 
 ## JSON
 
-Hudhud supports lazy JSON request decoding and both dynamic and prepared Codable JSON responses.
+WhiteThroated supports lazy JSON request decoding and both dynamic and prepared Codable JSON responses.
 
 ```swift
 struct User: Codable {
@@ -91,7 +91,7 @@ For immutable Codable payloads, encode once during setup:
 
 ```swift
 let payload = try PreparedResponse.json(
-    User(id: 1, name: "Hudhud")
+    User(id: 1, name: "WhiteThroated")
 )
 
 app.get("/user", response: payload)
@@ -170,7 +170,7 @@ app.postStream(
 
 The synchronous `onChunk` overload returns `Void` and does not allocate an `EventLoopFuture` per chunk. Use it for CPU-only processing, counters, incremental parsers, or sinks that complete synchronously.
 
-For synchronous processing that can fail, use `onChunkThrowing:`. Errors enter Hudhud's normal streaming error path without allocating a future on successful chunks:
+For synchronous processing that can fail, use `onChunkThrowing:`. Errors enter WhiteThroated's normal streaming error path without allocating a future on successful chunks:
 
 ```swift
 BodyStreamConsumer(
@@ -191,9 +191,9 @@ onChunk: { chunk in
 }
 ```
 
-When a chunk future is returned, Hudhud pauses channel auto-read and resumes only after the future completes. Futures from another event loop are hopped back to the request event loop before channel state is touched.
+When a chunk future is returned, WhiteThroated pauses channel auto-read and resumes only after the future completes. Futures from another event loop are hopped back to the request event loop before channel state is touched.
 
-Streaming routes support the normal middleware chain. If middleware short-circuits the request, Hudhud drains/discards the incoming body without invoking the stream consumer.
+Streaming routes support the normal middleware chain. If middleware short-circuits the request, WhiteThroated drains/discards the incoming body without invoking the stream consumer.
 
 Available registration APIs include:
 
@@ -209,7 +209,7 @@ Route groups expose the same streaming APIs.
 
 Ordinary routes keep the existing aggregation behavior and do not pay a streaming router lookup unless the same HTTP method has at least one streaming route.
 
-Hudhud also handles `Expect: 100-continue` for large uploads. Accepted HTTP/1.1 requests receive an informational `100 Continue` immediately. If a declared `Content-Length` already exceeds the configured limit, Hudhud returns `413 Payload Too Large` and closes the connection without waiting for a body the client has not sent. Unsupported expectations receive `417 Expectation Failed`.
+WhiteThroated also handles `Expect: 100-continue` for large uploads. Accepted HTTP/1.1 requests receive an informational `100 Continue` immediately. If a declared `Content-Length` already exceeds the configured limit, WhiteThroated returns `413 Payload Too Large` and closes the connection without waiting for a body the client has not sent. Unsupported expectations receive `417 Expectation Failed`.
 
 
 ### Streaming multipart/form-data
@@ -289,7 +289,7 @@ For lower-level control, `request.multipartParser()` exposes the incremental par
 
 ## Prepared responses
 
-For immutable responses, Hudhud can prebuild the body, content length, and HTTP/1.1 response head during application setup.
+For immutable responses, WhiteThroated can prebuild the body, content length, and HTTP/1.1 response head during application setup.
 
 ```swift
 app.get(
@@ -338,7 +338,7 @@ Use prepared responses only for payloads and headers that are truly immutable.
 
 ## File-region responses
 
-Hudhud can send an existing SwiftNIO `FileRegion` without first copying the file into a `ByteBuffer`:
+WhiteThroated can send an existing SwiftNIO `FileRegion` without first copying the file into a `ByteBuffer`:
 
 For browser downloads, add a safe `Content-Disposition` header without hand-building header syntax:
 
@@ -368,7 +368,7 @@ app.get("/download") { _ in
 
 The response writer emits `IOData.fileRegion` directly and derives `Content-Length` from the readable region. `HEAD` responses preserve the length while suppressing the file body.
 
-Hudhud intentionally does not open filesystem paths synchronously inside this helper. Open files through an appropriate non-blocking/file-service layer, then create the region. The caller owns the underlying file handle and must keep it open until the response write completes.
+WhiteThroated intentionally does not open filesystem paths synchronously inside this helper. Open files through an appropriate non-blocking/file-service layer, then create the region. The caller owns the underlying file handle and must keep it open until the response write completes.
 
 ### ETag conditional responses
 
@@ -387,7 +387,7 @@ app.get(
 )
 ```
 
-Hudhud prebuilds both the tagged 200 response and its bodyless 304 variant during route registration. Bodyless framing normalization is also completed at setup time, so the normal HTTP/1.1 keep-alive writer can reuse the cached response head directly. On a request, the exact route checks `If-None-Match` directly from the request headers and selects cached response storage without constructing `Request` or invoking a handler.
+WhiteThroated prebuilds both the tagged 200 response and its bodyless 304 variant during route registration. Bodyless framing normalization is also completed at setup time, so the normal HTTP/1.1 keep-alive writer can reuse the cached response head directly. On a request, the exact route checks `If-None-Match` directly from the request headers and selects cached response storage without constructing `Request` or invoking a handler.
 
 For dynamic content, use the lower-level matcher:
 
@@ -524,7 +524,7 @@ app.onError { error, context async throws in
 }
 ```
 
-Error handling is not inserted into the successful request pipeline. Prepared, synchronous, and successful asynchronous routes do not perform an error-handler lookup. If a custom future/async error handler itself fails, Hudhud writes the built-in `500 Internal Server Error` directly and does not recursively invoke the custom handler.
+Error handling is not inserted into the successful request pipeline. Prepared, synchronous, and successful asynchronous routes do not perform an error-handler lookup. If a custom future/async error handler itself fails, WhiteThroated writes the built-in `500 Internal Server Error` directly and does not recursively invoke the custom handler.
 
 Only one global handler is active; the most recent `onError` registration replaces the previous one. Error handlers receive the error and event-loop `Context`, not mutable request state.
 
@@ -544,7 +544,7 @@ app.get("/events") { _ in
 }
 ```
 
-The producer returns an `EventLoopFuture<Void>`. Hudhud writes the final HTTP `end` part automatically after that future succeeds.
+The producer returns an `EventLoopFuture<Void>`. WhiteThroated writes the final HTTP `end` part automatically after that future succeeds.
 
 Multiple chunks can be chained without flushing each chunk:
 
@@ -569,9 +569,9 @@ app.get("/stream") { _ in
 - `eventLoop` for scheduling NIO-native asynchronous work.
 - `closeFuture` to observe client disconnects.
 
-Stream writes must be serialized on the writer's event loop. If a stream producer fails after response headers have started, Hudhud closes the connection rather than attempting to send a second HTTP response. Use the optional `onError` closure on `Response.stream` or `Response.sse` to clean up producer-owned resources before the connection is closed.
+Stream writes must be serialized on the writer's event loop. If a stream producer fails after response headers have started, WhiteThroated closes the connection rather than attempting to send a second HTTP response. Use the optional `onError` closure on `Response.stream` or `Response.sse` to clean up producer-owned resources before the connection is closed.
 
-For HTTP/1.1 responses without a declared `Content-Length`, SwiftNIO's response encoder owns chunked transfer framing. For HTTP/1.0, Hudhud closes the connection after an unknown-length stream unless the response explicitly provides a content length.
+For HTTP/1.1 responses without a declared `Content-Length`, SwiftNIO's response encoder owns chunked transfer framing. For HTTP/1.0, WhiteThroated closes the connection after an unknown-length stream unless the response explicitly provides a content length.
 
 HEAD requests suppress the stream producer entirely.
 
@@ -612,7 +612,7 @@ app.get("/peer") { _, context in
 }
 ```
 
-`remoteAddress` is the transport peer reported by SwiftNIO. Hudhud does not automatically trust or parse `X-Forwarded-For` or similar proxy headers. Applications behind a trusted reverse proxy should apply their own explicit proxy-trust policy.
+`remoteAddress` is the transport peer reported by SwiftNIO. WhiteThroated does not automatically trust or parse `X-Forwarded-For` or similar proxy headers. Applications behind a trusted reverse proxy should apply their own explicit proxy-trust policy.
 
 Prepared and ordinary synchronous routes do not construct `Context`, so this metadata does not add address lookup work to those fast paths.
 
@@ -649,14 +649,14 @@ app.use { request, _, next in
         var response = response
         response.headers.add(
             name: "x-powered-by",
-            value: "Hudhud"
+            value: "WhiteThroated"
         )
         return response
     }
 }
 ```
 
-For middleware that does not require asynchronous I/O, `useFast` preserves Hudhud's synchronous and prepared responder paths:
+For middleware that does not require asynchronous I/O, `useFast` preserves WhiteThroated's synchronous and prepared responder paths:
 
 ```swift
 app.useFast { request, _, next in
@@ -681,7 +681,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Contiguous-byte fast paths for route parameter and targeted query decoding.
 - Inline parameter name/range storage for the first two dynamic parameters.
 - Lazy query scanning and percent decoding.
-- Lazy conversion from SwiftNIO HTTP methods to Hudhud's public method enum.
+- Lazy conversion from SwiftNIO HTTP methods to WhiteThroated's public method enum.
 - Synchronous responder fast path.
 - Prepared immutable response fast path.
 - Immutable shared prepared-response storage carried directly through the internal pipeline.
@@ -713,7 +713,7 @@ A pass-through `useFast` middleware does not force an `EventLoopFuture` allocati
 - Swift-only benchmark implementation sources.
 - Raw SwiftNIO control benchmark server written in Swift.
 - Opt-in Swift benchmark routes for streaming, multipart, router stress, and conditional responses.
-- External cross-framework controls kept outside the Hudhud repository.
+- External cross-framework controls kept outside the WhiteThroated repository.
 
 ## Request lifecycle
 
@@ -757,7 +757,7 @@ Compiled middleware / handler
 
 ## Performance rules
 
-Hudhud follows several runtime rules:
+WhiteThroated follows several runtime rules:
 
 - Do not create a Swift concurrency `Task` on the default request path.
 - Do not split request paths into arrays of Swift `String` values.
@@ -772,14 +772,14 @@ Hudhud follows several runtime rules:
 
 ## Why SwiftNIO
 
-SwiftNIO provides the event-loop and non-blocking I/O foundation while Hudhud keeps control over routing, middleware dispatch, request representation, response serialization, allocation behavior, and public API design.
+SwiftNIO provides the event-loop and non-blocking I/O foundation while WhiteThroated keeps control over routing, middleware dispatch, request representation, response serialization, allocation behavior, and public API design.
 
 The goal is not to build a large abstraction stack on top of NIO. The goal is to keep the distance between socket and handler small enough to profile and optimize.
 
 ## Run
 
 ```bash
-swift run -c release hudhud-example
+swift run -c release whitethroated-example
 ```
 
 The example listens on `127.0.0.1:3000`.
@@ -792,13 +792,13 @@ swift test -c release
 
 ## Benchmark
 
-Hudhud keeps benchmark implementation code in Swift.
+WhiteThroated keeps benchmark implementation code in Swift.
 
 Run the in-process dispatch benchmark:
 
 ```bash
-HUDHUD_CORE_BENCHMARK=1 \
-HUDHUD_CORE_ITERATIONS=5000000 \
+WHITETHROATED_CORE_BENCHMARK=1 \
+WHITETHROATED_CORE_ITERATIONS=5000000 \
 swift test -c release \
   --filter CoreBenchmarkTests/testCoreDispatchBenchmark
 ```
@@ -806,8 +806,8 @@ swift test -c release \
 Run the router-only diagnostic:
 
 ```bash
-HUDHUD_ROUTER_CORE_BENCHMARK=1 \
-HUDHUD_ROUTER_CORE_ITERATIONS=10000000 \
+WHITETHROATED_ROUTER_CORE_BENCHMARK=1 \
+WHITETHROATED_ROUTER_CORE_ITERATIONS=10000000 \
 swift test -c release \
   --filter CoreBenchmarkTests/testRouterLookupBenchmark
 ```
@@ -815,36 +815,36 @@ swift test -c release \
 Run the transport writer diagnostic:
 
 ```bash
-HUDHUD_TRANSPORT_BENCHMARK=1 \
-HUDHUD_TRANSPORT_ITERATIONS=500000 \
+WHITETHROATED_TRANSPORT_BENCHMARK=1 \
+WHITETHROATED_TRANSPORT_ITERATIONS=500000 \
 swift test -c release \
   --filter CoreBenchmarkTests/testTransportWriterBenchmark
 ```
 
-Start the Hudhud release benchmark server:
+Start the WhiteThroated release benchmark server:
 
 ```bash
-HUDHUD_THREADS=4 \
-swift run -c release hudhud-benchmark-server
+WHITETHROATED_THREADS=4 \
+swift run -c release whitethroated-benchmark-server
 ```
 
 Start the raw SwiftNIO control separately with the same worker count:
 
 ```bash
-HUDHUD_THREADS=4 \
+WHITETHROATED_THREADS=4 \
 swift run -c release raw-nio-benchmark-server
 ```
 
-Use the same external load generator and identical settings for both servers. Actix and other non-Swift controls intentionally live outside this repository so Hudhud remains a Swift-only codebase.
+Use the same external load generator and identical settings for both servers. Actix and other non-Swift controls intentionally live outside this repository so WhiteThroated remains a Swift-only codebase.
 
 See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.md](ARCHITECTURE.md) for runtime invariants.
 
 ## Next performance targets
 
-1. Run the repeated Hudhud-to-raw-NIO suite on pinned hardware and record median/p99 deltas.
+1. Run the repeated WhiteThroated-to-raw-NIO suite on pinned hardware and record median/p99 deltas.
 2. Run the core dispatch and writer benchmarks before changing NIO response-part boxing.
 3. Profile ARC retain/release traffic for prepared, synchronous, dynamic-parameter, async/await, and streaming routes.
 4. Quantify route depth/fan-out and middleware scaling with the committed matrices.
 5. Measure aggregated versus streaming uploads with both throughput and peak-RSS runners.
 6. Measure known-length, chunked, and flush-heavy response streams independently.
-7. Compare the pinned Actix Web control only after Hudhud's raw-NIO framework overhead is measured and explained.
+7. Compare the pinned Actix Web control only after WhiteThroated's raw-NIO framework overhead is measured and explained.

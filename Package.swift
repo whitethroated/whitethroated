@@ -3,22 +3,22 @@
 import PackageDescription
 
 let package = Package(
-    name: "Hudhud",
+    name: "WhiteThroated",
     platforms: [
         .macOS(.v13)
     ],
     products: [
         .library(
-            name: "Hudhud",
-            targets: ["Hudhud"]
+            name: "WhiteThroated",
+            targets: ["WhiteThroated"]
         ),
         .executable(
-            name: "hudhud-example",
-            targets: ["HudhudExample"]
+            name: "whitethroated-example",
+            targets: ["WhiteThroatedExample"]
         ),
         .executable(
-            name: "hudhud-benchmark-server",
-            targets: ["HudhudBenchmarkServer"]
+            name: "whitethroated-benchmark-server",
+            targets: ["WhiteThroatedBenchmarkServer"]
         ),
         .executable(
             name: "raw-nio-benchmark-server",
@@ -33,7 +33,7 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "Hudhud",
+            name: "WhiteThroated",
             dependencies: [
                 .product(
                     name: "NIOCore",
@@ -50,13 +50,13 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "HudhudExample",
-            dependencies: ["Hudhud"]
+            name: "WhiteThroatedExample",
+            dependencies: ["WhiteThroated"]
         ),
         .executableTarget(
-            name: "HudhudBenchmarkServer",
-            dependencies: ["Hudhud"],
-            path: "Benchmarks/HudhudBenchmarkServer"
+            name: "WhiteThroatedBenchmarkServer",
+            dependencies: ["WhiteThroated"],
+            path: "Benchmarks/WhiteThroatedBenchmarkServer"
         ),
         .executableTarget(
             name: "RawNIOBenchmarkServer",
@@ -77,9 +77,9 @@ let package = Package(
             path: "Benchmarks/RawNIOBenchmarkServer"
         ),
         .testTarget(
-            name: "HudhudTests",
+            name: "WhiteThroatedTests",
             dependencies: [
-                "Hudhud",
+                "WhiteThroated",
                 .product(
                     name: "NIOEmbedded",
                     package: "swift-nio"
