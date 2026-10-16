@@ -532,6 +532,14 @@ final class CoreBenchmarkTests: XCTestCase {
         )
 
         try benchmarkTransport(
+            name: "prepared-host-writer",
+            app: preparedApp,
+            head: makeHostHead("/prepared"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
             name: "prepared-304-writer",
             app: conditionalApp,
             head: makeHead(
@@ -628,6 +636,14 @@ final class CoreBenchmarkTests: XCTestCase {
             name: "sync-param-writer",
             app: dynamicParameterApp,
             head: makeHead("/user/42"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "sync-param-host",
+            app: dynamicParameterApp,
+            head: makeHostHead("/user/42"),
             expectedParts: 3,
             iterations: iterations
         )
@@ -1421,6 +1437,17 @@ final class CoreBenchmarkTests: XCTestCase {
             + "\(opsText) ops/s "
             + "checksum=\(checksum)"
         )
+    }
+
+    private func makeHostHead(
+        _ uri: String
+    ) -> HTTPRequestHead {
+        var head = makeHead(uri)
+        head.headers.add(
+            name: "host",
+            value: "localhost"
+        )
+        return head
     }
 
     private func makeHead(
