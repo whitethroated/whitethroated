@@ -243,6 +243,46 @@ final class HTTPServerHandlerTests: XCTestCase {
         }
     }
 
+    func testPreparedRouteDoesNotBypassMiddleware() throws {
+        let app = Application()
+
+        app.useFast { _, _, _ in
+            .response(
+                .text(
+                    "blocked",
+                    status: .unauthorized
+                )
+            )
+        }
+
+        app.get(
+            "/prepared",
+            response: .text("prepared")
+        )
+
+        let channel = try makeChannel(app)
+
+        try sendGet(
+            "/prepared",
+            to: channel
+        )
+
+        guard case .head(let head)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected response head"
+            )
+        }
+
+        XCTAssertEqual(
+            head.status,
+            .unauthorized
+        )
+    }
+
     func testSequentialRequestsDoNotLeakAggregatedBodyState() throws {
         let app = Application()
 

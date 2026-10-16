@@ -8,6 +8,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     private let application: Application
     private let maxRequestBodyBytes: Int
     private let hasStreamingRoutes: Bool
+    private let hasMiddleware: Bool
     private let emptyBody = ByteBufferAllocator().buffer(
         capacity: 0
     )
@@ -40,6 +41,8 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             ?? application.configuration.maxRequestBodyBytes
         self.hasStreamingRoutes =
             application.hasStreamingRoutes
+        self.hasMiddleware =
+            application.hasMiddleware
     }
 
     func channelRead(
@@ -272,24 +275,87 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             return
         }
 
-        let result: ResponderResult
+        if !hasMiddleware {
+            let match =
+                preResolvedMatch
+                ?? application.lookupTransport(
+                    head: head
+                )
 
-        if let preResolvedMatch {
-            result = application.respondTransport(
-                match: preResolvedMatch,
-                head: head,
-                body: requestBody ?? emptyBody,
-                on: context.eventLoop,
-                channel: context.channel
-            )
-        } else {
-            result = application.respondTransport(
-                head: head,
-                body: requestBody ?? emptyBody,
-                on: context.eventLoop,
-                channel: context.channel
-            )
+            switch match {
+            case .prepared(let storage):
+                writePrepared(
+                    storage,
+                    isHeadRequest: isHead,
+                    version: version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+                resetRequestState()
+                return
+
+            case .conditionalPrepared(
+                let tag,
+                let response,
+                let notModified
+            ):
+                writePrepared(
+                    IfNoneMatchMatcher.matches(
+                        headers: head.headers,
+                        tag: tag
+                    )
+                    ? notModified
+                    : response,
+                    isHeadRequest: isHead,
+                    version: version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+                resetRequestState()
+                return
+
+            case .notFound:
+                writePrepared(
+                    PreparedResponse
+                        .defaultNotFoundStorage,
+                    isHeadRequest: isHead,
+                    version: version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+                resetRequestState()
+                return
+
+            default:
+                let result =
+                    application.respondTransport(
+                        match: match,
+                        head: head,
+                        body:
+                            requestBody
+                            ?? emptyBody,
+                        on: context.eventLoop,
+                        channel: context.channel
+                    )
+
+                write(
+                    result,
+                    isHeadRequest: isHead,
+                    version: version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+                resetRequestState()
+                return
+            }
         }
+
+        let result = application.respondTransport(
+            head: head,
+            body: requestBody ?? emptyBody,
+            on: context.eventLoop,
+            channel: context.channel
+        )
 
         write(
             result,
