@@ -90,6 +90,14 @@ app.get("/plaintext") { _ in
         .header("date", benchmarkDate)
 }
 
+app.get("/future") { _, context in
+    context.eventLoop.makeSucceededFuture(
+        Response
+            .text("Hello, World!")
+            .header("date", benchmarkDate)
+    )
+}
+
 app.get("/json") { _ in
     .json(#"{"message":"Hello, World!"}"#)
 }

@@ -123,8 +123,9 @@ Core routes include:
 
 - `/prepared` — prepared immutable plaintext.
 - `/plaintext` — ordinary synchronous plaintext.
+- `/future` — future-based plaintext using an already-succeeded event-loop future.
 - `/json` — synchronous JSON.
-- `/concurrent` — async/await route.
+- `/concurrent` — async/await plaintext through the Swift concurrency Task bridge.
 - `/users/:id` — one dynamic parameter.
 - `/users/:id/posts/:post` — two dynamic parameters.
 - `/conditional-prepared` — conditional prepared ETag path.
@@ -247,6 +248,7 @@ Profile at least:
 
 - `/prepared`.
 - `/plaintext`.
+- `/future`.
 - `/concurrent`.
 - `/users/42`.
 
@@ -293,7 +295,7 @@ The most informative order is:
 
 1. Raw SwiftNIO versus WhiteThroated `/prepared`.
 2. WhiteThroated `/prepared` versus `/plaintext`.
-3. `/plaintext` versus `/concurrent` to quantify Task-bridge cost.
+3. Compare `/plaintext`, `/future`, and `/concurrent` under identical load. The first delta exposes the future-based handler cost; the second shows the additional Swift concurrency bridge cost relative to the NIO-future path.
 4. Router-only exact-hit and exact-miss diagnostics.
 5. Fast and future-based middleware scaling.
 6. Response-stream known-length, chunked, and flush-heavy paths.
