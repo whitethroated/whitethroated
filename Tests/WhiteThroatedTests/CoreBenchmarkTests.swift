@@ -3172,7 +3172,7 @@ final class CoreBenchmarkTests: XCTestCase {
         checksum: Int
     ) {
         let paddedName = name.padding(
-            toLength: 20,
+            toLength: 24,
             withPad: " ",
             startingAt: 0
         )
