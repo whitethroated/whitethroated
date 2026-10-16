@@ -5,6 +5,54 @@ import NIOEmbedded
 import NIOHTTP1
 
 final class MixedStreamingRouteTests: XCTestCase {
+    func testOrdinaryGetIgnoresUnrelatedPostStreamingState() throws {
+        let app = Application()
+
+        app.postStream("/upload") { _, context in
+            BodyStreamConsumer(
+                onChunk: { _ in nil },
+                onEnd: {
+                    context.eventLoop.makeSucceededFuture(
+                        .noContent()
+                    )
+                }
+            )
+        }
+
+        app.get(
+            "/prepared",
+            response: .text("ok")
+        )
+
+        let channel = try makeChannel(app)
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                HTTPRequestHead(
+                    version: .http1_1,
+                    method: .GET,
+                    uri: "/prepared"
+                )
+            )
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        let response = try readResponse(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            response.head.status,
+            .ok
+        )
+        XCTAssertEqual(
+            response.body,
+            "ok"
+        )
+    }
+
     func testOrdinaryRouteSharesMethodWithStreamingRoute() throws {
         let app = Application()
 
