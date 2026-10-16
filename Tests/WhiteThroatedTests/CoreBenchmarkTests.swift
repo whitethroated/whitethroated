@@ -400,6 +400,14 @@ final class CoreBenchmarkTests: XCTestCase {
             iterations: iterations
         )
 
+        try benchmarkDirectPreparedTransport(
+            name: "direct-prepared",
+            app: preparedApp,
+            head: makeHead("/prepared"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
         try benchmarkTransport(
             name: "prepared-writer",
             app: preparedApp,
@@ -631,6 +639,28 @@ final class CoreBenchmarkTests: XCTestCase {
         )
     }
 
+    private func benchmarkDirectPreparedTransport(
+        name: String,
+        app: Application,
+        head: HTTPRequestHead,
+        expectedParts: Int,
+        iterations: Int
+    ) throws {
+        let channel = EmbeddedChannel(
+            handler: DirectPreparedTransportBenchmarkHandler(
+                application: app
+            )
+        )
+
+        try benchmarkTransportChannel(
+            name: name,
+            channel: channel,
+            head: head,
+            expectedParts: expectedParts,
+            iterations: iterations
+        )
+    }
+
     private func benchmarkTransport(
         name: String,
         app: Application,
@@ -849,6 +879,72 @@ private struct RouterBenchmarkCase {
     let name: String
     let method: NIOHTTP1.HTTPMethod
     let uri: String
+}
+
+private final class DirectPreparedTransportBenchmarkHandler:
+    ChannelInboundHandler,
+    @unchecked Sendable
+{
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    private let application: Application
+    private var requestHead: HTTPRequestHead?
+
+    init(application: Application) {
+        self.application = application
+    }
+
+    func channelRead(
+        context: ChannelHandlerContext,
+        data: NIOAny
+    ) {
+        switch unwrapInboundIn(data) {
+        case .head(let head):
+            requestHead = head
+
+        case .body:
+            break
+
+        case .end:
+            guard let head = requestHead else {
+                return
+            }
+
+            guard case .prepared(let storage) =
+                application.lookupTransport(
+                    head: head
+                )
+            else {
+                preconditionFailure(
+                    "Direct prepared benchmark expected prepared route"
+                )
+            }
+
+            context.write(
+                wrapOutboundOut(
+                    .head(storage.http11Head)
+                ),
+                promise: nil
+            )
+
+            if let body = storage.bodyBuffer {
+                context.write(
+                    wrapOutboundOut(
+                        .body(.byteBuffer(body))
+                    ),
+                    promise: nil
+                )
+            }
+
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+
+            requestHead = nil
+        }
+    }
 }
 
 private final class RawTransportBenchmarkHandler:
