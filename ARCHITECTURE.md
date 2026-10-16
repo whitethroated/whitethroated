@@ -556,3 +556,6 @@ The request-head fast path keeps its RouterMatch in a local value and only promo
 
 
 Repeated prepared routes keep a side-cache reference to PreparedResponseStorage alongside the generic last-route cache. When method and URI match, the request-head fast path writes that storage directly and avoids copying/pattern-matching RouterMatch again. Any route-cache miss refreshes or clears the prepared side cache, so URI/method changes cannot reuse stale prepared output.
+
+
+Bodyless future and Swift-concurrency routes now use the same request-head shortcut as synchronous routes when middleware is absent, no streaming route exists for the method, no Expect header is present, and framing proves the request body is empty. Their response future/task is registered immediately without allocating/resetting the aggregate request lifecycle state; requests with declared or chunked bodies continue through the general path.
