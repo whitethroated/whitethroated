@@ -504,6 +504,229 @@ final class TransportFastPathTests: XCTestCase {
         _ = try channel.finish()
     }
 
+    func testHTTP11WithoutConnectionHeaderStaysKeepAlive() throws {
+        let app = Application()
+
+        app.get(
+            "/prepared",
+            response: .text("prepared")
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        let head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/prepared"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        guard case .head(let responseHead)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected HTTP/1.1 response head"
+            )
+        }
+
+        XCTAssertNil(
+            responseHead.headers.first(
+                name: "connection"
+            )
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        _ = try channel.finish()
+    }
+
+    func testHTTP11ConnectionClosePreservesCloseSemantics() throws {
+        let app = Application()
+
+        app.get(
+            "/prepared",
+            response: .text("prepared")
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/prepared"
+        )
+        head.headers.add(
+            name: "connection",
+            value: "close"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        guard case .head(let responseHead)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected close response head"
+            )
+        }
+
+        XCTAssertEqual(
+            responseHead.headers.first(
+                name: "connection"
+            ),
+            "close"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        _ = try? channel.finish()
+    }
+
+    func testHTTP10WithoutConnectionHeaderCloses() throws {
+        let app = Application()
+
+        app.get(
+            "/prepared",
+            response: .text("prepared")
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        let head = HTTPRequestHead(
+            version: .http1_0,
+            method: .GET,
+            uri: "/prepared"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        guard case .head(let responseHead)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected HTTP/1.0 response head"
+            )
+        }
+
+        XCTAssertEqual(
+            responseHead.headers.first(
+                name: "connection"
+            ),
+            "close"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        _ = try? channel.finish()
+    }
+
+    func testHTTP10KeepAliveHeaderPreservesKeepAlive() throws {
+        let app = Application()
+
+        app.get(
+            "/prepared",
+            response: .text("prepared")
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        var head = HTTPRequestHead(
+            version: .http1_0,
+            method: .GET,
+            uri: "/prepared"
+        )
+        head.headers.add(
+            name: "connection",
+            value: "keep-alive"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        guard case .head(let responseHead)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected HTTP/1.0 keep-alive response head"
+            )
+        }
+
+        XCTAssertEqual(
+            responseHead.headers.first(
+                name: "connection"
+            ),
+            "keep-alive"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        _ = try channel.finish()
+    }
+
     func testConnectionRouteCacheDoesNotReuseDifferentURI() throws {
         let app = Application()
 

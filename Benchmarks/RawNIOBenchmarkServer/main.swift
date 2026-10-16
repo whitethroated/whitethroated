@@ -107,13 +107,28 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     }
 
     @inline(__always)
+    private func requestIsKeepAlive(
+        _ head: HTTPRequestHead
+    ) -> Bool {
+        guard head.headers.first(
+            name: "connection"
+        ) != nil else {
+            return
+                head.version.major == 1
+                && head.version.minor >= 1
+        }
+
+        return head.isKeepAlive
+    }
+
+    @inline(__always)
     private func writePlaintext(
         requestHead: HTTPRequestHead,
         context: ChannelHandlerContext
     ) {
         if
             requestHead.version == .http1_1,
-            requestHead.isKeepAlive
+            requestIsKeepAlive(requestHead)
         {
             context.write(
                 wrapOutboundOut(.head(http11Head)),
@@ -132,7 +147,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
 
         var headers = baseHeaders
 
-        if !requestHead.isKeepAlive {
+        if !requestIsKeepAlive(requestHead) {
             headers.replaceOrAdd(
                 name: "connection",
                 value: "close"
@@ -159,7 +174,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             promise: nil
         )
         finish(
-            keepAlive: requestHead.isKeepAlive,
+            keepAlive: requestIsKeepAlive(requestHead),
             context: context
         )
     }
@@ -174,7 +189,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             value: "0"
         )
 
-        if !requestHead.isKeepAlive {
+        if !requestIsKeepAlive(requestHead) {
             headers.add(
                 name: "connection",
                 value: "close"
@@ -192,7 +207,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             promise: nil
         )
         finish(
-            keepAlive: requestHead.isKeepAlive,
+            keepAlive: requestIsKeepAlive(requestHead),
             context: context
         )
     }
