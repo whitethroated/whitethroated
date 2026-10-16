@@ -1,6 +1,40 @@
 internal struct RouteParameterCapture: Sendable {
-    let range: Range<Int>
-    let requiresDecoding: Bool
+    private let lowerBound: Int
+    private let packedUpperBound: Int
+
+    init(
+        range: Range<Int>,
+        requiresDecoding: Bool
+    ) {
+        precondition(
+            range.lowerBound >= 0
+            && range.upperBound >= 0,
+            "Route parameter offsets must be nonnegative"
+        )
+
+        self.lowerBound = range.lowerBound
+        self.packedUpperBound =
+            requiresDecoding
+            ? ~range.upperBound
+            : range.upperBound
+    }
+
+    @inline(__always)
+    var range: Range<Int> {
+        lowerBound..<upperBound
+    }
+
+    @inline(__always)
+    var requiresDecoding: Bool {
+        packedUpperBound < 0
+    }
+
+    @inline(__always)
+    private var upperBound: Int {
+        requiresDecoding
+            ? ~packedUpperBound
+            : packedUpperBound
+    }
 }
 
 internal enum RouteParameterRanges: Sendable {
