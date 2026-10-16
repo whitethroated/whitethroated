@@ -480,6 +480,20 @@ final class CoreBenchmarkTests: XCTestCase {
                 Response.text("Hello, World!")
             )
         }
+        futureApp.get(
+            "/future-general"
+        ) { _, context in
+            context.eventLoop.makeSucceededFuture(
+                Response.text("Hello, World!")
+            )
+        }
+
+        var futureGeneralHead =
+            makeHead("/future-general")
+        futureGeneralHead.headers.add(
+            name: "transfer-encoding",
+            value: "chunked"
+        )
 
         let conditionalApp = Application()
         let conditionalTag =
@@ -673,6 +687,21 @@ final class CoreBenchmarkTests: XCTestCase {
             app: futureApp,
             head: makeHead("/future"),
             expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "future-general",
+            app: futureApp,
+            head: futureGeneralHead,
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkFutureLifecycleVariants(
+            app: futureApp,
+            shortcutHead: makeHead("/future"),
+            generalHead: futureGeneralHead,
             iterations: iterations
         )
 
@@ -1241,6 +1270,132 @@ final class CoreBenchmarkTests: XCTestCase {
                 for _ in 0..<iterations {
                     try writeAndDrain(
                         head: head,
+                        expectedParts: 3,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted =
+                samples[index].sorted()
+            let middle =
+                sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+            let operationsPerSecond =
+                1_000_000_000 / median
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    operationsPerSecond,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
+    }
+
+    private struct FutureLifecycleTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+        let head: HTTPRequestHead
+    }
+
+    private func benchmarkFutureLifecycleVariants(
+        app: Application,
+        shortcutHead: HTTPRequestHead,
+        generalHead: HTTPRequestHead,
+        iterations: Int
+    ) throws {
+        let cases = [
+            FutureLifecycleTransportCase(
+                name: "future-head",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: app
+                    )
+                ),
+                head: shortcutHead
+            ),
+            FutureLifecycleTransportCase(
+                name: "future-general",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: app
+                    )
+                ),
+                head: generalHead
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: benchmarkCase.head,
+                    expectedParts: 3,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: benchmarkCase.head,
                         expectedParts: 3,
                         channel: benchmarkCase.channel,
                         checksum: &checksum
