@@ -571,3 +571,6 @@ Bodyless future routes bypass the Application/ResponderResult bridge after routi
 
 
 When a canonical short HTTP/1.1 response head is available, the dynamic writer decides that before materializing mutable response headers. The persistent HTTP/1.1 fast path therefore skips the otherwise-unused HTTPHeaders value copy plus framing and connection normalization branches.
+
+
+Repeated EventLoopFuture routes retain their resolved handler and parameter metadata beside the generic route cache. On an exact method+URI hit, bodyless requests invoke that cached handler directly with the per-connection Context, avoiding RouterMatch extraction as well as the Application/ResponderResult bridge. URI or method changes refresh or clear the side cache before dispatch.

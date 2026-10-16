@@ -7,6 +7,12 @@ private struct CachedSynchronousRoute {
     let parameterRanges: RouteParameterRanges
 }
 
+private struct CachedAsynchronousRoute {
+    let handler: Handler
+    let parameterNames: RouteParameterNames
+    let parameterRanges: RouteParameterRanges
+}
+
 final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
@@ -38,6 +44,8 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         PreparedResponseStorage?
     private var cachedSynchronousRoute:
         CachedSynchronousRoute?
+    private var cachedAsynchronousRoute:
+        CachedAsynchronousRoute?
     private var cachedRequestContext: Context?
 
     private var streamingStart: StreamingTransportStart?
@@ -162,6 +170,34 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                 )
                 return
             }
+
+            if let cachedAsynchronousRoute {
+                let request = Request(
+                    head: head,
+                    body: emptyBody,
+                    routeParameterNames:
+                        cachedAsynchronousRoute
+                            .parameterNames,
+                    routeParameterRanges:
+                        cachedAsynchronousRoute
+                            .parameterRanges
+                )
+
+                write(
+                    cachedAsynchronousRoute.handler(
+                        request,
+                        cachedContext(
+                            for: context
+                        )
+                    ),
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: .http1_1,
+                    keepAlive: true,
+                    context: context
+                )
+                return
+            }
         }
 
         let hasStreamingRouteForRequest =
@@ -226,6 +262,37 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     write(
                         cachedSynchronousRoute
                             .handler(request),
+                        isHeadRequest:
+                            head.method == .HEAD,
+                        version: head.version,
+                        keepAlive: keepAlive,
+                        context: context
+                    )
+                    return
+                }
+
+                if let cachedAsynchronousRoute {
+                    let keepAlive =
+                        hasMinimalHTTP11Headers
+                        || requestIsKeepAlive(head)
+                    let request = Request(
+                        head: head,
+                        body: emptyBody,
+                        routeParameterNames:
+                            cachedAsynchronousRoute
+                                .parameterNames,
+                        routeParameterRanges:
+                            cachedAsynchronousRoute
+                                .parameterRanges
+                    )
+
+                    write(
+                        cachedAsynchronousRoute.handler(
+                            request,
+                            cachedContext(
+                                for: context
+                            )
+                        ),
                         isHeadRequest:
                             head.method == .HEAD,
                         version: head.version,
@@ -1297,6 +1364,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         case .prepared(let storage):
             cachedPreparedStorage = storage
             cachedSynchronousRoute = nil
+            cachedAsynchronousRoute = nil
 
         case .synchronous(
             let handler,
@@ -1310,10 +1378,26 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     parameterNames: parameterNames,
                     parameterRanges: parameterRanges
                 )
+            cachedAsynchronousRoute = nil
+
+        case .asynchronous(
+            let handler,
+            let parameterNames,
+            let parameterRanges
+        ):
+            cachedPreparedStorage = nil
+            cachedSynchronousRoute = nil
+            cachedAsynchronousRoute =
+                CachedAsynchronousRoute(
+                    handler: handler,
+                    parameterNames: parameterNames,
+                    parameterRanges: parameterRanges
+                )
 
         default:
             cachedPreparedStorage = nil
             cachedSynchronousRoute = nil
+            cachedAsynchronousRoute = nil
         }
 
         return match
