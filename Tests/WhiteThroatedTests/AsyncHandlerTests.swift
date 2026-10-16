@@ -3,11 +3,18 @@ import XCTest
 import NIOCore
 import NIOEmbedded
 import NIOHTTP1
+import NIOPosix
 
 final class AsyncHandlerTests: XCTestCase {
     func testAsyncAwaitRouteReturnsFuturePath() throws {
         let app = Application()
-        let loop = EmbeddedEventLoop()
+        let group = MultiThreadedEventLoopGroup(
+            numberOfThreads: 1
+        )
+        defer {
+            try? group.syncShutdownGracefully()
+        }
+        let loop = group.next()
 
         app.get("/async") { request async throws in
             .text("async:" + request.path)
@@ -44,7 +51,13 @@ final class AsyncHandlerTests: XCTestCase {
         }
 
         let app = Application()
-        let loop = EmbeddedEventLoop()
+        let group = MultiThreadedEventLoopGroup(
+            numberOfThreads: 1
+        )
+        defer {
+            try? group.syncShutdownGracefully()
+        }
+        let loop = group.next()
 
         app.get("/async") { _ async throws -> Response in
             throw TestError.failed
@@ -71,7 +84,13 @@ final class AsyncHandlerTests: XCTestCase {
 
     func testAsyncAwaitGroupRoute() throws {
         let app = Application()
-        let loop = EmbeddedEventLoop()
+        let group = MultiThreadedEventLoopGroup(
+            numberOfThreads: 1
+        )
+        defer {
+            try? group.syncShutdownGracefully()
+        }
+        let loop = group.next()
         let api = app.group("/api")
 
         api.post("/jobs") { _ async throws in
