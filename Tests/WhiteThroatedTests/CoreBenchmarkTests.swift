@@ -371,13 +371,16 @@ final class CoreBenchmarkTests: XCTestCase {
             .text("Hello, World!")
         }
 
-        var sharedTextBuffer =
-            ByteBufferAllocator().buffer(
-                capacity: 13
+        let sharedTextBuffer: ByteBuffer = {
+            var buffer =
+                ByteBufferAllocator().buffer(
+                    capacity: 13
+                )
+            buffer.writeString(
+                "Hello, World!"
             )
-        sharedTextBuffer.writeString(
-            "Hello, World!"
-        )
+            return buffer
+        }()
 
         let syncBufferApp = Application()
         syncBufferApp.get("/buffer") { _ in
