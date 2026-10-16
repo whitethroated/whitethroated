@@ -368,3 +368,6 @@ The most informative order is:
 11. External Actix comparison after the Swift-side overhead is understood.
 
 No performance number should be published without its environment, command, raw samples, and commit SHA.
+
+
+The raw SwiftNIO network control recognizes the same minimal HTTP/1.1 request shape as WhiteThroated: no headers or a single case-insensitive Host header implies an empty body and persistent connection. This avoids giving WhiteThroated an artificial advantage from framing/header scans that the raw lower bound can also eliminate.
