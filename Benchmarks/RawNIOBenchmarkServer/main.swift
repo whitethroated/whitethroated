@@ -61,9 +61,21 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     ) {
         switch unwrapInboundIn(data) {
         case .head(let head):
-            if requestBodyIsDefinitelyEmpty(head) {
+            let minimalHTTP11 =
+                requestHasMinimalHTTP11Headers(
+                    head
+                )
+
+            if
+                minimalHTTP11
+                || requestBodyIsDefinitelyEmpty(
+                    head
+                )
+            {
                 writeResponse(
                     requestHead: head,
+                    minimalHTTP11:
+                        minimalHTTP11,
                     context: context
                 )
             } else {
@@ -80,6 +92,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
 
             writeResponse(
                 requestHead: requestHead,
+                minimalHTTP11: false,
                 context: context
             )
             self.requestHead = nil
@@ -89,6 +102,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     @inline(__always)
     private func writeResponse(
         requestHead: HTTPRequestHead,
+        minimalHTTP11: Bool,
         context: ChannelHandlerContext
     ) {
         switch requestHead.method {
@@ -96,6 +110,8 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             if requestHead.uri == "/prepared" {
                 writePlaintext(
                     requestHead: requestHead,
+                    minimalHTTP11:
+                        minimalHTTP11,
                     context: context
                 )
                 return
@@ -104,6 +120,8 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             if requestHead.uri == "/" {
                 writeEmptyOK(
                     requestHead: requestHead,
+                    minimalHTTP11:
+                        minimalHTTP11,
                     context: context
                 )
                 return
@@ -112,6 +130,8 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             if requestHead.uri.hasPrefix("/user/") {
                 writeUserParameter(
                     requestHead: requestHead,
+                    minimalHTTP11:
+                        minimalHTTP11,
                     context: context
                 )
                 return
@@ -132,8 +152,79 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
 
         writeNotFound(
             requestHead: requestHead,
+            minimalHTTP11:
+                minimalHTTP11,
             context: context
         )
+    }
+
+    @inline(__always)
+    private func requestHasMinimalHTTP11Headers(
+        _ head: HTTPRequestHead
+    ) -> Bool {
+        guard head.version == .http1_1 else {
+            return false
+        }
+
+        switch head.headers.count {
+        case 0:
+            return true
+
+        case 1:
+            guard let header = head.headers.first else {
+                return false
+            }
+
+            return isHostHeaderName(
+                header.name
+            )
+
+        default:
+            return false
+        }
+    }
+
+    @inline(__always)
+    private func isHostHeaderName(
+        _ name: String
+    ) -> Bool {
+        let bytes = name.utf8
+
+        guard bytes.count == 4 else {
+            return false
+        }
+
+        var index = bytes.startIndex
+        let h = foldedASCIILowercase(
+            bytes[index]
+        )
+        bytes.formIndex(after: &index)
+        let o = foldedASCIILowercase(
+            bytes[index]
+        )
+        bytes.formIndex(after: &index)
+        let s = foldedASCIILowercase(
+            bytes[index]
+        )
+        bytes.formIndex(after: &index)
+        let t = foldedASCIILowercase(
+            bytes[index]
+        )
+
+        return
+            h == 104
+            && o == 111
+            && s == 115
+            && t == 116
+    }
+
+    @inline(__always)
+    private func foldedASCIILowercase(
+        _ byte: UInt8
+    ) -> UInt8 {
+        byte >= 65 && byte <= 90
+            ? byte + 32
+            : byte
     }
 
     @inline(__always)
@@ -173,8 +264,25 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     @inline(__always)
     private func writePlaintext(
         requestHead: HTTPRequestHead,
+        minimalHTTP11: Bool,
         context: ChannelHandlerContext
     ) {
+        if minimalHTTP11 {
+            context.write(
+                wrapOutboundOut(.head(http11Head)),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(.body(.byteBuffer(body))),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
+
         if
             requestHead.version == .http1_1,
             requestIsKeepAlive(requestHead)
@@ -231,10 +339,14 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     @inline(__always)
     private func writeEmptyOK(
         requestHead: HTTPRequestHead,
+        minimalHTTP11: Bool,
         context: ChannelHandlerContext
     ) {
         let keepAlive =
-            requestIsKeepAlive(requestHead)
+            minimalHTTP11
+            || requestIsKeepAlive(
+                requestHead
+            )
 
         if
             requestHead.version == .http1_1,
@@ -288,6 +400,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     @inline(__always)
     private func writeUserParameter(
         requestHead: HTTPRequestHead,
+        minimalHTTP11: Bool,
         context: ChannelHandlerContext
     ) {
         let prefixLength = 6
@@ -336,7 +449,10 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         )
 
         let keepAlive =
-            requestIsKeepAlive(requestHead)
+            minimalHTTP11
+            || requestIsKeepAlive(
+                requestHead
+            )
 
         if !keepAlive {
             headers.replaceOrAdd(
@@ -378,6 +494,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
 
     private func writeNotFound(
         requestHead: HTTPRequestHead,
+        minimalHTTP11: Bool,
         context: ChannelHandlerContext
     ) {
         var headers = HTTPHeaders()
@@ -386,7 +503,13 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             value: "0"
         )
 
-        if !requestIsKeepAlive(requestHead) {
+        let keepAlive =
+            minimalHTTP11
+            || requestIsKeepAlive(
+                requestHead
+            )
+
+        if !keepAlive {
             headers.add(
                 name: "connection",
                 value: "close"
@@ -404,7 +527,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             promise: nil
         )
         finish(
-            keepAlive: requestIsKeepAlive(requestHead),
+            keepAlive: keepAlive,
             context: context
         )
     }
