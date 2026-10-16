@@ -544,3 +544,6 @@ Dynamic response factories seed Content-Length when the body size is known and m
 
 
 The fluent `Response.header(...)` helper consumes its temporary Response value before mutating headers. Swift can therefore preserve unique HTTPHeaders storage for chained response construction, while Copyable value semantics remain unchanged when callers reuse the original response.
+
+
+For the common dynamic HTTP/1.1 200 path, each channel handler owns a cached `HTTPResponseHead` template and replaces only its headers per request. SwiftNIO stores response status/version in reference-backed private storage, so this avoids allocating that storage for every successful HTTP/1.1 response while non-200 and non-HTTP/1.1 responses keep the general constructor path.

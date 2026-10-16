@@ -194,6 +194,39 @@ final class HTTPServerHandlerTests: XCTestCase {
         XCTAssertFalse(channel.isActive)
     }
 
+    func testDynamicNonOKResponseKeepsStatus() throws {
+        let app = Application()
+
+        app.get("/created") { _ in
+            .text(
+                "created",
+                status: .created
+            )
+        }
+
+        let channel = try makeChannel(app)
+
+        try sendGet(
+            "/created",
+            to: channel
+        )
+
+        guard case .head(let head)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected response head"
+            )
+        }
+
+        XCTAssertEqual(
+            head.status,
+            .created
+        )
+    }
+
     func testHTTP10KeepAliveIsEchoed() throws {
         let app = Application()
 

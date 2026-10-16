@@ -11,6 +11,11 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     private let emptyBody = ByteBufferAllocator().buffer(
         capacity: 0
     )
+    private let http11OKHeadTemplate =
+        HTTPResponseHead(
+            version: .http1_1,
+            status: .ok
+        )
 
     private var requestHead: HTTPRequestHead?
     private var requestBody: ByteBuffer?
@@ -1084,11 +1089,23 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             )
         }
 
-        let head = HTTPResponseHead(
-            version: version,
-            status: response.status,
-            headers: headers
-        )
+        let head: HTTPResponseHead
+
+        if
+            version == .http1_1,
+            response.status == .ok
+        {
+            var cachedHead =
+                http11OKHeadTemplate
+            cachedHead.headers = headers
+            head = cachedHead
+        } else {
+            head = HTTPResponseHead(
+                version: version,
+                status: response.status,
+                headers: headers
+            )
+        }
 
         context.write(
             wrapOutboundOut(.head(head)),
