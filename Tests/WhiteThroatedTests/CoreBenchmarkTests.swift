@@ -666,11 +666,24 @@ final class CoreBenchmarkTests: XCTestCase {
             iterations: iterations
         )
 
+        try benchmarkRawParameterTransport(
+            name: "raw-param-writer",
+            head: makeHead("/user/42"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
         try benchmarkTransport(
             name: "sync-param-writer",
             app: dynamicParameterApp,
             head: makeHead("/user/42"),
             expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkParameterTransportVariants(
+            app: dynamicParameterApp,
+            head: makeHead("/user/42"),
             iterations: iterations
         )
 
@@ -869,6 +882,143 @@ final class CoreBenchmarkTests: XCTestCase {
                 operationsPerSecond,
             checksum: checksum
         )
+    }
+
+    private func benchmarkRawParameterTransport(
+        name: String,
+        head: HTTPRequestHead,
+        expectedParts: Int,
+        iterations: Int
+    ) throws {
+        let channel = EmbeddedChannel(
+            handler:
+                RawParameterTransportBenchmarkHandler()
+        )
+
+        try benchmarkTransportChannel(
+            name: name,
+            channel: channel,
+            head: head,
+            expectedParts: expectedParts,
+            iterations: iterations
+        )
+    }
+
+    private struct ParameterTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+    }
+
+    private func benchmarkParameterTransportVariants(
+        app: Application,
+        head: HTTPRequestHead,
+        iterations: Int
+    ) throws {
+        let cases = [
+            ParameterTransportCase(
+                name: "param-raw",
+                channel: EmbeddedChannel(
+                    handler:
+                        RawParameterTransportBenchmarkHandler()
+                )
+            ),
+            ParameterTransportCase(
+                name: "param-framework",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: app
+                    )
+                )
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: head,
+                    expectedParts: 3,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: head,
+                        expectedParts: 3,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted = samples[index].sorted()
+            let middle = sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    1_000_000_000 / median,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
     }
 
     private func benchmarkRawTransport(
@@ -2497,6 +2647,82 @@ private final class DirectPreparedTransportBenchmarkHandler:
                 )
             }
 
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+
+        case .body, .end:
+            break
+        }
+    }
+}
+
+private final class RawParameterTransportBenchmarkHandler:
+    ChannelInboundHandler,
+    @unchecked Sendable
+{
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    func channelRead(
+        context: ChannelHandlerContext,
+        data: NIOAny
+    ) {
+        switch unwrapInboundIn(data) {
+        case .head(let head):
+            let bytes = head.uri.utf8
+            let prefixLength = 6
+
+            guard bytes.count > prefixLength else {
+                preconditionFailure(
+                    "Raw parameter benchmark expected /user/:id"
+                )
+            }
+
+            let start = bytes.index(
+                bytes.startIndex,
+                offsetBy: prefixLength
+            )
+            let parameter = bytes[start...]
+
+            var body =
+                context.channel.allocator.buffer(
+                    capacity: parameter.count
+                )
+            body.writeBytes(parameter)
+
+            var headers = HTTPHeaders()
+            headers.add(
+                name: "content-type",
+                value: "text/plain; charset=utf-8"
+            )
+            headers.add(
+                name: "content-length",
+                value: String(
+                    body.readableBytes
+                )
+            )
+
+            let responseHead =
+                HTTPResponseHead(
+                    version: .http1_1,
+                    status: .ok,
+                    headers: headers
+                )
+
+            context.write(
+                wrapOutboundOut(
+                    .head(responseHead)
+                ),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(
+                    .body(.byteBuffer(body))
+                ),
+                promise: nil
+            )
             context.writeAndFlush(
                 wrapOutboundOut(.end(nil)),
                 promise: nil
