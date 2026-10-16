@@ -127,12 +127,13 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             canDispatchBodylessOnHead
         {
             let match = lookupTransportCached(head)
-            let keepAlive =
-                hasMinimalHTTP11Headers
-                || requestIsKeepAlive(head)
 
             switch match {
             case .prepared(let storage):
+                let keepAlive =
+                    hasMinimalHTTP11Headers
+                    || requestIsKeepAlive(head)
+
                 writePrepared(
                     storage,
                     isHeadRequest:
@@ -148,6 +149,9 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                 let response,
                 let notModified
             ):
+                let keepAlive =
+                    hasMinimalHTTP11Headers
+                    || requestIsKeepAlive(head)
                 let storage =
                     IfNoneMatchMatcher.matches(
                         headers: head.headers,
@@ -171,6 +175,9 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                 let parameterNames,
                 let parameterRanges
             ):
+                let keepAlive =
+                    hasMinimalHTTP11Headers
+                    || requestIsKeepAlive(head)
                 let request = Request(
                     head: head,
                     body: emptyBody,
@@ -191,6 +198,10 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                 return
 
             case .notFound:
+                let keepAlive =
+                    hasMinimalHTTP11Headers
+                    || requestIsKeepAlive(head)
+
                 writePrepared(
                     PreparedResponse
                         .defaultNotFoundStorage,
