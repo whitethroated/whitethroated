@@ -354,13 +354,64 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             return true
 
         case 1:
-            return head.headers.first(
-                name: "host"
-            ) != nil
+            guard let header = head.headers.first else {
+                return false
+            }
+
+            return isHostHeaderName(
+                header.name
+            )
 
         default:
             return false
         }
+    }
+
+    @inline(__always)
+    private func isHostHeaderName(
+        _ name: String
+    ) -> Bool {
+        let bytes = name.utf8
+
+        guard bytes.count == 4 else {
+            return false
+        }
+
+        var index = bytes.startIndex
+
+        let h = foldedASCIILowercase(
+            bytes[index]
+        )
+        bytes.formIndex(after: &index)
+
+        let o = foldedASCIILowercase(
+            bytes[index]
+        )
+        bytes.formIndex(after: &index)
+
+        let s = foldedASCIILowercase(
+            bytes[index]
+        )
+        bytes.formIndex(after: &index)
+
+        let t = foldedASCIILowercase(
+            bytes[index]
+        )
+
+        return
+            h == 104
+            && o == 111
+            && s == 115
+            && t == 116
+    }
+
+    @inline(__always)
+    private func foldedASCIILowercase(
+        _ byte: UInt8
+    ) -> UInt8 {
+        byte >= 65 && byte <= 90
+            ? byte + 32
+            : byte
     }
 
     @inline(__always)
