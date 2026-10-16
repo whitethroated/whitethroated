@@ -580,3 +580,6 @@ Canonical short-response metadata also exposes the already-computed UTF-8 byte l
 
 
 Synchronous minimal HTTP/1.1 routes try the canonical short-text writer immediately after the handler returns. This skips generic bodyless-status, response-stream, protocol-version, and connection-framing dispatch for the common Response.text/html/json 200 path. Any noncanonical response falls back to the unchanged generic writer.
+
+
+ResponseStreamWriter string helpers perform the event-loop precondition once before encoding and then use internal checked write helpers. This removes the duplicate inEventLoop branch that previously occurred when writeString delegated back through the public write/writeAndFlush entry points, while preserving content-length tracking and future semantics.

@@ -133,26 +133,7 @@ public struct ResponseStreamWriter: @unchecked Sendable {
         _ buffer: ByteBuffer
     ) -> EventLoopFuture<Void> {
         requireEventLoop()
-
-        if let failure = record(
-            buffer.readableBytes
-        ) {
-            return context.eventLoop.makeFailedFuture(
-                failure
-            )
-        }
-
-        context.write(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .byteBuffer(buffer)
-                )
-            ),
-            promise: nil
-        )
-
-        return context.eventLoop
-            .makeSucceededVoidFuture()
+        return writeChecked(buffer)
     }
 
     @discardableResult
@@ -194,7 +175,7 @@ public struct ResponseStreamWriter: @unchecked Sendable {
             )
         buffer.writeString(value)
 
-        return write(buffer)
+        return writeChecked(buffer)
     }
 
     @discardableResult
@@ -202,22 +183,7 @@ public struct ResponseStreamWriter: @unchecked Sendable {
         _ buffer: ByteBuffer
     ) -> EventLoopFuture<Void> {
         requireEventLoop()
-
-        if let failure = record(
-            buffer.readableBytes
-        ) {
-            return context.eventLoop.makeFailedFuture(
-                failure
-            )
-        }
-
-        return context.writeAndFlush(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .byteBuffer(buffer)
-                )
-            )
-        )
+        return writeAndFlushChecked(buffer)
     }
 
     @discardableResult
@@ -255,12 +221,58 @@ public struct ResponseStreamWriter: @unchecked Sendable {
             )
         buffer.writeString(value)
 
-        return writeAndFlush(buffer)
+        return writeAndFlushChecked(buffer)
     }
 
     public func flush() {
         requireEventLoop()
         context.flush()
+    }
+
+    @inline(__always)
+    private func writeChecked(
+        _ buffer: ByteBuffer
+    ) -> EventLoopFuture<Void> {
+        if let failure = record(
+            buffer.readableBytes
+        ) {
+            return context.eventLoop.makeFailedFuture(
+                failure
+            )
+        }
+
+        context.write(
+            NIOAny(
+                HTTPServerResponsePart.body(
+                    .byteBuffer(buffer)
+                )
+            ),
+            promise: nil
+        )
+
+        return context.eventLoop
+            .makeSucceededVoidFuture()
+    }
+
+    @inline(__always)
+    private func writeAndFlushChecked(
+        _ buffer: ByteBuffer
+    ) -> EventLoopFuture<Void> {
+        if let failure = record(
+            buffer.readableBytes
+        ) {
+            return context.eventLoop.makeFailedFuture(
+                failure
+            )
+        }
+
+        return context.writeAndFlush(
+            NIOAny(
+                HTTPServerResponsePart.body(
+                    .byteBuffer(buffer)
+                )
+            )
+        )
     }
 
     @inline(__always)
