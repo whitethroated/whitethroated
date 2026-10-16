@@ -27,6 +27,8 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     private var cachedRouteMethod: NIOHTTP1.HTTPMethod?
     private var cachedRouteURI: String?
     private var cachedRouteMatch: RouterMatch?
+    private var cachedPreparedStorage:
+        PreparedResponseStorage?
 
     private var streamingStart: StreamingTransportStart?
     private var streamingPendingChunks =
@@ -126,6 +128,26 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             !hasStreamingRouteForRequest,
             canDispatchBodylessOnHead
         {
+            if
+                cachedRouteMethod == head.method,
+                cachedRouteURI == head.uri,
+                let cachedPreparedStorage
+            {
+                let keepAlive =
+                    hasMinimalHTTP11Headers
+                    || requestIsKeepAlive(head)
+
+                writePrepared(
+                    cachedPreparedStorage,
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: head.version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+                return
+            }
+
             let match = lookupTransportCached(head)
 
             switch match {
@@ -1088,6 +1110,12 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         cachedRouteMethod = head.method
         cachedRouteURI = head.uri
         cachedRouteMatch = match
+
+        if case .prepared(let storage) = match {
+            cachedPreparedStorage = storage
+        } else {
+            cachedPreparedStorage = nil
+        }
 
         return match
     }
