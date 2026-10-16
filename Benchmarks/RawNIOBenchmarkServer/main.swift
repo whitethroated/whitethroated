@@ -179,13 +179,13 @@ private final class RawBenchmarkHandler: ChannelInboundHandler {
 }
 
 let environment = ProcessInfo.processInfo.environment
-let host = environment["HUDHUD_HOST"] ?? "127.0.0.1"
+let host = environment["WHITETHROATED_HOST"] ?? "127.0.0.1"
 let port = Int(
-    environment["HUDHUD_PORT"] ?? "3000"
+    environment["WHITETHROATED_PORT"] ?? "3000"
 ) ?? 3000
 
 let eventLoopThreads = Int(
-    environment["HUDHUD_THREADS"] ?? ""
+    environment["WHITETHROATED_THREADS"] ?? ""
 ) ?? System.coreCount
 
 let group = MultiThreadedEventLoopGroup(
