@@ -26,6 +26,18 @@ jobs:
       - name: Test release build
         run: swift test -c release
 
+      - name: Smoke diagnostic benchmark harness
+        env:
+          WHITETHROATED_CORE_BENCHMARK: "1"
+          WHITETHROATED_CORE_ITERATIONS: "10000"
+          WHITETHROATED_ROUTER_CORE_BENCHMARK: "1"
+          WHITETHROATED_ROUTER_CORE_ITERATIONS: "10000"
+          WHITETHROATED_MIDDLEWARE_BENCHMARK: "1"
+          WHITETHROATED_MIDDLEWARE_ITERATIONS: "10000"
+          WHITETHROATED_TRANSPORT_BENCHMARK: "1"
+          WHITETHROATED_TRANSPORT_ITERATIONS: "1000"
+        run: swift test -c release --filter CoreBenchmarkTests
+
       - name: Build example
         run: swift build -c release --product whitethroated-example
 
