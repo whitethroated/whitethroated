@@ -100,18 +100,42 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         _ head: HTTPRequestHead,
         context: ChannelHandlerContext
     ) {
+        let hasStreamingRouteForRequest =
+            hasStreamingRoutes
+            && application.hasStreamingRoute(
+                for: head.method
+            )
+
+        var transportMatch: RouterMatch?
+
+        if
+            !application.hasMiddleware,
+            !hasStreamingRouteForRequest,
+            head.headers.first(name: "expect") == nil,
+            requestBodyIsDefinitelyEmpty(head)
+        {
+            let match = lookupTransportCached(head)
+            transportMatch = match
+
+            if case .prepared(let storage) = match {
+                writePrepared(
+                    storage,
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: head.version,
+                    keepAlive: head.isKeepAlive,
+                    context: context
+                )
+                return
+            }
+        }
+
         requestHead = head
         requestBody = nil
         receivedBodyBytes = 0
         requestBodyTooLarge = false
         preResolvedMatch = nil
         rejectingRequestEarly = false
-
-        let hasStreamingRouteForRequest =
-            hasStreamingRoutes
-            && application.hasStreamingRoute(
-                for: head.method
-            )
 
         if hasStreamingRouteForRequest {
             streamingStart = nil
@@ -122,8 +146,6 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             )
             streamingChunkFuture = nil
         }
-
-        var transportMatch: RouterMatch?
 
         if hasStreamingRouteForRequest {
             let match = lookupTransportCached(
