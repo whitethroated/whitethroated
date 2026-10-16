@@ -217,7 +217,9 @@ WHITETHROATED_THREADS=4 \
 swift run -c release raw-nio-benchmark-server
 ```
 
-The control serves `/plaintext` with the same `Hello, World!` payload, content type, content length, fixed Date header, HTTP/1.1 pipeline, and pipelining assistance used by WhiteThroated's prepared baseline.
+The control is intentionally a transport lower bound rather than a router benchmark: every GET path returns the same fixed `Hello, World!` response. Its payload, content type, content length, fixed Date header, HTTP/1.1 pipeline, socket options, and pipelining assistance match WhiteThroated's prepared baseline.
+
+Always send the exact same request target to both processes. For example, compare raw SwiftNIO `/prepared` against WhiteThroated `/prepared`, then raw SwiftNIO `/plaintext` against WhiteThroated `/plaintext`. This keeps URI bytes identical while making the raw control a strict lower bound that does no framework routing.
 
 Use the same host, worker count, load-generator threads, connections, duration, warm-up, and HTTP version for both runs.
 

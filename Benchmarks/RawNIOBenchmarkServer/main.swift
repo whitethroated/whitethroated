@@ -54,10 +54,7 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
                 return
             }
 
-            if
-                requestHead.method == .GET,
-                requestHead.uri == "/plaintext"
-            {
+            if requestHead.method == .GET {
                 writePlaintext(
                     requestHead: requestHead,
                     context: context
