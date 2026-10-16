@@ -401,7 +401,7 @@ for connection in connections {
     connection.start()
 }
 
-var results: [BenchmarkConnectionResult] = []
+private var results: [BenchmarkConnectionResult] = []
 results.reserveCapacity(
     connections.count
 )
