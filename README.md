@@ -843,8 +843,9 @@ See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.
 
 1. Run the repeated WhiteThroated-to-raw-NIO suite on pinned hardware and record median/p99 deltas.
 2. Run the core dispatch and writer benchmarks before changing NIO response-part boxing.
-3. Profile ARC retain/release traffic for prepared, synchronous, dynamic-parameter, async/await, and streaming routes.
-4. Quantify route depth/fan-out and middleware scaling with the committed matrices.
-5. Measure aggregated versus streaming uploads with both throughput and peak-RSS runners.
-6. Measure known-length, chunked, and flush-heavy response streams independently.
-7. Compare the pinned Actix Web control only after WhiteThroated's raw-NIO framework overhead is measured and explained.
+3. Measure `/plaintext`, `/future`, and `/concurrent` with identical network load to separate synchronous dispatch, NIO-future handling, and Swift concurrency bridge overhead.
+4. Profile ARC retain/release traffic for prepared, synchronous, dynamic-parameter, future-based, async/await, and streaming routes.
+5. Quantify route depth/fan-out and middleware scaling with the committed matrices.
+6. Measure aggregated versus streaming uploads with both throughput and peak-RSS runners.
+7. Measure known-length, chunked, and flush-heavy response streams independently.
+8. Compare the pinned Actix Web control only after WhiteThroated's raw-NIO framework overhead is measured and explained.
