@@ -480,6 +480,13 @@ final class CoreBenchmarkTests: XCTestCase {
             iterations: iterations
         )
 
+        try benchmarkRawDynamicHeadTransport(
+            name: "raw-dynamic-head",
+            head: makeHead("/prepared"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
         try benchmarkDirectPreparedTransport(
             name: "direct-prepared",
             app: preparedApp,
@@ -765,6 +772,26 @@ final class CoreBenchmarkTests: XCTestCase {
     ) throws {
         let channel = EmbeddedChannel(
             handler: RawTransportBenchmarkHandler()
+        )
+
+        try benchmarkTransportChannel(
+            name: name,
+            channel: channel,
+            head: head,
+            expectedParts: expectedParts,
+            iterations: iterations
+        )
+    }
+
+    private func benchmarkRawDynamicHeadTransport(
+        name: String,
+        head: HTTPRequestHead,
+        expectedParts: Int,
+        iterations: Int
+    ) throws {
+        let channel = EmbeddedChannel(
+            handler:
+                RawDynamicHeadTransportBenchmarkHandler()
         )
 
         try benchmarkTransportChannel(
@@ -1343,6 +1370,72 @@ private final class DirectPreparedTransportBenchmarkHandler:
             )
 
             requestHead = nil
+        }
+    }
+}
+
+private final class RawDynamicHeadTransportBenchmarkHandler:
+    ChannelInboundHandler,
+    @unchecked Sendable
+{
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    private let headers: HTTPHeaders
+    private let body: ByteBuffer
+
+    init() {
+        var body =
+            ByteBufferAllocator().buffer(
+                capacity: 13
+            )
+        body.writeString("Hello, World!")
+        self.body = body
+
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "content-type",
+            value: "text/plain; charset=utf-8"
+        )
+        headers.add(
+            name: "content-length",
+            value: "13"
+        )
+        self.headers = headers
+    }
+
+    func channelRead(
+        context: ChannelHandlerContext,
+        data: NIOAny
+    ) {
+        switch unwrapInboundIn(data) {
+        case .head, .body:
+            break
+
+        case .end:
+            let responseHead =
+                HTTPResponseHead(
+                    version: .http1_1,
+                    status: .ok,
+                    headers: headers
+                )
+
+            context.write(
+                wrapOutboundOut(
+                    .head(responseHead)
+                ),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(
+                    .body(.byteBuffer(body))
+                ),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
         }
     }
 }
