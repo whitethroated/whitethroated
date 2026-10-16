@@ -108,14 +108,26 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
 
         var transportMatch: RouterMatch?
 
+        let hasMinimalHTTP11Headers =
+            requestHasMinimalHTTP11Headers(head)
+
+        let canDispatchBodylessOnHead =
+            hasMinimalHTTP11Headers
+            || (
+                head.headers.first(name: "expect") == nil
+                && requestBodyIsDefinitelyEmpty(head)
+            )
+
         if
             !application.hasMiddleware,
             !hasStreamingRouteForRequest,
-            head.headers.first(name: "expect") == nil,
-            requestBodyIsDefinitelyEmpty(head)
+            canDispatchBodylessOnHead
         {
             let match = lookupTransportCached(head)
             transportMatch = match
+            let keepAlive =
+                hasMinimalHTTP11Headers
+                || requestIsKeepAlive(head)
 
             switch match {
             case .prepared(let storage):
@@ -124,7 +136,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     isHeadRequest:
                         head.method == .HEAD,
                     version: head.version,
-                    keepAlive: requestIsKeepAlive(head),
+                    keepAlive: keepAlive,
                     context: context
                 )
                 return
@@ -147,7 +159,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     isHeadRequest:
                         head.method == .HEAD,
                     version: head.version,
-                    keepAlive: requestIsKeepAlive(head),
+                    keepAlive: keepAlive,
                     context: context
                 )
                 return
@@ -171,7 +183,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     isHeadRequest:
                         head.method == .HEAD,
                     version: head.version,
-                    keepAlive: requestIsKeepAlive(head),
+                    keepAlive: keepAlive,
                     context: context
                 )
                 return
@@ -183,7 +195,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     isHeadRequest:
                         head.method == .HEAD,
                     version: head.version,
-                    keepAlive: requestIsKeepAlive(head),
+                    keepAlive: keepAlive,
                     context: context
                 )
                 return
@@ -310,10 +322,32 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             result,
             isHeadRequest: head.method == .HEAD,
             version: head.version,
-            keepAlive: requestIsKeepAlive(head),
+            keepAlive: keepAlive,
             context: context
         )
         resetRequestState()
+    }
+
+    @inline(__always)
+    private func requestHasMinimalHTTP11Headers(
+        _ head: HTTPRequestHead
+    ) -> Bool {
+        guard head.version == .http1_1 else {
+            return false
+        }
+
+        switch head.headers.count {
+        case 0:
+            return true
+
+        case 1:
+            return head.headers.first(
+                name: "host"
+            ) != nil
+
+        default:
+            return false
+        }
     }
 
     @inline(__always)
