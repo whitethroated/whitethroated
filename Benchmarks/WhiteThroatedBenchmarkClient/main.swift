@@ -109,13 +109,13 @@ private enum BenchmarkClientError:
     CustomStringConvertible,
     Sendable
 {
-    case connectionClosed
+    case connectionClosed(completed: Int, target: Int)
     case unexpectedStatus(UInt)
 
     var description: String {
         switch self {
-        case .connectionClosed:
-            return "connection closed before benchmark completion"
+        case .connectionClosed(let completed, let target):
+            return "connection closed after \(completed) of \(target) requests"
 
         case .unexpectedStatus(let status):
             return "unexpected HTTP status \(status)"
@@ -248,7 +248,10 @@ private final class BenchmarkClientHandler:
         }
 
         fail(
-            BenchmarkClientError.connectionClosed,
+            BenchmarkClientError.connectionClosed(
+                completed: completedRequests,
+                target: targetRequests
+            ),
             context: context
         )
     }
