@@ -315,6 +315,8 @@ private final class ExactStaticTable {
     private var slots:
         [ExactStaticSlot?]
     private var occupiedSlots = 0
+    private var minimumPathLength = Int.max
+    private var maximumPathLength = 0
 
     init(initialCapacity: Int = 8) {
         let capacity = Self.powerOfTwoCapacity(
@@ -331,10 +333,27 @@ private final class ExactStaticTable {
         occupiedSlots == 0
     }
 
+    @inline(__always)
+    var registeredPathLengthRange:
+        ClosedRange<Int>
+    {
+        minimumPathLength...maximumPathLength
+    }
+
     func upsert(
         _ edge: ExactStaticEdge,
         hash: UInt64
     ) {
+        let pathLength = edge.bytes.count
+
+        if pathLength < minimumPathLength {
+            minimumPathLength = pathLength
+        }
+
+        if pathLength > maximumPathLength {
+            maximumPathLength = pathLength
+        }
+
         if
             (occupiedSlots + 1) * 4
             >= slots.count * 3
@@ -1354,7 +1373,10 @@ final class Router: @unchecked Sendable {
         bytes: C
     ) -> RouteEndpoint?
     where C.Element == UInt8 {
+        let lengthRange =
+            table.registeredPathLengthRange
         var cursor = bytes.startIndex
+        var pathLength = 0
         var hash = Self.hashOffset
 
         while cursor != bytes.endIndex {
@@ -1364,9 +1386,21 @@ final class Router: @unchecked Sendable {
                 break
             }
 
+            pathLength += 1
+
+            if pathLength > lengthRange.upperBound {
+                return nil
+            }
+
             hash ^= UInt64(byte)
             hash &*= Self.hashPrime
             bytes.formIndex(after: &cursor)
+        }
+
+        guard
+            pathLength >= lengthRange.lowerBound
+        else {
+            return nil
         }
 
         return table.matching(
