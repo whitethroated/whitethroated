@@ -786,28 +786,34 @@ public final class Application: @unchecked Sendable {
                 value: 1
             )
             .childChannelOption(
-                ChannelOptions.socketOption(.tcp_nodelay),
-                value: 1
-            )
-            .childChannelOption(
                 ChannelOptions.socketOption(.so_reuseaddr),
                 value: 1
             )
             .childChannelInitializer { channel in
-                channel.pipeline
-                    .configureHTTPServerPipeline(
-                        withPipeliningAssistance: true,
-                        withErrorHandling: true
-                    )
-                    .flatMap {
-                        channel.pipeline.addHandler(
-                            HTTPServerHandler(
-                                application: self,
-                                maxRequestBodyBytes:
-                                    self.configuration.maxRequestBodyBytes
-                            )
+                channel.setOption(
+                    ChannelOptions.socketOption(.tcp_nodelay),
+                    value: 1
+                )
+                .flatMapError { _ in
+                    channel.eventLoop
+                        .makeSucceededVoidFuture()
+                }
+                .flatMap {
+                    channel.pipeline
+                        .configureHTTPServerPipeline(
+                            withPipeliningAssistance: true,
+                            withErrorHandling: true
                         )
-                    }
+                }
+                .flatMap {
+                    channel.pipeline.addHandler(
+                        HTTPServerHandler(
+                            application: self,
+                            maxRequestBodyBytes:
+                                self.configuration.maxRequestBodyBytes
+                        )
+                    )
+                }
             }
 
         do {
