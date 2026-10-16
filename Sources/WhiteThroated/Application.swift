@@ -1087,7 +1087,7 @@ public final class Application: @unchecked Sendable {
 
 
     private func buildMiddlewarePipeline() -> InternalHandler {
-        var responder: InternalHandler = {
+        let terminal: InternalHandler = {
             [router] request, context in
 
             router.resolve(
@@ -1096,27 +1096,53 @@ public final class Application: @unchecked Sendable {
             )
         }
 
+        guard !middleware.isEmpty else {
+            return terminal
+        }
+
+        typealias MiddlewareResponder =
+            @Sendable (
+                Request,
+                Context
+            ) -> MiddlewareResult
+
+        var responder: MiddlewareResponder = {
+            request,
+            context in
+
+            MiddlewareResult(
+                terminal(
+                    request,
+                    context
+                )
+            )
+        }
+
         for entry in middleware.reversed() {
             let next = responder
 
             switch entry {
             case .fast(let current):
-                responder = { request, context in
+                responder = {
+                    request,
+                    context in
+
                     current(
                         request,
                         context
                     ) { nextRequest in
-                        MiddlewareResult(
-                            next(
-                                nextRequest,
-                                context
-                            )
+                        next(
+                            nextRequest,
+                            context
                         )
-                    }.responderResult
+                    }
                 }
 
             case .asynchronous(let current):
-                responder = { request, context in
+                responder = {
+                    request,
+                    context in
+
                     .future(
                         current(
                             request,
@@ -1134,7 +1160,15 @@ public final class Application: @unchecked Sendable {
             }
         }
 
-        return responder
+        return {
+            request,
+            context in
+
+            responder(
+                request,
+                context
+            ).responderResult
+        }
     }
 
     private func route(
