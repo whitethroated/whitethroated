@@ -120,6 +120,7 @@ This compares the following transport paths through an active `EmbeddedChannel`:
 - the same synchronous text response with Content-Length omitted, forcing writer-side framing insertion.
 - the same synchronous text response with a stale Content-Length, forcing writer-side framing repair.
 - synchronous pre-buffered 200 with the same payload/content type, isolating text encoding/allocation from dynamic response-header work.
+- raw SwiftNIO `/user/:id` prefix extraction plus dynamic body/header writer matching the external contract control.
 - synchronous dynamic-parameter echo using positional parameter access, covering the external `GET /user/:id` response shape through the full writer.
 - already-succeeded event-loop future 200 on the request-head bodyless shortcut.
 - the same future handler behind a zero-chunk `Transfer-Encoding: chunked` request, forcing the general request lifecycle path without changing the response payload.
@@ -371,3 +372,6 @@ No performance number should be published without its environment, command, raw 
 
 
 The raw SwiftNIO network control recognizes the same minimal HTTP/1.1 request shape as WhiteThroated: no headers or a single case-insensitive Host header implies an empty body and persistent connection. This avoids giving WhiteThroated an artificial advantage from framing/header scans that the raw lower bound can also eliminate.
+
+
+The `param-raw` and `param-framework` paired medians use the same `/user/42` request and dynamic text response shape. This exposes the full framework tax for trie parameter capture, Request construction, positional parameter access, Response construction, and dynamic writing relative to the raw external-contract implementation.
