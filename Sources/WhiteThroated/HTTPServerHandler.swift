@@ -1,6 +1,12 @@
 import NIOCore
 import NIOHTTP1
 
+private struct CachedSynchronousRoute {
+    let handler: SyncHandler
+    let parameterNames: RouteParameterNames
+    let parameterRanges: RouteParameterRanges
+}
+
 final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
@@ -9,7 +15,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     private let maxRequestBodyBytes: Int
     private let hasMiddleware: Bool
     private let hasStreamingRoutes: Bool
-    private let canUseMinimalPreparedCacheFastPath: Bool
+    private let canUseMinimalRouteCacheFastPath: Bool
     private let emptyBody = ByteBufferAllocator().buffer(
         capacity: 0
     )
@@ -30,6 +36,8 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     private var cachedRouteMatch: RouterMatch?
     private var cachedPreparedStorage:
         PreparedResponseStorage?
+    private var cachedSynchronousRoute:
+        CachedSynchronousRoute?
 
     private var streamingStart: StreamingTransportStart?
     private var streamingPendingChunks =
@@ -58,7 +66,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
 
         self.hasMiddleware = hasMiddleware
         self.hasStreamingRoutes = hasStreamingRoutes
-        self.canUseMinimalPreparedCacheFastPath =
+        self.canUseMinimalRouteCacheFastPath =
             !hasMiddleware
             && !hasStreamingRoutes
     }
@@ -113,21 +121,46 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         context: ChannelHandlerContext
     ) {
         if
-            canUseMinimalPreparedCacheFastPath,
-            let cachedPreparedStorage,
+            canUseMinimalRouteCacheFastPath,
             cachedRouteMethod == head.method,
             cachedRouteURI == head.uri,
             requestHasMinimalHTTP11Headers(head)
         {
-            writePrepared(
-                cachedPreparedStorage,
-                isHeadRequest:
-                    head.method == .HEAD,
-                version: .http1_1,
-                keepAlive: true,
-                context: context
-            )
-            return
+            if let cachedPreparedStorage {
+                writePrepared(
+                    cachedPreparedStorage,
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: .http1_1,
+                    keepAlive: true,
+                    context: context
+                )
+                return
+            }
+
+            if let cachedSynchronousRoute {
+                let request = Request(
+                    head: head,
+                    body: emptyBody,
+                    routeParameterNames:
+                        cachedSynchronousRoute
+                            .parameterNames,
+                    routeParameterRanges:
+                        cachedSynchronousRoute
+                            .parameterRanges
+                )
+
+                write(
+                    cachedSynchronousRoute
+                        .handler(request),
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: .http1_1,
+                    keepAlive: true,
+                    context: context
+                )
+                return
+            }
         }
 
         let hasStreamingRouteForRequest =
@@ -153,27 +186,65 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             !hasStreamingRouteForRequest,
             canDispatchBodylessOnHead
         {
-            if
-                cachedRouteMethod == head.method,
-                cachedRouteURI == head.uri,
-                let cachedPreparedStorage
-            {
-                let keepAlive =
-                    hasMinimalHTTP11Headers
-                    || requestIsKeepAlive(head)
+            let routeMatchesCache =
+                cachedRouteMethod == head.method
+                && cachedRouteURI == head.uri
 
-                writePrepared(
-                    cachedPreparedStorage,
-                    isHeadRequest:
-                        head.method == .HEAD,
-                    version: head.version,
-                    keepAlive: keepAlive,
-                    context: context
-                )
-                return
+            if routeMatchesCache {
+                if let cachedPreparedStorage {
+                    let keepAlive =
+                        hasMinimalHTTP11Headers
+                        || requestIsKeepAlive(head)
+
+                    writePrepared(
+                        cachedPreparedStorage,
+                        isHeadRequest:
+                            head.method == .HEAD,
+                        version: head.version,
+                        keepAlive: keepAlive,
+                        context: context
+                    )
+                    return
+                }
+
+                if let cachedSynchronousRoute {
+                    let keepAlive =
+                        hasMinimalHTTP11Headers
+                        || requestIsKeepAlive(head)
+                    let request = Request(
+                        head: head,
+                        body: emptyBody,
+                        routeParameterNames:
+                            cachedSynchronousRoute
+                                .parameterNames,
+                        routeParameterRanges:
+                            cachedSynchronousRoute
+                                .parameterRanges
+                    )
+
+                    write(
+                        cachedSynchronousRoute
+                            .handler(request),
+                        isHeadRequest:
+                            head.method == .HEAD,
+                        version: head.version,
+                        keepAlive: keepAlive,
+                        context: context
+                    )
+                    return
+                }
             }
 
-            let match = lookupTransportCached(head)
+            let match: RouterMatch
+
+            if
+                routeMatchesCache,
+                let cachedRouteMatch
+            {
+                match = cachedRouteMatch
+            } else {
+                match = lookupTransportCached(head)
+            }
 
             switch match {
             case .prepared(let storage):
@@ -1158,10 +1229,27 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         cachedRouteURI = head.uri
         cachedRouteMatch = match
 
-        if case .prepared(let storage) = match {
+        switch match {
+        case .prepared(let storage):
             cachedPreparedStorage = storage
-        } else {
+            cachedSynchronousRoute = nil
+
+        case .synchronous(
+            let handler,
+            let parameterNames,
+            let parameterRanges
+        ):
             cachedPreparedStorage = nil
+            cachedSynchronousRoute =
+                CachedSynchronousRoute(
+                    handler: handler,
+                    parameterNames: parameterNames,
+                    parameterRanges: parameterRanges
+                )
+
+        default:
+            cachedPreparedStorage = nil
+            cachedSynchronousRoute = nil
         }
 
         return match
