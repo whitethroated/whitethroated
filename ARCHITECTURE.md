@@ -126,6 +126,8 @@ Handlers performing asynchronous NIO work return an `EventLoopFuture<Response>`.
 
 `Context` and future allocation are paid only by paths that require them.
 
+Before a route future mutates transport state or writes a response, the writer hops it to the channel event loop. SwiftNIO returns the same future when it is already bound to that loop, so the normal event-loop-native path does not introduce a cross-loop bridge.
+
 ### Async/await
 
 An `AsyncHandler` is an opt-in Swift concurrency path. WhiteThroated bridges it through SwiftNIO's `EventLoopPromise.completeWithTask`.
