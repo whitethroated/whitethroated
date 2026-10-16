@@ -23,6 +23,10 @@ let package = Package(
         .executable(
             name: "raw-nio-benchmark-server",
             targets: ["RawNIOBenchmarkServer"]
+        ),
+        .executable(
+            name: "whitethroated-benchmark-client",
+            targets: ["WhiteThroatedBenchmarkClient"]
         )
     ],
     dependencies: [
@@ -75,6 +79,24 @@ let package = Package(
                 )
             ],
             path: "Benchmarks/RawNIOBenchmarkServer"
+        ),
+        .executableTarget(
+            name: "WhiteThroatedBenchmarkClient",
+            dependencies: [
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                )
+            ],
+            path: "Benchmarks/WhiteThroatedBenchmarkClient"
         ),
         .testTarget(
             name: "WhiteThroatedTests",

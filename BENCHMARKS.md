@@ -147,14 +147,22 @@ Core routes include:
 - `/users/:id/posts/:post` — two dynamic parameters.
 - `/conditional-prepared` — conditional prepared ETag path.
 
-Use an external load generator from another terminal. For example:
+WhiteThroated also ships a SwiftNIO benchmark client, so raw-NIO and framework network throughput can be compared without vendoring `wrk`, Python, or shell benchmark code.
+
+With either benchmark server already running:
 
 ```bash
-wrk -t4 -c128 -d30s --latency \
-  http://127.0.0.1:3000/prepared
+WHITETHROATED_BENCH_HOST=127.0.0.1 \
+WHITETHROATED_BENCH_PORT=3000 \
+WHITETHROATED_BENCH_PATH=/prepared \
+WHITETHROATED_BENCH_CONNECTIONS=128 \
+WHITETHROATED_BENCH_REQUESTS=1000000 \
+swift run -c release whitethroated-benchmark-client
 ```
 
-The external tool is intentionally not vendored into this repository.
+The client opens all connections before starting the timer and keeps exactly one request in flight per connection. Connection establishment is therefore excluded from measured throughput, and raw-NIO/WhiteThroated comparisons use the same HTTP client implementation. `WHITETHROATED_BENCH_THREADS` can override the client event-loop thread count.
+
+For a raw lower-bound comparison, run `raw-nio-benchmark-server` with the same server thread count, port, client connection count, and total request count. The client is intended for comparative loopback or separate-host diagnostics; use an independent load generator as an additional validation before publishing benchmark claims.
 
 ## Middleware measurements
 
