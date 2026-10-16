@@ -334,10 +334,14 @@ private final class ExactStaticTable {
     }
 
     @inline(__always)
-    var registeredPathLengthRange:
-        ClosedRange<Int>
-    {
-        minimumPathLength...maximumPathLength
+    var registeredPathLengths: (
+        minimum: Int,
+        maximum: Int
+    ) {
+        (
+            minimumPathLength,
+            maximumPathLength
+        )
     }
 
     func upsert(
@@ -1373,8 +1377,8 @@ final class Router: @unchecked Sendable {
         bytes: C
     ) -> RouteEndpoint?
     where C.Element == UInt8 {
-        let lengthRange =
-            table.registeredPathLengthRange
+        let registeredLengths =
+            table.registeredPathLengths
         var cursor = bytes.startIndex
         var pathLength = 0
         var hash = Self.hashOffset
@@ -1388,7 +1392,7 @@ final class Router: @unchecked Sendable {
 
             pathLength += 1
 
-            if pathLength > lengthRange.upperBound {
+            if pathLength > registeredLengths.maximum {
                 return nil
             }
 
@@ -1398,7 +1402,7 @@ final class Router: @unchecked Sendable {
         }
 
         guard
-            pathLength >= lengthRange.lowerBound
+            pathLength >= registeredLengths.minimum
         else {
             return nil
         }
