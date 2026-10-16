@@ -1,6 +1,11 @@
 import NIOHTTP1
 
 internal enum HTTPContentLength {
+    private static let contentLengthNameBytes: [UInt8] = [
+        99, 111, 110, 116, 101, 110, 116,
+        45, 108, 101, 110, 103, 116, 104
+    ]
+
     @inline(__always)
     static func declaredExceedsLimit(
         _ headers: HTTPHeaders,
@@ -47,19 +52,18 @@ internal enum HTTPContentLength {
     static func isContentLengthName(
         _ name: String
     ) -> Bool {
-        let expected: [UInt8] = [
-            99, 111, 110, 116, 101, 110, 116,
-            45, 108, 101, 110, 103, 116, 104
-        ]
         let bytes = name.utf8
 
-        guard bytes.count == expected.count else {
+        guard
+            bytes.count
+                == contentLengthNameBytes.count
+        else {
             return false
         }
 
         var index = bytes.startIndex
 
-        for expectedByte in expected {
+        for expectedByte in contentLengthNameBytes {
             let byte = bytes[index]
             let folded =
                 byte >= 65 && byte <= 90
