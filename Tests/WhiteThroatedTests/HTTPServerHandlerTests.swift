@@ -98,6 +98,102 @@ final class HTTPServerHandlerTests: XCTestCase {
         )
     }
 
+    func testHTTP11KeepAliveLeavesChannelActive() throws {
+        let app = Application()
+
+        app.get("/") { _ in
+            .text("ok")
+        }
+
+        let channel = EmbeddedChannel()
+
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        try activateHTTPTestChannel(channel)
+
+        try sendGet(
+            "/",
+            to: channel
+        )
+        channel.embeddedEventLoop.run()
+
+        XCTAssertTrue(channel.isActive)
+    }
+
+    func testHTTP11ConnectionCloseClosesAfterResponseEnd() throws {
+        let app = Application()
+
+        app.get("/") { _ in
+            .text("ok")
+        }
+
+        let channel = EmbeddedChannel()
+
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        try activateHTTPTestChannel(channel)
+
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .GET,
+            uri: "/"
+        )
+        head.headers.add(
+            name: "connection",
+            value: "close"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        channel.embeddedEventLoop.run()
+
+        guard case .head? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected response head"
+            )
+        }
+
+        guard case .body? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected response body"
+            )
+        }
+
+        guard case .end? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected response end"
+            )
+        }
+
+        XCTAssertFalse(channel.isActive)
+    }
+
     func testHTTP10KeepAliveIsEchoed() throws {
         let app = Application()
 
