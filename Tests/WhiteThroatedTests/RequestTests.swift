@@ -168,6 +168,50 @@ final class RequestTests: XCTestCase {
         XCTAssertEqual(body, "42")
     }
 
+    func testRouteParameterCanBeReadByPosition() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        app.get(
+            "/teams/:team/users/:user"
+        ) { request in
+            let team =
+                request.parameter(at: 0)
+                ?? ""
+            let user =
+                request.parameter(at: 1)
+                ?? ""
+            let missing =
+                request.parameter(at: 2)
+
+            XCTAssertNil(missing)
+
+            return .text(
+                team + ":" + user
+            )
+        }
+
+        let response = try app
+            .respond(
+                to: makeRequest(
+                    path: "/teams/core/users/42"
+                ),
+                on: loop
+            )
+            .wait()
+
+        guard case .text(let body) = response.body else {
+            return XCTFail(
+                "Expected text response"
+            )
+        }
+
+        XCTAssertEqual(
+            body,
+            "core:42"
+        )
+    }
+
     func testRouteParameterPercentDecoding() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
