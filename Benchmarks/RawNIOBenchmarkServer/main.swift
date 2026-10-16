@@ -201,9 +201,8 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         context: ChannelHandlerContext,
         error: Error
     ) {
-        fputs(
-            "raw-nio channel error: \(error)\n",
-            stderr
+        print(
+            "raw-nio channel error: \(error)"
         )
         context.close(promise: nil)
     }
