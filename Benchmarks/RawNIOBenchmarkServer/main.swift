@@ -141,6 +141,8 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             if requestHead.uri == "/user" {
                 writeEmptyOK(
                     requestHead: requestHead,
+                    minimalHTTP11:
+                        minimalHTTP11,
                     context: context
                 )
                 return
@@ -409,6 +411,8 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         guard bytes.count > prefixLength else {
             writeNotFound(
                 requestHead: requestHead,
+                minimalHTTP11:
+                    minimalHTTP11,
                 context: context
             )
             return
@@ -428,6 +432,8 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         else {
             writeNotFound(
                 requestHead: requestHead,
+                minimalHTTP11:
+                    minimalHTTP11,
                 context: context
             )
             return
