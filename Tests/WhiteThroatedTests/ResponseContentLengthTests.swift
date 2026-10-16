@@ -5,6 +5,100 @@ import NIOEmbedded
 import NIOHTTP1
 
 final class ResponseContentLengthTests: XCTestCase {
+    func testKnownBodyFactoriesSeedContentLength() {
+        XCTAssertEqual(
+            Response
+                .text("hello")
+                .headers
+                .first(name: "content-length"),
+            "5"
+        )
+
+        XCTAssertEqual(
+            Response
+                .bytes([1, 2, 3])
+                .headers
+                .first(name: "content-length"),
+            "3"
+        )
+
+        var buffer =
+            ByteBufferAllocator().buffer(
+                capacity: 2
+            )
+        buffer.writeString("ok")
+
+        XCTAssertEqual(
+            Response
+                .buffer(buffer)
+                .headers
+                .first(name: "content-length"),
+            "2"
+        )
+    }
+
+    func testWriterRepairsLengthAfterBodyMutation() throws {
+        let app = Application()
+
+        app.get("/mutated") { _ in
+            var response = Response.text("hello")
+            response.body = .text("longer")
+            return response
+        }
+
+        let channel = try makeChannel(app)
+
+        try send(
+            method: .GET,
+            uri: "/mutated",
+            channel: channel
+        )
+
+        let head = try readHead(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            head.headers.first(
+                name: "content-length"
+            ),
+            "6"
+        )
+    }
+
+    func testWriterCollapsesDuplicateContentLength() throws {
+        let app = Application()
+
+        app.get("/duplicate") { _ in
+            var response = Response.text("hello")
+            response.headers.add(
+                name: "Content-Length",
+                value: "5"
+            )
+            return response
+        }
+
+        let channel = try makeChannel(app)
+
+        try send(
+            method: .GET,
+            uri: "/duplicate",
+            channel: channel
+        )
+
+        let head = try readHead(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            head.headers[
+                canonicalForm:
+                    "content-length"
+            ].map(String.init),
+            ["5"]
+        )
+    }
+
     func testOrdinaryTextResponseOverridesIncorrectContentLength()
         throws
     {

@@ -19,6 +19,64 @@ internal enum HTTPContentLength {
     }
 
     @inline(__always)
+    static func hasSingleExactValue(
+        _ headers: HTTPHeaders,
+        value: String
+    ) -> Bool {
+        var found = false
+
+        for (name, candidate) in headers {
+            guard isContentLengthName(name) else {
+                continue
+            }
+
+            guard
+                !found,
+                candidate == value
+            else {
+                return false
+            }
+
+            found = true
+        }
+
+        return found
+    }
+
+    @inline(__always)
+    private static func isContentLengthName(
+        _ name: String
+    ) -> Bool {
+        let expected: [UInt8] = [
+            99, 111, 110, 116, 101, 110, 116,
+            45, 108, 101, 110, 103, 116, 104
+        ]
+        let bytes = name.utf8
+
+        guard bytes.count == expected.count else {
+            return false
+        }
+
+        var index = bytes.startIndex
+
+        for expectedByte in expected {
+            let byte = bytes[index]
+            let folded =
+                byte >= 65 && byte <= 90
+                ? byte + 32
+                : byte
+
+            guard folded == expectedByte else {
+                return false
+            }
+
+            bytes.formIndex(after: &index)
+        }
+
+        return true
+    }
+
+    @inline(__always)
     static func exceedsLimit(
         _ value: String,
         limit: Int

@@ -539,3 +539,5 @@ Keep-alive response completion uses a no-promise write-and-flush fast path. A wr
 
 
 Channel handlers cache whether request-streaming routes exist. When none are registered, request start skips resetting streaming-only state such as pending chunk buffers and streaming futures; ordinary request state is still explicitly initialized on every request.
+
+Dynamic response factories seed Content-Length when the body size is known. The transport writer scans for exactly one matching value and preserves the existing header storage on the common HTTP/1.1 keep-alive path; stale or duplicate values are still replaced from the actual encoded body length. This avoids unnecessary HTTPHeaders copy-on-write mutation without trusting caller-supplied framing metadata.
