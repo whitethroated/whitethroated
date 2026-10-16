@@ -1454,6 +1454,9 @@ private final class DirectPreparedTransportBenchmarkHandler:
 
     private let application: Application
     private var requestHead: HTTPRequestHead?
+    private var cachedMethod: NIOHTTP1.HTTPMethod?
+    private var cachedURI: String?
+    private var cachedMatch: RouterMatch?
 
     init(application: Application) {
         self.application = application
@@ -1475,10 +1478,25 @@ private final class DirectPreparedTransportBenchmarkHandler:
                 return
             }
 
-            guard case .prepared(let storage) =
-                application.lookupTransport(
+            let match: RouterMatch
+
+            if
+                cachedMethod == head.method,
+                cachedURI == head.uri,
+                let cachedMatch
+            {
+                match = cachedMatch
+            } else {
+                let resolved = application.lookupTransport(
                     head: head
                 )
+                cachedMethod = head.method
+                cachedURI = head.uri
+                cachedMatch = resolved
+                match = resolved
+            }
+
+            guard case .prepared(let storage) = match
             else {
                 preconditionFailure(
                     "Direct prepared benchmark expected prepared route"

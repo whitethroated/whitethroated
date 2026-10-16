@@ -23,6 +23,10 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     private var requestBodyTooLarge = false
     private var preResolvedMatch: RouterMatch?
 
+    private var cachedRouteMethod: NIOHTTP1.HTTPMethod?
+    private var cachedRouteURI: String?
+    private var cachedRouteMatch: RouterMatch?
+
     private var streamingStart: StreamingTransportStart?
     private var streamingPendingChunks =
         CircularBuffer<ByteBuffer>(
@@ -119,10 +123,13 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             streamingChunkFuture = nil
         }
 
+        var transportMatch: RouterMatch?
+
         if hasStreamingRouteForRequest {
-            let match = application.lookupTransport(
-                head: head
+            let match = lookupTransportCached(
+                head
             )
+            transportMatch = match
 
             if let start = application
                 .beginStreamingTransport(
@@ -171,6 +178,15 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             if !application.hasMiddleware {
                 preResolvedMatch = match
             }
+        }
+
+        if
+            !application.hasMiddleware,
+            preResolvedMatch == nil
+        {
+            preResolvedMatch =
+                transportMatch
+                ?? lookupTransportCached(head)
         }
 
         requestBodyTooLarge =
@@ -802,6 +818,29 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         requestBodyTooLarge = false
         preResolvedMatch = nil
         rejectingRequestEarly = false
+    }
+
+    @inline(__always)
+    private func lookupTransportCached(
+        _ head: HTTPRequestHead
+    ) -> RouterMatch {
+        if
+            cachedRouteMethod == head.method,
+            cachedRouteURI == head.uri,
+            let cachedRouteMatch
+        {
+            return cachedRouteMatch
+        }
+
+        let match = application.lookupTransport(
+            head: head
+        )
+
+        cachedRouteMethod = head.method
+        cachedRouteURI = head.uri
+        cachedRouteMatch = match
+
+        return match
     }
 
     @inline(__always)
