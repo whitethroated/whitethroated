@@ -9,6 +9,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     private let maxRequestBodyBytes: Int
     private let hasMiddleware: Bool
     private let hasStreamingRoutes: Bool
+    private let canUseMinimalPreparedCacheFastPath: Bool
     private let emptyBody = ByteBufferAllocator().buffer(
         capacity: 0
     )
@@ -50,10 +51,16 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         self.maxRequestBodyBytes =
             maxRequestBodyBytes
             ?? application.configuration.maxRequestBodyBytes
-        self.hasMiddleware =
+        let hasMiddleware =
             application.hasMiddleware
-        self.hasStreamingRoutes =
+        let hasStreamingRoutes =
             application.hasStreamingRoutes
+
+        self.hasMiddleware = hasMiddleware
+        self.hasStreamingRoutes = hasStreamingRoutes
+        self.canUseMinimalPreparedCacheFastPath =
+            !hasMiddleware
+            && !hasStreamingRoutes
     }
 
     func channelRead(
@@ -105,6 +112,24 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         _ head: HTTPRequestHead,
         context: ChannelHandlerContext
     ) {
+        if
+            canUseMinimalPreparedCacheFastPath,
+            let cachedPreparedStorage,
+            cachedRouteMethod == head.method,
+            cachedRouteURI == head.uri,
+            requestHasMinimalHTTP11Headers(head)
+        {
+            writePrepared(
+                cachedPreparedStorage,
+                isHeadRequest:
+                    head.method == .HEAD,
+                version: .http1_1,
+                keepAlive: true,
+                context: context
+            )
+            return
+        }
+
         let hasStreamingRouteForRequest =
             hasStreamingRoutes
             && application.hasStreamingRoute(
