@@ -235,23 +235,19 @@ private struct BenchmarkConnection {
 
     func start() {
         channel.write(
-            NIOAny(
-                HTTPClientRequestPart.head(
-                    requestHead
-                )
+            HTTPClientRequestPart.head(
+                requestHead
             ),
             promise: nil
         )
         channel.writeAndFlush(
-            NIOAny(
-                HTTPClientRequestPart.end(nil)
-            ),
+            HTTPClientRequestPart.end(nil),
             promise: nil
         )
     }
 }
 
-let configuration =
+private let configuration =
     BenchmarkConfiguration.load()
 
 let group = MultiThreadedEventLoopGroup(
@@ -282,7 +278,7 @@ let extraRequests =
     configuration.requests
     % configuration.connections
 
-var connections: [BenchmarkConnection] = []
+private var connections: [BenchmarkConnection] = []
 connections.reserveCapacity(
     configuration.connections
 )
