@@ -8,10 +8,13 @@ private struct BenchmarkConfiguration {
     let host: String
     let port: Int
     let path: String
+    let method: HTTPMethod
+    let methodName: String
     let connections: Int
     let requests: Int
     let threads: Int
     let collectLatency: Bool
+    let tcpNoDelay: Bool
 
     static func load() -> BenchmarkConfiguration {
         let environment =
@@ -37,6 +40,15 @@ private struct BenchmarkConfiguration {
             pathValue.hasPrefix("/")
             ? pathValue
             : "/" + pathValue
+
+        let methodName =
+            (
+                environment[
+                    "WHITETHROATED_BENCH_METHOD"
+                ] ?? "GET"
+            ).uppercased()
+
+        let method = httpMethod(methodName)
 
         let requests = positiveInt(
             environment[
@@ -70,15 +82,50 @@ private struct BenchmarkConfiguration {
                 "WHITETHROATED_BENCH_LATENCY"
             ] == "1"
 
+        let tcpNoDelay =
+            environment[
+                "WHITETHROATED_BENCH_TCP_NODELAY"
+            ] != "0"
+
         return BenchmarkConfiguration(
             host: host,
             port: port,
             path: path,
+            method: method,
+            methodName: methodName,
             connections: connections,
             requests: requests,
             threads: threads,
-            collectLatency: collectLatency
+            collectLatency: collectLatency,
+            tcpNoDelay: tcpNoDelay
         )
+    }
+
+    private static func httpMethod(
+        _ value: String
+    ) -> HTTPMethod {
+        switch value {
+        case "GET":
+            return .GET
+        case "POST":
+            return .POST
+        case "PUT":
+            return .PUT
+        case "PATCH":
+            return .PATCH
+        case "DELETE":
+            return .DELETE
+        case "HEAD":
+            return .HEAD
+        case "OPTIONS":
+            return .OPTIONS
+        case "CONNECT":
+            return .CONNECT
+        case "TRACE":
+            return .TRACE
+        default:
+            return .RAW(value: value)
+        }
     }
 
     private static func positiveInt(
@@ -102,13 +149,13 @@ private enum BenchmarkClientError:
     CustomStringConvertible,
     Sendable
 {
-    case connectionClosed
+    case connectionClosed(completed: Int, target: Int)
     case unexpectedStatus(UInt)
 
     var description: String {
         switch self {
-        case .connectionClosed:
-            return "connection closed before benchmark completion"
+        case .connectionClosed(let completed, let target):
+            return "connection closed after \(completed) of \(target) requests"
 
         case .unexpectedStatus(let status):
             return "unexpected HTTP status \(status)"
@@ -241,7 +288,10 @@ private final class BenchmarkClientHandler:
         }
 
         fail(
-            BenchmarkClientError.connectionClosed,
+            BenchmarkClientError.connectionClosed(
+                completed: completedRequests,
+                target: targetRequests
+            ),
             context: context
         )
     }
@@ -317,7 +367,7 @@ defer {
 
 var requestHead = HTTPRequestHead(
     version: .http1_1,
-    method: .GET,
+    method: configuration.method,
     uri: configuration.path
 )
 requestHead.headers.add(
@@ -358,16 +408,20 @@ for index in 0..<configuration.connections {
         donePromise: donePromise
     )
 
-    let bootstrap = ClientBootstrap(
+    var bootstrap = ClientBootstrap(
         group: group
     )
-    .channelOption(
-        ChannelOptions.socketOption(
-            .tcp_nodelay
-        ),
-        value: 1
-    )
-    .channelInitializer { channel in
+
+    if configuration.tcpNoDelay {
+        bootstrap = bootstrap.channelOption(
+            ChannelOptions.socketOption(
+                .tcp_nodelay
+            ),
+            value: 1
+        )
+    }
+
+    bootstrap = bootstrap.channelInitializer { channel in
         channel.eventLoop
             .makeCompletedFuture {
                 let pipeline =
@@ -470,7 +524,9 @@ for connection in connections {
 print("")
 print("WhiteThroated Swift network benchmark client")
 print(
-    "target=http://"
+    "target="
+    + configuration.methodName
+    + " http://"
     + configuration.host
     + ":"
     + String(configuration.port)
@@ -484,6 +540,12 @@ print(
     + " latency="
     + (
         configuration.collectLatency
+        ? "on"
+        : "off"
+    )
+    + " tcp_nodelay="
+    + (
+        configuration.tcpNoDelay
         ? "on"
         : "off"
     )
