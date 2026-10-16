@@ -733,7 +733,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
 
         let isHead = head.method == .HEAD
         let version = head.version
-        let keepAlive = head.isKeepAlive
+        let keepAlive = requestIsKeepAlive(head)
 
         if requestBodyTooLarge {
             start.registration.cancel(
