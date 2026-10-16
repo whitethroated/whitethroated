@@ -84,13 +84,17 @@ public struct ResponseStream: @unchecked Sendable {
 
     internal let producer: Producer
     internal let errorHandler: ErrorHandler?
+    internal let expectedContentLength: Int?
 
     internal init(
         producer: @escaping Producer,
-        errorHandler: ErrorHandler?
+        errorHandler: ErrorHandler?,
+        expectedContentLength: Int? = nil
     ) {
         self.producer = producer
         self.errorHandler = errorHandler
+        self.expectedContentLength =
+            expectedContentLength
     }
 }
 

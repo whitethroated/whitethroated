@@ -254,9 +254,13 @@ public struct Response: Sendable {
             body: .stream(
                 ResponseStream(
                     producer: produce,
-                    errorHandler: onError
+                    errorHandler: onError,
+                    expectedContentLength:
+                        contentLength
                 )
-            )
+            ),
+            normalizedContentLength:
+                contentLength != nil
         )
     }
 

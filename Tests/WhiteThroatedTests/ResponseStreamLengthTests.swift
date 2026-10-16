@@ -11,6 +11,86 @@ private final class StreamLengthErrorBox:
 }
 
 final class ResponseStreamLengthTests: XCTestCase {
+    func testFactoryDeclaredLengthKeepsTrustedMetadata() {
+        var response = Response.stream(
+            contentType: "text/plain",
+            contentLength: 5
+        ) { writer in
+            writer.writeString("hello")
+        }
+
+        guard case .stream(let stream) = response.body else {
+            return XCTFail("Expected stream body")
+        }
+
+        XCTAssertTrue(
+            response.contentLengthIsNormalized
+        )
+        XCTAssertEqual(
+            stream.expectedContentLength,
+            5
+        )
+
+        response.setHeader(
+            "x-test",
+            "1"
+        )
+
+        XCTAssertTrue(
+            response.contentLengthIsNormalized
+        )
+
+        response.setHeader(
+            "content-length",
+            "4"
+        )
+
+        XCTAssertFalse(
+            response.contentLengthIsNormalized
+        )
+    }
+
+    func testFactoryDeclaredLengthMutationUsesUpdatedHeaderValidation() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+        let errors = StreamLengthErrorBox()
+
+        app.get("/stream") { _ in
+            Response
+                .stream(
+                    contentLength: 5,
+                    onError: { error in
+                        errors.error =
+                            error as? ResponseStreamError
+                    }
+                ) { writer in
+                    writer.writeString("hello")
+                }
+                .header(
+                    "content-length",
+                    "4"
+                )
+        }
+
+        let channel = EmbeddedChannel(loop: loop)
+        try addHandler(
+            app,
+            to: channel
+        )
+
+        try sendRequest(channel)
+        loop.run()
+
+        XCTAssertEqual(
+            errors.error,
+            .contentLengthExceeded(
+                expected: 4,
+                attempted: 5
+            )
+        )
+        XCTAssertFalse(channel.isActive)
+    }
+
     func testExactDeclaredLengthCompletesNormally() throws {
         let app = Application()
 
