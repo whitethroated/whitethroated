@@ -93,9 +93,10 @@ public struct Request: @unchecked Sendable {
         values.reserveCapacity(routeParameterNames.count)
 
         for index in 0..<routeParameterNames.count {
-            values[routeParameterNames[index]] = decodeParameter(
-                in: routeParameterRanges[index]
-            )
+            values[routeParameterNames[index]] =
+                decodeParameter(
+                    at: index
+                )
         }
 
         return values
@@ -146,7 +147,7 @@ public struct Request: @unchecked Sendable {
         for index in 0..<routeParameterNames.count
         where routeParameterNames[index] == name {
             return decodeParameter(
-                in: routeParameterRanges[index]
+                at: index
             )
         }
 
@@ -165,7 +166,7 @@ public struct Request: @unchecked Sendable {
         }
 
         return decodeParameter(
-            in: routeParameterRanges[index]
+            at: index
         )
     }
 
@@ -267,17 +268,29 @@ public struct Request: @unchecked Sendable {
 
     @inline(__always)
     private func decodeParameter(
-        in range: Range<Int>
+        at index: Int
     ) -> String {
+        let range =
+            routeParameterRanges[index]
+        let requiresDecoding =
+            routeParameterRanges
+                .requiresDecoding(at: index)
         let bytes = uri.utf8
 
         if let decoded = bytes
             .withContiguousStorageIfAvailable({
                 storage in
 
-                URLComponentDecoder.decode(
-                    storage[range],
-                    plusAsSpace: false
+                if requiresDecoding {
+                    return URLComponentDecoder.decode(
+                        storage[range],
+                        plusAsSpace: false
+                    )
+                }
+
+                return String(
+                    decoding: storage[range],
+                    as: UTF8.self
                 )
             })
         {
@@ -292,10 +305,18 @@ public struct Request: @unchecked Sendable {
             bytes.startIndex,
             offsetBy: range.upperBound
         )
+        let slice = bytes[lower..<upper]
 
-        return URLComponentDecoder.decode(
-            bytes[lower..<upper],
-            plusAsSpace: false
+        if requiresDecoding {
+            return URLComponentDecoder.decode(
+                slice,
+                plusAsSpace: false
+            )
+        }
+
+        return String(
+            decoding: slice,
+            as: UTF8.self
         )
     }
 
