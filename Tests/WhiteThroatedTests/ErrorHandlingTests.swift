@@ -354,6 +354,7 @@ final class ErrorHandlingTests: XCTestCase {
         head: HTTPResponseHead,
         body: String
     ) {
+        channel.embeddedEventLoop.run()
         guard case .head(let head)? =
             try channel.readOutbound(
                 as: HTTPServerResponsePart.self

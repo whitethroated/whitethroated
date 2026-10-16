@@ -84,6 +84,7 @@ final class ServerSentEventTests: XCTestCase {
         _ = try channel.writeInbound(
             HTTPServerRequestPart.end(nil)
         )
+        channel.embeddedEventLoop.run()
 
         guard case .head? =
             try channel.readOutbound(
@@ -150,6 +151,7 @@ final class ServerSentEventTests: XCTestCase {
         _ = try channel.writeInbound(
             HTTPServerRequestPart.end(nil)
         )
+        channel.embeddedEventLoop.run()
 
         guard case .head(let head)? =
             try channel.readOutbound(

@@ -496,6 +496,7 @@ final class MultipartStreamingIntegrationTests:
         status: HTTPResponseStatus,
         body: String
     ) {
+        channel.embeddedEventLoop.run()
         guard
             case .head(let head)? =
                 try channel.readOutbound(
