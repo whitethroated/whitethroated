@@ -525,6 +525,13 @@ final class CoreBenchmarkTests: XCTestCase {
             iterations: iterations
         )
 
+        try benchmarkFramingVariants(
+            exactApp: syncApp,
+            missingApp: syncMissingLengthApp,
+            staleApp: syncStaleLengthApp,
+            iterations: iterations
+        )
+
         try benchmarkTransport(
             name: "sync-buffer-writer",
             app: syncBufferApp,
@@ -740,6 +747,140 @@ final class CoreBenchmarkTests: XCTestCase {
             expectedParts: expectedParts,
             iterations: iterations
         )
+    }
+
+    private struct FramingTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+        let head: HTTPRequestHead
+    }
+
+    private func benchmarkFramingVariants(
+        exactApp: Application,
+        missingApp: Application,
+        staleApp: Application,
+        iterations: Int
+    ) throws {
+        let cases = [
+            FramingTransportCase(
+                name: "framing-exact",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: exactApp
+                    )
+                ),
+                head: makeHead("/plaintext")
+            ),
+            FramingTransportCase(
+                name: "framing-missing",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: missingApp
+                    )
+                ),
+                head: makeHead("/missing-length")
+            ),
+            FramingTransportCase(
+                name: "framing-stale",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: staleApp
+                    )
+                ),
+                head: makeHead("/stale-length")
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: benchmarkCase.head,
+                    expectedParts: 3,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1, 2],
+            [2, 1, 0],
+            [1, 2, 0],
+            [0, 2, 1],
+            [1, 0, 2],
+            [2, 0, 1]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: benchmarkCase.head,
+                        expectedParts: 3,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted =
+                samples[index].sorted()
+            let middle =
+                sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+            let operationsPerSecond =
+                1_000_000_000 / median
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    operationsPerSecond,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
     }
 
     private func benchmarkTransport(
