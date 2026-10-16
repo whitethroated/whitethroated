@@ -138,7 +138,7 @@ internal enum RouteParameterRanges: Sendable {
     }
 
     @inline(__always)
-    private func capture(
+    func capture(
         at index: Int
     ) -> RouteParameterCapture {
         switch self {
