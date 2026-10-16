@@ -99,13 +99,17 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         receivedBodyBytes = 0
         requestBodyTooLarge = false
         preResolvedMatch = nil
-        streamingFailure = nil
-        streamingEndReceived = false
         rejectingRequestEarly = false
-        streamingPendingChunks.removeAll(
-            keepingCapacity: true
-        )
-        streamingChunkFuture = nil
+
+        if hasStreamingRoutes {
+            streamingStart = nil
+            streamingFailure = nil
+            streamingEndReceived = false
+            streamingPendingChunks.removeAll(
+                keepingCapacity: true
+            )
+            streamingChunkFuture = nil
+        }
 
         if
             hasStreamingRoutes,
@@ -166,7 +170,6 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             }
         }
 
-        streamingStart = nil
         requestBodyTooLarge =
             declaredBodyExceedsLimit(
                 head,
