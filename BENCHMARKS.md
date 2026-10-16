@@ -54,10 +54,13 @@ It measures:
 - prepared trie fallback.
 - conditional prepared 200 and 304 dispatch.
 - synchronous static dispatch.
+- already-succeeded event-loop future dispatch, including `Context` construction.
 - dynamic parameter capture.
 - targeted query and cookie access.
 - not-found dispatch.
 - lazy HTTP method conversion.
+
+The in-process core benchmark intentionally does not enqueue the async/await `/concurrent` route. Repeating that route without awaiting completion would measure accumulated Swift `Task` backlog rather than request-dispatch cost. Use the network benchmark for the full synchronous versus future versus async/await comparison.
 
 ## Router-only benchmark
 

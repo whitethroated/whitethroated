@@ -45,6 +45,12 @@ final class CoreBenchmarkTests: XCTestCase {
             .text("Hello, World!")
         }
 
+        app.get("/future") { _, context in
+            context.eventLoop.makeSucceededFuture(
+                Response.text("Hello, World!")
+            )
+        }
+
         app.get("/users/:id") { request in
             .text(request.parameter("id") ?? "")
         }
@@ -97,6 +103,10 @@ final class CoreBenchmarkTests: XCTestCase {
             BenchmarkCase(
                 name: "sync-static",
                 head: makeHead("/plaintext")
+            ),
+            BenchmarkCase(
+                name: "future-static",
+                head: makeHead("/future")
             ),
             BenchmarkCase(
                 name: "sync-param",
