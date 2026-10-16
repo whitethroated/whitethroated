@@ -270,11 +270,12 @@ public struct Request: @unchecked Sendable {
     private func decodeParameter(
         at index: Int
     ) -> String {
-        let range =
-            routeParameterRanges[index]
-        let requiresDecoding =
+        let capture =
             routeParameterRanges
-                .requiresDecoding(at: index)
+                .capture(at: index)
+        let range = capture.range
+        let requiresDecoding =
+            capture.requiresDecoding
         let bytes = uri.utf8
 
         if let decoded = bytes
