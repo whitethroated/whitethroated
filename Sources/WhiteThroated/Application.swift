@@ -786,10 +786,6 @@ public final class Application: @unchecked Sendable {
                 value: 1
             )
             .childChannelOption(
-                ChannelOptions.socketOption(.tcp_nodelay),
-                value: 1
-            )
-            .childChannelOption(
                 ChannelOptions.socketOption(.so_reuseaddr),
                 value: 1
             )
