@@ -134,6 +134,79 @@ final class MiddlewareTests: XCTestCase {
         }
     }
 
+    func testMultipleFastMiddlewarePreservePreparedRoute() {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+
+        for _ in 0..<8 {
+            app.useFast { request, _, next in
+                next(request)
+            }
+        }
+
+        app.get(
+            "/prepared",
+            response: .text("prepared")
+        )
+
+        let result = app.respondFast(
+            to: makeRequest(
+                path: "/prepared"
+            ),
+            on: loop
+        )
+
+        guard case .prepared = result else {
+            return XCTFail(
+                "Fast middleware chain should preserve prepared route"
+            )
+        }
+    }
+
+    func testMixedFastAndAsyncMiddlewarePreserveOrder() throws {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+        var order: [String] = []
+
+        app.useFast { request, _, next in
+            order.append("fast-before")
+            let result = next(request)
+            order.append("fast-after")
+            return result
+        }
+
+        app.use { request, _, next in
+            order.append("async-before")
+            return next(request).map { response in
+                order.append("async-after")
+                return response
+            }
+        }
+
+        app.get("/") { _ in
+            order.append("handler")
+            return .text("ok")
+        }
+
+        _ = try app
+            .respond(
+                to: makeRequest(path: "/"),
+                on: loop
+            )
+            .wait()
+
+        XCTAssertEqual(
+            order,
+            [
+                "fast-before",
+                "async-before",
+                "handler",
+                "async-after",
+                "fast-after"
+            ]
+        )
+    }
+
     func testFastMiddlewareCanMapImmediateResponse() {
         let app = Application()
         let loop = EmbeddedEventLoop()

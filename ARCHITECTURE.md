@@ -586,3 +586,6 @@ ResponseStreamWriter string helpers perform the event-loop precondition once bef
 
 
 Response.stream(contentLength:) carries the factory-known length beside the producer and marks Content-Length metadata normalized. The stream writer uses that trusted integer directly instead of rescanning and reparsing HTTPHeaders on every response. Any Content-Length/header/body mutation invalidates the normalization bit and falls back to the full duplicate/malformed header validator, preserving framing safety.
+
+
+Compiled middleware chains now stay in MiddlewareResult form from the router boundary through all registered middleware and convert back to ResponderResult only once at the outer application boundary. Fast middleware therefore passes the next result directly instead of performing ResponderResult → MiddlewareResult → ResponderResult conversions at every layer. Applications with no middleware still use the original InternalHandler terminal directly.

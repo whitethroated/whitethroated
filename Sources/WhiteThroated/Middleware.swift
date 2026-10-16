@@ -66,6 +66,26 @@ public enum MiddlewareResult: @unchecked Sendable {
             return .future(future)
         }
     }
+
+    @inline(__always)
+    internal func asFuture(
+        on eventLoop: EventLoop
+    ) -> EventLoopFuture<Response> {
+        switch self {
+        case .response(let response):
+            return eventLoop.makeSucceededFuture(
+                response
+            )
+
+        case .prepared(let prepared):
+            return eventLoop.makeSucceededFuture(
+                prepared.response
+            )
+
+        case .future(let future):
+            return future
+        }
+    }
 }
 
 public typealias FastNext = @Sendable (
