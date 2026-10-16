@@ -574,3 +574,6 @@ When a canonical short HTTP/1.1 response head is available, the dynamic writer d
 
 
 Repeated EventLoopFuture routes retain their resolved handler and parameter metadata beside the generic route cache. On an exact method+URI hit, bodyless requests invoke that cached handler directly with the per-connection Context, avoiding RouterMatch extraction as well as the Application/ResponderResult bridge. URI or method changes refresh or clear the side cache before dispatch.
+
+
+Canonical short-response metadata also exposes the already-computed UTF-8 byte length from its compact cache index. The persistent HTTP/1.1 text writer uses that byte length for ByteBuffer capacity instead of scanning the String UTF-8 view a second time before serialization.

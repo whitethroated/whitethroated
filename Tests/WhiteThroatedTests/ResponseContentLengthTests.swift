@@ -133,6 +133,22 @@ final class ResponseContentLengthTests: XCTestCase {
         )
     }
 
+    func testCanonicalTextBodyLengthUsesUTF8ByteCount() {
+        let response = Response.text("é")
+
+        XCTAssertEqual(
+            response.canonicalHTTP11BodyLength,
+            2
+        )
+        XCTAssertEqual(
+            response.canonicalHTTP11Head?
+                .headers.first(
+                    name: "content-length"
+                ),
+            "2"
+        )
+    }
+
     func testCanonicalHeadInvalidatesAfterStatusMutation() throws {
         let app = Application()
 

@@ -1626,6 +1626,8 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             keepAlive,
             let canonicalHead =
                 response.canonicalHTTP11Head,
+            let canonicalBodyLength =
+                response.canonicalHTTP11BodyLength,
             case .text(let value) = response.body
         {
             context.write(
@@ -1637,11 +1639,12 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
 
             if
                 !isHeadRequest,
-                !value.isEmpty
+                canonicalBodyLength > 0
             {
                 var valueBuffer =
                     context.channel.allocator.buffer(
-                        capacity: value.utf8.count
+                        capacity:
+                            canonicalBodyLength
                     )
                 valueBuffer.writeString(value)
 
