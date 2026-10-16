@@ -124,10 +124,24 @@ jobs:
             fi
           }
 
-          for server in raw-nio-benchmark-server whitethroated-benchmark-server; do
-            start_server "${server}"
+          start_server raw-nio-benchmark-server
 
-            for concurrency in 64 256 512; do
-              run_client "${server}" "${concurrency}"
-            done
+          echo "=== raw-nio smoke concurrency=1 requests=100 ==="
+          WHITETHROATED_BENCH_HOST=127.0.0.1 \
+          WHITETHROATED_BENCH_PORT=3100 \
+          WHITETHROATED_BENCH_PATH=/prepared \
+          WHITETHROATED_BENCH_CONNECTIONS=1 \
+          WHITETHROATED_BENCH_REQUESTS=100 \
+          WHITETHROATED_BENCH_THREADS=1 \
+          WHITETHROATED_BENCH_TCP_NODELAY=0 \
+          .build/release/whitethroated-benchmark-client
+
+          for concurrency in 64 256 512; do
+            run_client raw-nio-benchmark-server "${concurrency}"
+          done
+
+          start_server whitethroated-benchmark-server
+
+          for concurrency in 64 256 512; do
+            run_client whitethroated-benchmark-server "${concurrency}"
           done
