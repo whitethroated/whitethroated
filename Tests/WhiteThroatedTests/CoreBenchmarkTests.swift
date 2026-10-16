@@ -333,6 +333,39 @@ final class CoreBenchmarkTests: XCTestCase {
             response: .text("Hello, World!")
         )
 
+        let postStreamingApp = Application()
+        postStreamingApp.get(
+            "/prepared",
+            response: .text("Hello, World!")
+        )
+        postStreamingApp.postStream(
+            "/upload"
+        ) { _, _ in
+            BodyStreamConsumer(
+                onChunk: { _ in },
+                onEnd: {
+                    .noContent()
+                }
+            )
+        }
+
+        let getStreamingApp = Application()
+        getStreamingApp.get(
+            "/prepared",
+            response: .text("Hello, World!")
+        )
+        getStreamingApp.onStream(
+            .get,
+            "/stream"
+        ) { _, _ in
+            BodyStreamConsumer(
+                onChunk: { _ in },
+                onEnd: {
+                    .noContent()
+                }
+            )
+        }
+
         let syncApp = Application()
         syncApp.get("/plaintext") { _ in
             .text("Hello, World!")
@@ -384,6 +417,22 @@ final class CoreBenchmarkTests: XCTestCase {
                     conditionalTag.headerValue
             ),
             expectedParts: 2,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "prepared-post-stream",
+            app: postStreamingApp,
+            head: makeHead("/prepared"),
+            expectedParts: 3,
+            iterations: iterations
+        )
+
+        try benchmarkTransport(
+            name: "prepared-get-stream",
+            app: getStreamingApp,
+            head: makeHead("/prepared"),
+            expectedParts: 3,
             iterations: iterations
         )
 
