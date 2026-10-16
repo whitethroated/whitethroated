@@ -118,6 +118,127 @@ final class TransportFastPathTests: XCTestCase {
         )
     }
 
+    func testConnectionRouteCacheDoesNotReuseDifferentURI() throws {
+        let app = Application()
+
+        app.get(
+            "/first",
+            response: .text("first")
+        )
+        app.get(
+            "/second",
+            response: .text("second")
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        try writeRequest(
+            path: "/first",
+            channel: channel
+        )
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "first"
+        )
+
+        try writeRequest(
+            path: "/first",
+            channel: channel
+        )
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "first"
+        )
+
+        try writeRequest(
+            path: "/second",
+            channel: channel
+        )
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "second"
+        )
+
+        _ = try channel.finish()
+    }
+
+    private func writeRequest(
+        path: String,
+        channel: EmbeddedChannel
+    ) throws {
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                makeHead(path: path)
+            )
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+    }
+
+    private func readResponseBody(
+        _ channel: EmbeddedChannel
+    ) throws -> String {
+        guard case .head? = try channel.readOutbound(
+            as: HTTPServerResponsePart.self
+        ) else {
+            return XCTFailAndReturn(
+                "Expected response head"
+            )
+        }
+
+        guard case .body(let body)? = try channel.readOutbound(
+            as: HTTPServerResponsePart.self
+        ) else {
+            return XCTFailAndReturn(
+                "Expected response body"
+            )
+        }
+
+        guard case .byteBuffer(let buffer) = body else {
+            return XCTFailAndReturn(
+                "Expected byte-buffer body"
+            )
+        }
+
+        guard case .end? = try channel.readOutbound(
+            as: HTTPServerResponsePart.self
+        ) else {
+            return XCTFailAndReturn(
+                "Expected response end"
+            )
+        }
+
+        return buffer.getString(
+            at: buffer.readerIndex,
+            length: buffer.readableBytes
+        ) ?? ""
+    }
+
+    private func XCTFailAndReturn(
+        _ message: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> String {
+        XCTFail(
+            message,
+            file: file,
+            line: line
+        )
+        return ""
+    }
+
     private func makeHead(path: String) -> HTTPRequestHead {
         HTTPRequestHead(
             version: .http1_1,
