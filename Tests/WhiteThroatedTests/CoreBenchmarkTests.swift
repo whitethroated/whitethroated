@@ -532,6 +532,29 @@ final class CoreBenchmarkTests: XCTestCase {
             }
         }
 
+        let headerLengthStreamApp = Application()
+        headerLengthStreamApp.get(
+            "/stream-header-length"
+        ) { _ in
+            Response
+                .stream(
+                    contentType:
+                        "text/plain; charset=utf-8"
+                ) { writer in
+                    writer.writeString(
+                        "Hello, "
+                    ).flatMap {
+                        writer.writeString(
+                            "World!"
+                        )
+                    }
+                }
+                .header(
+                    "content-length",
+                    "13"
+                )
+        }
+
         let chunkedStreamApp = Application()
         chunkedStreamApp.get(
             "/stream-chunked"
@@ -827,6 +850,12 @@ final class CoreBenchmarkTests: XCTestCase {
             app: knownLengthStreamApp,
             head: makeHead("/stream-known"),
             expectedParts: 4,
+            iterations: iterations
+        )
+
+        try benchmarkStreamLengthMetadataVariants(
+            factoryApp: knownLengthStreamApp,
+            headerApp: headerLengthStreamApp,
             iterations: iterations
         )
 
@@ -2476,6 +2505,131 @@ final class CoreBenchmarkTests: XCTestCase {
                     median,
                 operationsPerSecond:
                     operationsPerSecond,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
+    }
+
+    private struct StreamLengthMetadataCase {
+        let name: String
+        let channel: EmbeddedChannel
+        let head: HTTPRequestHead
+    }
+
+    private func benchmarkStreamLengthMetadataVariants(
+        factoryApp: Application,
+        headerApp: Application,
+        iterations: Int
+    ) throws {
+        let cases = [
+            StreamLengthMetadataCase(
+                name: "stream-length-trusted",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: factoryApp
+                    )
+                ),
+                head: makeHead("/stream-known")
+            ),
+            StreamLengthMetadataCase(
+                name: "stream-length-header",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: headerApp
+                    )
+                ),
+                head: makeHead(
+                    "/stream-header-length"
+                )
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrainStreaming(
+                    head: benchmarkCase.head,
+                    expectedParts: 4,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrainStreaming(
+                        head: benchmarkCase.head,
+                        expectedParts: 4,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted =
+                samples[index].sorted()
+            let middle =
+                sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    1_000_000_000 / median,
                 checksum: checksum
             )
         }
