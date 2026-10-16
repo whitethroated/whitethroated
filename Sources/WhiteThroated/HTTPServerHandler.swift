@@ -1257,6 +1257,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
                     lengthTracker?.completionError()
                 {
                     stream.errorHandler?(error)
+                    context.flush()
                     context.close(promise: nil)
                     return
                 }
@@ -1268,6 +1269,7 @@ final class HTTPServerHandler: ChannelInboundHandler {
 
             case .failure(let error):
                 stream.errorHandler?(error)
+                context.flush()
                 context.close(promise: nil)
             }
         }
