@@ -1,5 +1,6 @@
 import XCTest
 @testable import WhiteThroated
+import NIOCore
 import NIOEmbedded
 import NIOHTTP1
 
