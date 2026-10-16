@@ -817,6 +817,51 @@ final class TransportFastPathTests: XCTestCase {
         _ = try channel.finish()
     }
 
+    func testFutureBodylessShortcutPreservesRemoteAddressContext() throws {
+        let app = Application()
+
+        app.get("/future-context") { _, context in
+            context.eventLoop.makeSucceededFuture(
+                .text(
+                    context.remoteAddress == nil
+                        ? "missing"
+                        : "present"
+                )
+            )
+        }
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                makeHead(
+                    path: "/future-context"
+                )
+            )
+        )
+
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "present"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+        _ = try channel.finish()
+    }
+
     func testFutureBodylessRouteDispatchesOnRequestHead() throws {
         let app = Application()
 

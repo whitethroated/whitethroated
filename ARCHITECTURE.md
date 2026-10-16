@@ -565,3 +565,6 @@ For applications with neither middleware nor request-streaming routes, a repeate
 
 
 Short canonical text, HTML, and JSON responses cache complete HTTP/1.1 200 response heads for body lengths through 64 bytes. Response stores only a compact UInt8 cache index; status, header, or body mutation invalidates it. The dynamic writer can therefore reuse the immutable canonical head on persistent HTTP/1.1 responses without enlarging every Response with a cached head object.
+
+
+Bodyless future routes bypass the Application/ResponderResult bridge after routing: HTTPServerHandler constructs the Request and invokes the future handler directly with an immutable Context cached per connection. Bodyless Swift-concurrency routes likewise create their task promise directly. Both paths retain the same future writer, event-loop hop safety, error handling, and framing semantics; middleware, streaming, Expect, and body-bearing requests still use the general application path.

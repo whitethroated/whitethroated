@@ -30,6 +30,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
     private var cachedRouteMatch: RouterMatch?
     private var cachedPreparedStorage:
         PreparedResponseStorage?
+    private var cachedRequestContext: Context?
 
     private var streamingStart: StreamingTransportStart?
     private var streamingPendingChunks =
@@ -260,22 +261,68 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                 )
                 return
 
-            case .asynchronous,
-                 .concurrent:
+            case .asynchronous(
+                let futureHandler,
+                let parameterNames,
+                let parameterRanges
+            ):
                 let keepAlive =
                     hasMinimalHTTP11Headers
                     || requestIsKeepAlive(head)
-                let result =
-                    application.respondTransport(
-                        match: match,
-                        head: head,
-                        body: emptyBody,
-                        on: context.eventLoop,
-                        channel: context.channel
+                let request = Request(
+                    head: head,
+                    body: emptyBody,
+                    routeParameterNames:
+                        parameterNames,
+                    routeParameterRanges:
+                        parameterRanges
+                )
+                let requestContext =
+                    cachedContext(
+                        for: context
                     )
 
                 write(
-                    result,
+                    futureHandler(
+                        request,
+                        requestContext
+                    ),
+                    isHeadRequest:
+                        head.method == .HEAD,
+                    version: head.version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+                return
+
+            case .concurrent(
+                let concurrentHandler,
+                let parameterNames,
+                let parameterRanges
+            ):
+                let keepAlive =
+                    hasMinimalHTTP11Headers
+                    || requestIsKeepAlive(head)
+                let request = Request(
+                    head: head,
+                    body: emptyBody,
+                    routeParameterNames:
+                        parameterNames,
+                    routeParameterRanges:
+                        parameterRanges
+                )
+                let promise =
+                    context.eventLoop.makePromise(
+                        of: Response.self
+                    )
+                promise.completeWithTask {
+                    try await concurrentHandler(
+                        request
+                    )
+                }
+
+                write(
+                    promise.futureResult,
                     isHeadRequest:
                         head.method == .HEAD,
                     version: head.version,
@@ -1136,6 +1183,23 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         requestBodyTooLarge = false
         preResolvedMatch = nil
         rejectingRequestEarly = false
+    }
+
+    @inline(__always)
+    private func cachedContext(
+        for context: ChannelHandlerContext
+    ) -> Context {
+        if let cachedRequestContext {
+            return cachedRequestContext
+        }
+
+        let value = Context(
+            eventLoop: context.eventLoop,
+            remoteAddress:
+                context.channel.remoteAddress
+        )
+        cachedRequestContext = value
+        return value
     }
 
     @inline(__always)
