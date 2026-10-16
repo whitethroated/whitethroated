@@ -35,7 +35,7 @@ jobs:
           WHITETHROATED_MIDDLEWARE_BENCHMARK: "1"
           WHITETHROATED_MIDDLEWARE_ITERATIONS: "10000"
           WHITETHROATED_TRANSPORT_BENCHMARK: "1"
-          WHITETHROATED_TRANSPORT_ITERATIONS: "1000"
+          WHITETHROATED_TRANSPORT_ITERATIONS: "10000"
         run: swift test -c release --filter CoreBenchmarkTests
 
       - name: Build example
