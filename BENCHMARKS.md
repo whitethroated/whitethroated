@@ -104,7 +104,7 @@ swift test -c release \
   --filter CoreBenchmarkTests/testTransportWriterBenchmark
 ```
 
-This compares fourteen transport paths through an active `EmbeddedChannel`:
+This compares fifteen transport paths through an active `EmbeddedChannel`:
 
 - minimal raw SwiftNIO writer with a cached HTTP/1.1 head and body and no framework routing.
 - the same raw writer rebuilding an `HTTPResponseHead` from cached headers on every request, isolating SwiftNIO response-head construction cost.
@@ -119,13 +119,14 @@ This compares fourteen transport paths through an active `EmbeddedChannel`:
 - the same synchronous text response with Content-Length omitted, forcing writer-side framing insertion.
 - the same synchronous text response with a stale Content-Length, forcing writer-side framing repair.
 - synchronous pre-buffered 200 with the same payload/content type, isolating text encoding/allocation from dynamic response-header work.
+- synchronous dynamic-parameter echo using positional parameter access, covering the external `GET /user/:id` response shape through the full writer.
 - already-succeeded event-loop future 200, which adds future callback dispatch before the same dynamic response writer.
 
 The two streaming-feature cases measure request-streaming feature tax separately from response writing. Streaming bookkeeping is scoped to HTTP methods that actually have streaming routes: an unrelated POST streaming route must not tax an ordinary GET, while a GET streaming route still exercises the method-local streaming machinery.
 
 The fluent and mutating Date-header cases produce identical status, headers, and body. The benchmark emits paired `header-chain` and `header-mutating` medians across alternating orders so the delta isolates response-copy/header COW behavior rather than wire serialization.
 
-The exact, missing, and stale Content-Length synchronous cases use the same text payload and content type. Their delta isolates the cost of preserving normalized header storage versus mutating HTTPHeaders during framing repair. The benchmark also emits `framing-exact`, `framing-missing`, and `framing-stale` medians from six rotated/reversed rounds in the same process, reducing bias from runner drift and benchmark ordering.
+The exact, missing, and stale Content-Length synchronous cases use the same text payload and content type. Their delta isolates the cost of preserving normalized header storage versus mutating HTTPHeaders during framing repair. The benchmark also emits `framing-exact`, `framing-missing`, and `framing-stale` medians from six rotated/reversed rounds in the same process, reducing bias from runner drift and benchmark ordering. Short canonical text, HTML, and JSON factories reuse immutable prebuilt header blocks for body lengths through 64 bytes; Swift Array copy-on-write keeps later response-header mutation isolated while removing repeated header-array construction from the common short-response path.
 
 The raw cached-head writer, raw dynamic-head writer, direct prepared writer, and full prepared writer use the same `/prepared` request target and identical response payload/content headers. The raw cached-to-dynamic delta isolates per-request `HTTPResponseHead` construction before framework routing is involved. The matrix also emits `head-cached` and `head-dynamic` medians from alternating rounds so allocation cost is not inferred from one fixed benchmark order. The direct prepared writer and the production `HTTPServerHandler` both retain the previous method + URI match per connection, mirroring high-locality HTTP/1.1 keep-alive traffic without introducing global synchronization. After warm-up, the raw-to-direct delta therefore isolates the cached framework match dispatch and prepared writer, while the direct-to-full delta isolates the request lifecycle state machine around the same cached route. A changed method or URI invalidates the per-connection match and performs a normal router lookup. For requests whose framing proves that the body is empty (no Transfer-Encoding and either no Content-Length or a single exact zero Content-Length), the production transport dispatches directly from the request-head event instead of waiting for the redundant end event. Requests with a declared or chunked body continue through the normal aggregation/streaming path. The raw SwiftNIO network control and the raw/direct in-process transport controls use the same bodyless head-dispatch timing so the framework is not compared against an artificially slower control. The channel is activated before warm-up and timing so asynchronous writer callbacks see the same active-connection invariant as production. The prepared 304 case specifically measures the bodyless writer path after setup-time removal of forbidden framing headers.
 
