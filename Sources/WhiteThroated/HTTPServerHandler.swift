@@ -196,9 +196,58 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
                     maxRequestBodyBytes
             )
 
-        _ = handleExpectation(
+        if handleExpectation(
             head,
             context: context
+        ) {
+            return
+        }
+
+        guard
+            !requestBodyTooLarge,
+            requestBodyIsDefinitelyEmpty(head),
+            let preResolvedMatch
+        else {
+            return
+        }
+
+        let result = application.respondTransport(
+            match: preResolvedMatch,
+            head: head,
+            body: emptyBody,
+            on: context.eventLoop,
+            channel: context.channel
+        )
+
+        write(
+            result,
+            isHeadRequest: head.method == .HEAD,
+            version: head.version,
+            keepAlive: head.isKeepAlive,
+            context: context
+        )
+        resetRequestState()
+    }
+
+    @inline(__always)
+    private func requestBodyIsDefinitelyEmpty(
+        _ head: HTTPRequestHead
+    ) -> Bool {
+        guard head.headers.first(
+            name: "transfer-encoding"
+        ) == nil else {
+            return false
+        }
+
+        guard head.headers.first(
+            name: "content-length"
+        ) != nil else {
+            return true
+        }
+
+        return HTTPContentLength.hasSingleExactValue(
+            head.headers,
+            value: "0"
         )
     }
 

@@ -118,6 +118,149 @@ final class TransportFastPathTests: XCTestCase {
         )
     }
 
+    func testBodylessPreparedRequestRespondsOnHead() throws {
+        let app = Application()
+
+        app.get(
+            "/prepared",
+            response: .text("prepared")
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                makeHead(path: "/prepared")
+            )
+        )
+
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "prepared"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        XCTAssertNil(
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        )
+
+        _ = try channel.finish()
+    }
+
+    func testBodylessDynamicRequestRespondsOnHead() throws {
+        let app = Application()
+
+        app.get("/users/:id") { request in
+            .text(request.parameter(at: 0) ?? "")
+        }
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(
+                makeHead(path: "/users/42")
+            )
+        )
+
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "42"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        _ = try channel.finish()
+    }
+
+    func testDeclaredRequestBodyWaitsForEnd() throws {
+        let app = Application()
+
+        app.post("/echo") { request in
+            .text(request.bodyString ?? "")
+        }
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .POST,
+            uri: "/echo"
+        )
+        head.headers.add(
+            name: "content-length",
+            value: "1"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        XCTAssertNil(
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        )
+
+        var body = ByteBufferAllocator().buffer(
+            capacity: 1
+        )
+        body.writeString("x")
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.body(body)
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "x"
+        )
+
+        _ = try channel.finish()
+    }
+
     func testConnectionRouteCacheDoesNotReuseDifferentURI() throws {
         let app = Application()
 

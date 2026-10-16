@@ -44,7 +44,14 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     ) {
         switch unwrapInboundIn(data) {
         case .head(let head):
-            requestHead = head
+            if requestBodyIsDefinitelyEmpty(head) {
+                writeResponse(
+                    requestHead: head,
+                    context: context
+                )
+            } else {
+                requestHead = head
+            }
 
         case .body(_):
             break
@@ -54,20 +61,49 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
                 return
             }
 
-            if requestHead.method == .GET {
-                writePlaintext(
-                    requestHead: requestHead,
-                    context: context
-                )
-            } else {
-                writeNotFound(
-                    requestHead: requestHead,
-                    context: context
-                )
-            }
-
+            writeResponse(
+                requestHead: requestHead,
+                context: context
+            )
             self.requestHead = nil
         }
+    }
+
+    @inline(__always)
+    private func writeResponse(
+        requestHead: HTTPRequestHead,
+        context: ChannelHandlerContext
+    ) {
+        if requestHead.method == .GET {
+            writePlaintext(
+                requestHead: requestHead,
+                context: context
+            )
+        } else {
+            writeNotFound(
+                requestHead: requestHead,
+                context: context
+            )
+        }
+    }
+
+    @inline(__always)
+    private func requestBodyIsDefinitelyEmpty(
+        _ head: HTTPRequestHead
+    ) -> Bool {
+        guard head.headers.first(
+            name: "transfer-encoding"
+        ) == nil else {
+            return false
+        }
+
+        guard let contentLength = head.headers.first(
+            name: "content-length"
+        ) else {
+            return true
+        }
+
+        return contentLength == "0"
     }
 
     @inline(__always)

@@ -1453,7 +1453,6 @@ private final class DirectPreparedTransportBenchmarkHandler:
     typealias OutboundOut = HTTPServerResponsePart
 
     private let application: Application
-    private var requestHead: HTTPRequestHead?
     private var cachedMethod: NIOHTTP1.HTTPMethod?
     private var cachedURI: String?
     private var cachedMatch: RouterMatch?
@@ -1468,16 +1467,6 @@ private final class DirectPreparedTransportBenchmarkHandler:
     ) {
         switch unwrapInboundIn(data) {
         case .head(let head):
-            requestHead = head
-
-        case .body:
-            break
-
-        case .end:
-            guard let head = requestHead else {
-                return
-            }
-
             let match: RouterMatch
 
             if
@@ -1524,7 +1513,8 @@ private final class DirectPreparedTransportBenchmarkHandler:
                 promise: nil
             )
 
-            requestHead = nil
+        case .body, .end:
+            break
         }
     }
 }
@@ -1564,10 +1554,7 @@ private final class RawDynamicHeadTransportBenchmarkHandler:
         data: NIOAny
     ) {
         switch unwrapInboundIn(data) {
-        case .head, .body:
-            break
-
-        case .end:
+        case .head:
             let responseHead =
                 HTTPResponseHead(
                     version: .http1_1,
@@ -1591,6 +1578,9 @@ private final class RawDynamicHeadTransportBenchmarkHandler:
                 wrapOutboundOut(.end(nil)),
                 promise: nil
             )
+
+        case .body, .end:
+            break
         }
     }
 }
@@ -1634,10 +1624,7 @@ private final class RawTransportBenchmarkHandler:
         data: NIOAny
     ) {
         switch unwrapInboundIn(data) {
-        case .head, .body:
-            break
-
-        case .end:
+        case .head:
             context.write(
                 wrapOutboundOut(
                     .head(responseHead)
@@ -1656,6 +1643,9 @@ private final class RawTransportBenchmarkHandler:
                 wrapOutboundOut(.end(nil)),
                 promise: nil
             )
+
+        case .body, .end:
+            break
         }
     }
 }
