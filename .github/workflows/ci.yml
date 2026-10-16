@@ -112,6 +112,7 @@ jobs:
             WHITETHROATED_BENCH_CONNECTIONS="${connections}" \
             WHITETHROATED_BENCH_REQUESTS=100000 \
             WHITETHROATED_BENCH_THREADS=1 \
+            WHITETHROATED_BENCH_TCP_NODELAY=0 \
             .build/release/whitethroated-benchmark-client
 
             local status=$?
