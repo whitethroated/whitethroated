@@ -553,3 +553,6 @@ HTTPServerHandler snapshots middleware and streaming-route presence when each ch
 
 
 The request-head fast path keeps its RouterMatch in a local value and only promotes it into general request-lifecycle state for async, concurrent, or streaming fall-through cases. Prepared, synchronous, and not-found responses return without an unnecessary optional match store.
+
+
+Repeated prepared routes keep a side-cache reference to PreparedResponseStorage alongside the generic last-route cache. When method and URI match, the request-head fast path writes that storage directly and avoids copying/pattern-matching RouterMatch again. Any route-cache miss refreshes or clears the prepared side cache, so URI/method changes cannot reuse stale prepared output.
