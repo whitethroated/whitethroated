@@ -903,30 +903,30 @@ final class HTTPServerHandler: ChannelInboundHandler {
         future
             .hop(to: context.eventLoop)
             .whenComplete { result in
-            guard context.channel.isActive else {
-                return
-            }
+                guard context.channel.isActive else {
+                    return
+                }
 
-            switch result {
-            case .success(let response):
-                self.write(
-                    response,
-                    isHeadRequest: isHeadRequest,
-                    version: version,
-                    keepAlive: keepAlive,
-                    context: context
-                )
+                switch result {
+                case .success(let response):
+                    self.write(
+                        response,
+                        isHeadRequest: isHeadRequest,
+                        version: version,
+                        keepAlive: keepAlive,
+                        context: context
+                    )
 
-            case .failure(let error):
-                self.writeFailure(
-                    error,
-                    isHeadRequest: isHeadRequest,
-                    version: version,
-                    keepAlive: keepAlive,
-                    context: context
-                )
+                case .failure(let error):
+                    self.writeFailure(
+                        error,
+                        isHeadRequest: isHeadRequest,
+                        version: version,
+                        keepAlive: keepAlive,
+                        context: context
+                    )
+                }
             }
-        }
     }
 
     private func writeFailure(
