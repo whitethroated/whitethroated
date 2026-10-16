@@ -507,6 +507,7 @@ final class Router: @unchecked Sendable {
         1_099_511_628_211
 
     private(set) var hasStreamingRoutes = false
+    private(set) var requiresPipeliningAssistance = false
     private var streamingGet = false
     private var streamingPost = false
     private var streamingPut = false
@@ -558,6 +559,8 @@ final class Router: @unchecked Sendable {
         path: String,
         handler: @escaping Handler
     ) {
+        requiresPipeliningAssistance = true
+
         insert(
             method: method,
             path: path,
@@ -570,6 +573,8 @@ final class Router: @unchecked Sendable {
         path: String,
         asyncHandler: @escaping AsyncHandler
     ) {
+        requiresPipeliningAssistance = true
+
         insert(
             method: method,
             path: path,
@@ -584,6 +589,7 @@ final class Router: @unchecked Sendable {
         maxBodyBytes: Int?
     ) {
         hasStreamingRoutes = true
+        requiresPipeliningAssistance = true
         markStreamingMethod(method)
 
         insert(
