@@ -49,3 +49,52 @@ jobs:
 
       - name: Build Swift benchmark client
         run: swift build -c release --product whitethroated-benchmark-client
+
+      - name: Diagnose raw NIO network floor
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_client() {
+            local label="$1"
+            local connections="$2"
+
+            echo "=== ${label} concurrency=${connections} ==="
+            WHITETHROATED_BENCH_HOST=127.0.0.1 \
+            WHITETHROATED_BENCH_PORT=3100 \
+            WHITETHROATED_BENCH_PATH=/prepared \
+            WHITETHROATED_BENCH_CONNECTIONS="${connections}" \
+            WHITETHROATED_BENCH_REQUESTS=300000 \
+            WHITETHROATED_BENCH_THREADS=1 \
+            .build/release/whitethroated-benchmark-client
+          }
+
+          start_server() {
+            local executable="$1"
+
+            WHITETHROATED_HOST=127.0.0.1 \
+            WHITETHROATED_PORT=3100 \
+            WHITETHROATED_THREADS=1 \
+            ".build/release/${executable}" \
+              >"/tmp/${executable}.log" 2>&1 &
+
+            SERVER_PID=$!
+            sleep 1
+          }
+
+          stop_server() {
+            kill "${SERVER_PID}" || true
+            wait "${SERVER_PID}" || true
+          }
+
+          start_server raw-nio-benchmark-server
+          run_client raw-nio 64
+          run_client raw-nio 256
+          run_client raw-nio 512
+          stop_server
+
+          start_server whitethroated-benchmark-server
+          run_client whitethroated 64
+          run_client whitethroated 256
+          run_client whitethroated 512
+          stop_server
