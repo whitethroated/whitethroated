@@ -340,6 +340,14 @@ final class CoreBenchmarkTests: XCTestCase {
 
         precondition(iterations > 0)
 
+        let emptyPreparedApp = Application()
+        emptyPreparedApp.get(
+            "/",
+            response: .empty(
+                status: .ok
+            )
+        )
+
         let preparedApp = Application()
         preparedApp.get(
             "/prepared",
@@ -518,6 +526,12 @@ final class CoreBenchmarkTests: XCTestCase {
         print(
             "WhiteThroated transport writer benchmark "
             + "iterations=\(iterations)"
+        )
+
+        try benchmarkEmptyContractVariants(
+            app: emptyPreparedApp,
+            head: makeHostHead("/"),
+            iterations: iterations
         )
 
         try benchmarkRawTransport(
@@ -898,6 +912,122 @@ final class CoreBenchmarkTests: XCTestCase {
                 operationsPerSecond,
             checksum: checksum
         )
+    }
+
+    private struct EmptyContractTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+    }
+
+    private func benchmarkEmptyContractVariants(
+        app: Application,
+        head: HTTPRequestHead,
+        iterations: Int
+    ) throws {
+        let cases = [
+            EmptyContractTransportCase(
+                name: "empty-raw",
+                channel: EmbeddedChannel(
+                    handler:
+                        RawEmptyTransportBenchmarkHandler()
+                )
+            ),
+            EmptyContractTransportCase(
+                name: "empty-framework",
+                channel: EmbeddedChannel(
+                    handler: HTTPServerHandler(
+                        application: app
+                    )
+                )
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: head,
+                    expectedParts: 2,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: head,
+                        expectedParts: 2,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted = samples[index].sorted()
+            let middle = sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    1_000_000_000 / median,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
     }
 
     private func benchmarkRawParameterTransport(
@@ -2785,6 +2915,52 @@ private final class DirectPreparedTransportBenchmarkHandler:
                 )
             }
 
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+
+        case .body, .end:
+            break
+        }
+    }
+}
+
+private final class RawEmptyTransportBenchmarkHandler:
+    ChannelInboundHandler,
+    @unchecked Sendable
+{
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    private let responseHead: HTTPResponseHead
+
+    init() {
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "content-length",
+            value: "0"
+        )
+
+        responseHead = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: headers
+        )
+    }
+
+    func channelRead(
+        context: ChannelHandlerContext,
+        data: NIOAny
+    ) {
+        switch unwrapInboundIn(data) {
+        case .head:
+            context.write(
+                wrapOutboundOut(
+                    .head(responseHead)
+                ),
+                promise: nil
+            )
             context.writeAndFlush(
                 wrapOutboundOut(.end(nil)),
                 promise: nil

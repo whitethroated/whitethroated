@@ -106,6 +106,7 @@ swift test -c release \
 
 This compares the following transport paths through an active `EmbeddedChannel`:
 
+- raw SwiftNIO empty 200 versus WhiteThroated prepared empty 200 using a Host-only HTTP/1.1 request, matching the external `GET /` contract.
 - minimal raw SwiftNIO writer with a cached HTTP/1.1 head and body and no framework routing.
 - the same raw writer rebuilding an `HTTPResponseHead` from cached headers on every request, isolating SwiftNIO response-head construction cost.
 - direct WhiteThroated prepared dispatch with the per-connection last-route cache, bypassing the full request lifecycle state machine.
@@ -377,3 +378,6 @@ The raw SwiftNIO network control recognizes the same minimal HTTP/1.1 request sh
 
 
 The `param-raw` and `param-framework` paired medians use the same `/user/42` request and dynamic text response shape. This exposes the full framework tax for trie parameter capture, Request construction, positional parameter access, Response construction, and dynamic writing relative to the raw external-contract implementation.
+
+
+The `empty-raw` and `empty-framework` paired medians model the public `GET /` contract with the same Host-only HTTP/1.1 request and Content-Length: 0 response. This is the most direct in-process lower-bound comparison for WhiteThroated's prepared empty route.
