@@ -37,6 +37,38 @@ final class ResponseContentLengthTests: XCTestCase {
         )
     }
 
+    func testWriterRepairsLengthAfterDirectHeaderMutation() throws {
+        let app = Application()
+
+        app.get("/header-mutated") { _ in
+            var response = Response.text("hello")
+            response.headers.replaceOrAdd(
+                name: "content-length",
+                value: "999"
+            )
+            return response
+        }
+
+        let channel = try makeChannel(app)
+
+        try send(
+            method: .GET,
+            uri: "/header-mutated",
+            channel: channel
+        )
+
+        let head = try readHead(
+            from: channel
+        )
+
+        XCTAssertEqual(
+            head.headers.first(
+                name: "content-length"
+            ),
+            "5"
+        )
+    }
+
     func testWriterRepairsLengthAfterBodyMutation() throws {
         let app = Application()
 
