@@ -91,9 +91,18 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         _ head: HTTPRequestHead,
         context: ChannelHandlerContext
     ) {
-        // Every completed request path clears its state before
-        // the next HTTP request head can be processed.
         requestHead = head
+        requestBody = nil
+        receivedBodyBytes = 0
+        requestBodyTooLarge = false
+        preResolvedMatch = nil
+        streamingFailure = nil
+        streamingEndReceived = false
+        rejectingRequestEarly = false
+        streamingPendingChunks.removeAll(
+            keepingCapacity: true
+        )
+        streamingChunkFuture = nil
 
         if
             hasStreamingRoutes,
@@ -154,6 +163,7 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
             }
         }
 
+        streamingStart = nil
         requestBodyTooLarge =
             declaredBodyExceedsLimit(
                 head,
