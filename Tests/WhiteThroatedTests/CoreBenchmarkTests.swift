@@ -487,6 +487,11 @@ final class CoreBenchmarkTests: XCTestCase {
             iterations: iterations
         )
 
+        try benchmarkResponseHeadVariants(
+            head: makeHead("/prepared"),
+            iterations: iterations
+        )
+
         try benchmarkDirectPreparedTransport(
             name: "direct-prepared",
             app: preparedApp,
@@ -781,6 +786,125 @@ final class CoreBenchmarkTests: XCTestCase {
             expectedParts: expectedParts,
             iterations: iterations
         )
+    }
+
+    private struct ResponseHeadTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+    }
+
+    private func benchmarkResponseHeadVariants(
+        head: HTTPRequestHead,
+        iterations: Int
+    ) throws {
+        let cases = [
+            ResponseHeadTransportCase(
+                name: "head-cached",
+                channel: EmbeddedChannel(
+                    handler:
+                        RawTransportBenchmarkHandler()
+                )
+            ),
+            ResponseHeadTransportCase(
+                name: "head-dynamic",
+                channel: EmbeddedChannel(
+                    handler:
+                        RawDynamicHeadTransportBenchmarkHandler()
+                )
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: head,
+                    expectedParts: 3,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: head,
+                        expectedParts: 3,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted =
+                samples[index].sorted()
+            let middle =
+                sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+            let operationsPerSecond =
+                1_000_000_000 / median
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    operationsPerSecond,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
     }
 
     private func benchmarkRawDynamicHeadTransport(
