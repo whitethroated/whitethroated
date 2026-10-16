@@ -3,18 +3,27 @@ import XCTest
 import NIOCore
 
 final class PipeliningAssistanceTests: XCTestCase {
-    func testPreparedAndSynchronousRoutesDoNotRequireAssistance() {
+    func testPreparedRoutesDoNotRequireAssistance() {
         let app = Application()
 
         app.get(
             "/prepared",
             response: .text("ok")
         )
+
+        XCTAssertFalse(
+            app.requiresPipeliningAssistance
+        )
+    }
+
+    func testSynchronousRouteRequiresAssistance() {
+        let app = Application()
+
         app.get("/sync") { _ in
             .text("ok")
         }
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             app.requiresPipeliningAssistance
         )
     }
