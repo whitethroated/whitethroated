@@ -49,3 +49,88 @@ jobs:
 
       - name: Build Swift benchmark client
         run: swift build -c release --product whitethroated-benchmark-client
+
+
+      - name: Diagnose current external-contract floor
+        shell: bash
+        run: |
+          set -euo pipefail
+          ulimit -n 65535 || true
+
+          SERVER_PID=""
+
+          cleanup() {
+            if [ -n "${SERVER_PID}" ]; then
+              kill "${SERVER_PID}" 2>/dev/null || true
+              wait "${SERVER_PID}" 2>/dev/null || true
+              SERVER_PID=""
+            fi
+          }
+
+          trap cleanup EXIT
+
+          start_server() {
+            local executable="$1"
+
+            cleanup
+
+            WHITETHROATED_HOST=127.0.0.1 \
+            WHITETHROATED_PORT=3100 \
+            WHITETHROATED_THREADS=1 \
+            ".build/release/${executable}" \
+              >"/tmp/${executable}.log" 2>&1 &
+
+            SERVER_PID=$!
+            sleep 1
+
+            if ! kill -0 "${SERVER_PID}" 2>/dev/null; then
+              cat "/tmp/${executable}.log" || true
+              exit 1
+            fi
+          }
+
+          run_case() {
+            local server="$1"
+            local label="$2"
+            local method="$3"
+            local path="$4"
+            local concurrency="$5"
+
+            echo "=== server=${server} route=${label} method=${method} path=${path} concurrency=${concurrency} ==="
+
+            WHITETHROATED_BENCH_HOST=127.0.0.1 \
+            WHITETHROATED_BENCH_PORT=3100 \
+            WHITETHROATED_BENCH_METHOD="${method}" \
+            WHITETHROATED_BENCH_PATH="${path}" \
+            WHITETHROATED_BENCH_CONNECTIONS="${concurrency}" \
+            WHITETHROATED_BENCH_REQUESTS=100000 \
+            WHITETHROATED_BENCH_THREADS=1 \
+            WHITETHROATED_BENCH_TCP_NODELAY=0 \
+            .build/release/whitethroated-benchmark-client
+          }
+
+          run_server_matrix() {
+            local executable="$1"
+            local label="$2"
+
+            start_server "${executable}"
+
+            for concurrency in 64 256 512; do
+              run_case "${label}" prepared GET /prepared "${concurrency}"
+            done
+
+            for concurrency in 64 256 512; do
+              run_case "${label}" root GET / "${concurrency}"
+            done
+
+            for concurrency in 64 256 512; do
+              run_case "${label}" param GET /user/42 "${concurrency}"
+            done
+
+            for concurrency in 64 256 512; do
+              run_case "${label}" post POST /user "${concurrency}"
+            done
+          }
+
+          run_server_matrix raw-nio-benchmark-server raw-nio
+          run_server_matrix whitethroated-benchmark-server whitethroated
