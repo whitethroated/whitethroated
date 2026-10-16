@@ -900,9 +900,14 @@ final class HTTPServerHandler: ChannelInboundHandler {
         keepAlive: Bool,
         context: ChannelHandlerContext
     ) {
-        future
-            .hop(to: context.eventLoop)
-            .whenComplete { result in
+        let responseFuture =
+            future.eventLoop === context.eventLoop
+            ? future
+            : future.hop(
+                to: context.eventLoop
+            )
+
+        responseFuture.whenComplete { result in
                 guard context.channel.isActive else {
                     return
                 }

@@ -345,6 +345,14 @@ public struct Request: @unchecked Sendable {
 
             bytes.formIndex(after: &cursor)
 
+            while
+                cursor != bytes.endIndex,
+                bytes[cursor] == 32
+                || bytes[cursor] == 9
+            {
+                bytes.formIndex(after: &cursor)
+            }
+
             let valueStart = cursor
 
             while
