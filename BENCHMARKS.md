@@ -31,6 +31,7 @@ swift package resolve
 swift test -c release
 swift build -c release --product whitethroated-benchmark-server
 swift build -c release --product raw-nio-benchmark-server
+swift build -c release --product whitethroated-benchmark-client
 ```
 
 Do not benchmark a commit that does not pass the release test suite.
@@ -120,7 +121,7 @@ This compares fourteen transport paths through an active `EmbeddedChannel`:
 - synchronous pre-buffered 200 with the same payload/content type, isolating text encoding/allocation from dynamic response-header work.
 - already-succeeded event-loop future 200, which adds future callback dispatch before the same dynamic response writer.
 
-The two streaming-feature cases measure request-streaming feature tax separately from response writing. They help determine whether request-streaming state should stay in the primary channel-handler object or move behind an opt-in sidecar/specialized handler.
+The two streaming-feature cases measure request-streaming feature tax separately from response writing. Streaming bookkeeping is scoped to HTTP methods that actually have streaming routes: an unrelated POST streaming route must not tax an ordinary GET, while a GET streaming route still exercises the method-local streaming machinery.
 
 The fluent and mutating Date-header cases produce identical status, headers, and body. The benchmark emits paired `header-chain` and `header-mutating` medians across alternating orders so the delta isolates response-copy/header COW behavior rather than wire serialization.
 
@@ -143,6 +144,9 @@ swift run -c release whitethroated-benchmark-server
 
 Core routes include:
 
+- `GET /` — empty prepared 200 used by the external framework contract.
+- `GET /user/:id` — echoes one dynamic parameter for the external framework contract.
+- `POST /user` — empty prepared 200 used by the external framework contract.
 - `/prepared` — prepared immutable plaintext.
 - `/plaintext` — ordinary synchronous plaintext.
 - `/future` — future-based plaintext using an already-succeeded event-loop future.
@@ -151,6 +155,8 @@ Core routes include:
 - `/users/:id` — one dynamic parameter.
 - `/users/:id/posts/:post` — two dynamic parameters.
 - `/conditional-prepared` — conditional prepared ETag path.
+
+The default server registers no request-streaming route. Upload and multipart streaming routes remain opt-in so the baseline transport path is not charged request-streaming bookkeeping merely because benchmark-only feature routes exist.
 
 WhiteThroated also ships a SwiftNIO benchmark client, so raw-NIO and framework network throughput can be compared without vendoring `wrk`, Python, or shell benchmark code.
 
@@ -167,9 +173,23 @@ swift run -c release whitethroated-benchmark-client
 
 The client opens all connections before starting the timer and keeps exactly one request in flight per connection. Connection establishment is therefore excluded from measured throughput, and raw-NIO/WhiteThroated comparisons use the same HTTP client implementation. `WHITETHROATED_BENCH_THREADS` can override the client event-loop thread count. It always reports completed requests, requests per second, response-body bytes, and response-body MiB/s. Body throughput intentionally excludes HTTP framing/header bytes; use the same response payload and headers when comparing servers.
 
-Set `WHITETHROATED_BENCH_LATENCY=1` to collect per-request cycle latency after the first request on each connection. The client reports average, p50, p90, and p99 microseconds. Latency samples are sorted only after the throughput timer stops; timestamp collection itself remains part of the measured client workload, so use the same latency setting on every server being compared.
+Set `WHITETHROATED_BENCH_LATENCY=1` to collect per-request cycle latency after the first request on each connection. The client reports minimum, average, p50, p75, p90, p99, p99.999, and maximum microseconds. Latency samples are sorted only after the throughput timer stops; timestamp collection itself remains part of the measured client workload, so use the same latency setting on every server being compared.
+
+For the external concurrency matrix, run separate throughput-only and latency-enabled samples at 64, 256, and 512 concurrent connections. The throughput-only sample is the primary RPS result; the latency-enabled sample is the paired distribution result.
 
 For a raw lower-bound comparison, run `raw-nio-benchmark-server` with the same server thread count, port, client connection count, and total request count. The client is intended for comparative loopback or separate-host diagnostics; use an independent load generator as an additional validation before publishing benchmark claims.
+
+## External leaderboard contract
+
+For cross-framework validation, use the same three-route contract as the public benchmark harness:
+
+- `GET /` returns an empty 2xx response.
+- `GET /user/:id` returns the route parameter as the response body.
+- `POST /user` returns an empty 2xx response.
+
+Run the external closed-loop load generator at concurrency 64, 256, and 512 with identical load-generator threads, duration, timeout, CPU allocation, operating system, HTTP version, keep-alive behavior, and response semantics for every framework. Treat all three concurrency levels as independent acceptance gates: a change is not a cross-framework win if it raises peak throughput while regressing tail latency at another level.
+
+Do not compare WhiteThroated's specially prepared `/prepared` diagnostic route against another framework's dynamic benchmark route. The external contract must be compared route-for-route.
 
 ## Middleware measurements
 
@@ -301,17 +321,21 @@ For any publishable comparison:
 7. Warm each server.
 8. Collect multiple samples.
 9. Record CPU and resident memory.
-10. Compare p50, p90, and p99 latency in addition to requests per second.
+10. Compare minimum, average, p50, p75, p90, p99, and p99.999 latency in addition to requests per second.
 11. Compare WhiteThroated against raw SwiftNIO before attributing a delta to Swift.
 12. Do not tune only one side.
 
 Record at minimum:
 
 - requests per second.
+- minimum latency.
 - average latency.
 - p50 latency.
+- p75 latency.
 - p90 latency.
 - p99 latency.
+- p99.999 latency.
+- maximum latency.
 - transfer rate.
 - CPU utilization.
 - resident memory.
@@ -328,14 +352,15 @@ Record at minimum:
 The most informative order is:
 
 1. Raw SwiftNIO versus WhiteThroated `/prepared`.
-2. WhiteThroated `/prepared` versus `/plaintext`.
-3. Compare `/plaintext`, `/future`, and `/concurrent` under identical load. The first delta exposes the future-based handler cost; the second shows the additional Swift concurrency bridge cost relative to the NIO-future path.
-4. Router-only exact-hit and exact-miss diagnostics.
-5. Fast and future-based middleware scaling.
-6. Response-stream known-length, chunked, and flush-heavy paths.
-7. Aggregated versus streaming request-body throughput and memory.
-8. Multipart parser overhead over the raw streaming path.
-9. ARC/allocation profiling for unexplained deltas.
-10. External Actix comparison after the Swift-side overhead is understood.
+2. Run the external three-route contract at concurrency 64, 256, and 512, collecting throughput-only and paired latency-distribution samples.
+3. WhiteThroated `/prepared` versus `/plaintext`.
+4. Compare `/plaintext`, `/future`, and `/concurrent` under identical load. The first delta exposes the future-based handler cost; the second shows the additional Swift concurrency bridge cost relative to the NIO-future path.
+5. Router-only exact-hit and exact-miss diagnostics.
+6. Fast and future-based middleware scaling.
+7. Response-stream known-length, chunked, and flush-heavy paths.
+8. Aggregated versus streaming request-body throughput and memory.
+9. Multipart parser overhead over the raw streaming path.
+10. ARC/allocation profiling for unexplained deltas.
+11. External Actix comparison after the Swift-side overhead is understood.
 
 No performance number should be published without its environment, command, raw samples, and commit SHA.
