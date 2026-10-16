@@ -44,6 +44,20 @@ public struct Request: @unchecked Sendable {
     }
 
     init(
+        consumingHead head: consuming HTTPRequestHead,
+        body: ByteBuffer,
+        routeParameterNames: RouteParameterNames,
+        routeParameterRanges: RouteParameterRanges
+    ) {
+        self.nioMethod = head.method
+        self.uri = head.uri
+        self.headers = head.headers
+        self.body = body
+        self.routeParameterNames = routeParameterNames
+        self.routeParameterRanges = routeParameterRanges
+    }
+
+    init(
         head: HTTPRequestHead,
         method: HTTPMethod,
         body: ByteBuffer

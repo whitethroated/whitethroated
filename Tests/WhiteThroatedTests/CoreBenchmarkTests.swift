@@ -724,6 +724,11 @@ final class CoreBenchmarkTests: XCTestCase {
             iterations: iterations
         )
 
+        try benchmarkRequestOwnershipVariants(
+            head: makeHead("/plaintext"),
+            iterations: iterations
+        )
+
         try benchmarkTransport(
             name: "sync-header-writer",
             app: syncHeaderApp,
@@ -1129,6 +1134,127 @@ final class CoreBenchmarkTests: XCTestCase {
         for index in cases.indices {
             let sorted = samples[index].sorted()
             let middle = sorted.count / 2
+            let median =
+                (
+                    sorted[middle - 1]
+                    + sorted[middle]
+                ) / 2
+
+            printBenchmarkLine(
+                name: cases[index].name,
+                nanosecondsPerOperation:
+                    median,
+                operationsPerSecond:
+                    1_000_000_000 / median,
+                checksum: checksum
+            )
+        }
+
+        for benchmarkCase in cases {
+            _ = try benchmarkCase.channel
+                .finish()
+        }
+    }
+
+    private struct RequestOwnershipTransportCase {
+        let name: String
+        let channel: EmbeddedChannel
+    }
+
+    private func benchmarkRequestOwnershipVariants(
+        head: HTTPRequestHead,
+        iterations: Int
+    ) throws {
+        let cases = [
+            RequestOwnershipTransportCase(
+                name: "request-copy",
+                channel: EmbeddedChannel(
+                    handler:
+                        RequestOwnershipBenchmarkHandler(
+                            consumeHead: false
+                        )
+                )
+            ),
+            RequestOwnershipTransportCase(
+                name: "request-consume",
+                channel: EmbeddedChannel(
+                    handler:
+                        RequestOwnershipBenchmarkHandler(
+                            consumeHead: true
+                        )
+                )
+            )
+        ]
+
+        for benchmarkCase in cases {
+            try benchmarkCase.channel.connect(
+                to: SocketAddress(
+                    ipAddress: "127.0.0.1",
+                    port: 1
+                )
+            ).wait()
+        }
+
+        var checksum = 0
+
+        for benchmarkCase in cases {
+            for _ in 0..<1_000 {
+                try writeAndDrain(
+                    head: head,
+                    expectedParts: 3,
+                    channel: benchmarkCase.channel,
+                    checksum: &checksum
+                )
+            }
+        }
+
+        let orders = [
+            [0, 1],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [1, 0]
+        ]
+
+        var samples = Array(
+            repeating: [Double](),
+            count: cases.count
+        )
+
+        for order in orders {
+            for index in order {
+                let benchmarkCase =
+                    cases[index]
+                let start =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                for _ in 0..<iterations {
+                    try writeAndDrain(
+                        head: head,
+                        expectedParts: 3,
+                        channel: benchmarkCase.channel,
+                        checksum: &checksum
+                    )
+                }
+
+                let end =
+                    DispatchTime.now()
+                        .uptimeNanoseconds
+
+                samples[index].append(
+                    Double(end - start)
+                    / Double(iterations)
+                )
+            }
+        }
+
+        for index in cases.indices {
+            let sorted =
+                samples[index].sorted()
+            let middle =
+                sorted.count / 2
             let median =
                 (
                     sorted[middle - 1]
@@ -3646,6 +3772,94 @@ private final class RawEmptyTransportBenchmarkHandler:
         byte >= 65 && byte <= 90
             ? byte + 32
             : byte
+    }
+}
+
+private final class RequestOwnershipBenchmarkHandler:
+    ChannelInboundHandler,
+    @unchecked Sendable
+{
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    private let consumeHead: Bool
+    private let emptyBody =
+        ByteBufferAllocator().buffer(
+            capacity: 0
+        )
+    private let handler: SyncHandler = { _ in
+        .text("Hello, World!")
+    }
+
+    init(consumeHead: Bool) {
+        self.consumeHead = consumeHead
+    }
+
+    func channelRead(
+        context: ChannelHandlerContext,
+        data: NIOAny
+    ) {
+        switch unwrapInboundIn(data) {
+        case .head(let head):
+            let request: Request
+
+            if consumeHead {
+                request = Request(
+                    consumingHead: head,
+                    body: emptyBody,
+                    routeParameterNames: .none,
+                    routeParameterRanges: .none
+                )
+            } else {
+                request = Request(
+                    head: head,
+                    body: emptyBody,
+                    routeParameterNames: .none,
+                    routeParameterRanges: .none
+                )
+            }
+
+            let response = handler(request)
+
+            guard
+                let responseHead =
+                    response.canonicalHTTP11Head,
+                let bodyLength =
+                    response.canonicalHTTP11BodyLength,
+                case .text(let value) =
+                    response.body
+            else {
+                preconditionFailure(
+                    "Request ownership benchmark expected canonical text"
+                )
+            }
+
+            var body =
+                context.channel.allocator.buffer(
+                    capacity: bodyLength
+                )
+            body.writeString(value)
+
+            context.write(
+                wrapOutboundOut(
+                    .head(responseHead)
+                ),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(
+                    .body(.byteBuffer(body))
+                ),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+
+        case .body, .end:
+            break
+        }
     }
 }
 
