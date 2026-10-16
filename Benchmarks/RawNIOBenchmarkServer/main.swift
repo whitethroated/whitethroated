@@ -7,12 +7,17 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     typealias InboundIn = HTTPServerRequestPart
     typealias OutboundOut = HTTPServerResponsePart
 
+    private let allocator: ByteBufferAllocator
     private let body: ByteBuffer
     private let baseHeaders: HTTPHeaders
     private let http11Head: HTTPResponseHead
+    private let emptyHeaders: HTTPHeaders
+    private let emptyHTTP11Head: HTTPResponseHead
     private var requestHead: HTTPRequestHead?
 
     init(allocator: ByteBufferAllocator) {
+        self.allocator = allocator
+
         var body = allocator.buffer(capacity: 13)
         body.writeString("Hello, World!")
         self.body = body
@@ -35,6 +40,18 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             version: .http1_1,
             status: .ok,
             headers: headers
+        )
+
+        var emptyHeaders = HTTPHeaders()
+        emptyHeaders.add(
+            name: "content-length",
+            value: "0"
+        )
+        self.emptyHeaders = emptyHeaders
+        self.emptyHTTP11Head = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: emptyHeaders
         )
     }
 
@@ -74,17 +91,49 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         requestHead: HTTPRequestHead,
         context: ChannelHandlerContext
     ) {
-        if requestHead.method == .GET {
-            writePlaintext(
-                requestHead: requestHead,
-                context: context
-            )
-        } else {
-            writeNotFound(
-                requestHead: requestHead,
-                context: context
-            )
+        switch requestHead.method {
+        case .GET:
+            if requestHead.uri == "/prepared" {
+                writePlaintext(
+                    requestHead: requestHead,
+                    context: context
+                )
+                return
+            }
+
+            if requestHead.uri == "/" {
+                writeEmptyOK(
+                    requestHead: requestHead,
+                    context: context
+                )
+                return
+            }
+
+            if requestHead.uri.hasPrefix("/user/") {
+                writeUserParameter(
+                    requestHead: requestHead,
+                    context: context
+                )
+                return
+            }
+
+        case .POST:
+            if requestHead.uri == "/user" {
+                writeEmptyOK(
+                    requestHead: requestHead,
+                    context: context
+                )
+                return
+            }
+
+        default:
+            break
         }
+
+        writeNotFound(
+            requestHead: requestHead,
+            context: context
+        )
     }
 
     @inline(__always)
@@ -175,6 +224,154 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         )
         finish(
             keepAlive: requestIsKeepAlive(requestHead),
+            context: context
+        )
+    }
+
+    @inline(__always)
+    private func writeEmptyOK(
+        requestHead: HTTPRequestHead,
+        context: ChannelHandlerContext
+    ) {
+        let keepAlive =
+            requestIsKeepAlive(requestHead)
+
+        if
+            requestHead.version == .http1_1,
+            keepAlive
+        {
+            context.write(
+                wrapOutboundOut(
+                    .head(emptyHTTP11Head)
+                ),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
+
+        var headers = emptyHeaders
+
+        if !keepAlive {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "close"
+            )
+        } else if requestHead.version == .http1_0 {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "keep-alive"
+            )
+        }
+
+        context.write(
+            wrapOutboundOut(
+                .head(
+                    HTTPResponseHead(
+                        version: requestHead.version,
+                        status: .ok,
+                        headers: headers
+                    )
+                )
+            ),
+            promise: nil
+        )
+        finish(
+            keepAlive: keepAlive,
+            context: context
+        )
+    }
+
+    @inline(__always)
+    private func writeUserParameter(
+        requestHead: HTTPRequestHead,
+        context: ChannelHandlerContext
+    ) {
+        let prefixLength = 6
+        let bytes = requestHead.uri.utf8
+
+        guard bytes.count > prefixLength else {
+            writeNotFound(
+                requestHead: requestHead,
+                context: context
+            )
+            return
+        }
+
+        let parameterStart = bytes.index(
+            bytes.startIndex,
+            offsetBy: prefixLength
+        )
+        let parameterBytes =
+            bytes[parameterStart...]
+
+        guard
+            !parameterBytes.isEmpty,
+            !parameterBytes.contains(47),
+            !parameterBytes.contains(63)
+        else {
+            writeNotFound(
+                requestHead: requestHead,
+                context: context
+            )
+            return
+        }
+
+        var parameterBody = allocator.buffer(
+            capacity: parameterBytes.count
+        )
+        parameterBody.writeBytes(parameterBytes)
+
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "content-type",
+            value: "text/plain; charset=utf-8"
+        )
+        headers.add(
+            name: "content-length",
+            value: String(parameterBody.readableBytes)
+        )
+
+        let keepAlive =
+            requestIsKeepAlive(requestHead)
+
+        if !keepAlive {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "close"
+            )
+        } else if requestHead.version == .http1_0 {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "keep-alive"
+            )
+        }
+
+        context.write(
+            wrapOutboundOut(
+                .head(
+                    HTTPResponseHead(
+                        version: requestHead.version,
+                        status: .ok,
+                        headers: headers
+                    )
+                )
+            ),
+            promise: nil
+        )
+        context.write(
+            wrapOutboundOut(
+                .body(
+                    .byteBuffer(parameterBody)
+                )
+            ),
+            promise: nil
+        )
+        finish(
+            keepAlive: keepAlive,
             context: context
         )
     }
