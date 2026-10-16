@@ -158,15 +158,15 @@ public struct Request: @unchecked Sendable {
     public func parameter(
         at index: Int
     ) -> String? {
-        guard
-            index >= 0,
-            index < routeParameterRanges.count
+        guard let capture =
+            routeParameterRanges
+                .captureIfPresent(at: index)
         else {
             return nil
         }
 
         return decodeParameter(
-            at: index
+            capture
         )
     }
 
@@ -270,9 +270,16 @@ public struct Request: @unchecked Sendable {
     private func decodeParameter(
         at index: Int
     ) -> String {
-        let capture =
+        decodeParameter(
             routeParameterRanges
                 .capture(at: index)
+        )
+    }
+
+    @inline(__always)
+    private func decodeParameter(
+        _ capture: RouteParameterCapture
+    ) -> String {
         let range = capture.range
         let requiresDecoding =
             capture.requiresDecoding

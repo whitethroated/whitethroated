@@ -183,8 +183,11 @@ final class RequestTests: XCTestCase {
                 ?? ""
             let missing =
                 request.parameter(at: 2)
+            let negative =
+                request.parameter(at: -1)
 
             XCTAssertNil(missing)
+            XCTAssertNil(negative)
 
             return .text(
                 team + ":" + user
