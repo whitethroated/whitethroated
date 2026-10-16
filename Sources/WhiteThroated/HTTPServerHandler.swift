@@ -1908,10 +1908,24 @@ final class HTTPServerHandler: ChannelInboundHandler, @unchecked Sendable {
         context: ChannelHandlerContext
     ) {
         var headers = response.headers
-        let declaredLengthResult =
-            declaredStreamContentLength(
-                headers: headers
-            )
+        let declaredLengthResult:
+            Result<Int?, ResponseStreamError>
+
+        if
+            response.contentLengthIsNormalized,
+            let expectedContentLength =
+                stream.expectedContentLength
+        {
+            declaredLengthResult =
+                .success(
+                    expectedContentLength
+                )
+        } else {
+            declaredLengthResult =
+                declaredStreamContentLength(
+                    headers: headers
+                )
+        }
 
         let lengthTracker: ResponseStreamLengthTracker?
 

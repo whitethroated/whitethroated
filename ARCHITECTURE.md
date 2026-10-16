@@ -583,3 +583,6 @@ Synchronous minimal HTTP/1.1 routes try the canonical short-text writer immediat
 
 
 ResponseStreamWriter string helpers perform the event-loop precondition once before encoding and then use internal checked write helpers. This removes the duplicate inEventLoop branch that previously occurred when writeString delegated back through the public write/writeAndFlush entry points, while preserving content-length tracking and future semantics.
+
+
+Response.stream(contentLength:) carries the factory-known length beside the producer and marks Content-Length metadata normalized. The stream writer uses that trusted integer directly instead of rescanning and reparsing HTTPHeaders on every response. Any Content-Length/header/body mutation invalidates the normalization bit and falls back to the full duplicate/malformed header validator, preserving framing safety.
