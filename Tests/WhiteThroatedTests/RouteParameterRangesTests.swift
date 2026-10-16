@@ -17,6 +17,13 @@ final class RouteParameterRangesTests: XCTestCase {
         XCTAssertEqual(ranges[1], 3..<5)
     }
 
+    func testCaptureKeepsRangeSizedStorage() {
+        XCTAssertEqual(
+            MemoryLayout<RouteParameterCapture>.size,
+            MemoryLayout<Range<Int>>.size
+        )
+    }
+
     func testDecodingHintsFollowInlineStorage() {
         var ranges = RouteParameterRanges.none
 
