@@ -70,6 +70,42 @@ internal enum RouteParameterRanges: Sendable {
         capture(at: index).requiresDecoding
     }
 
+    @inline(__always)
+    func captureIfPresent(
+        at index: Int
+    ) -> RouteParameterCapture? {
+        guard index >= 0 else {
+            return nil
+        }
+
+        switch self {
+        case .none:
+            return nil
+
+        case .one(let first):
+            return index == 0
+                ? first
+                : nil
+
+        case .two(let first, let second):
+            switch index {
+            case 0:
+                return first
+            case 1:
+                return second
+            default:
+                return nil
+            }
+
+        case .many(let ranges):
+            guard index < ranges.count else {
+                return nil
+            }
+
+            return ranges[index]
+        }
+    }
+
     mutating func append(
         _ range: Range<Int>,
         requiresDecoding: Bool = true
