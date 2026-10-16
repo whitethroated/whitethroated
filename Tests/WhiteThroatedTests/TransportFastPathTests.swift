@@ -201,6 +201,122 @@ final class TransportFastPathTests: XCTestCase {
         _ = try channel.finish()
     }
 
+    func testPreparedRouteWithDeclaredBodyWaitsForEnd() throws {
+        let app = Application()
+
+        app.post(
+            "/prepared",
+            response: .text("prepared")
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .POST,
+            uri: "/prepared"
+        )
+        head.headers.add(
+            name: "content-length",
+            value: "1"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        XCTAssertNil(
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        )
+
+        var body = ByteBufferAllocator().buffer(
+            capacity: 1
+        )
+        body.writeString("x")
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.body(body)
+        )
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.end(nil)
+        )
+
+        XCTAssertEqual(
+            try readResponseBody(channel),
+            "prepared"
+        )
+
+        _ = try channel.finish()
+    }
+
+    func testPreparedRouteWithExpectationDoesNotBypassExpectationHandling()
+        throws
+    {
+        let app = Application()
+
+        app.post(
+            "/prepared",
+            response: .text("prepared")
+        )
+
+        let channel = EmbeddedChannel(
+            handler: HTTPServerHandler(
+                application: app
+            )
+        )
+
+        try channel.connect(
+            to: SocketAddress(
+                ipAddress: "127.0.0.1",
+                port: 1
+            )
+        ).wait()
+
+        var head = HTTPRequestHead(
+            version: .http1_1,
+            method: .POST,
+            uri: "/prepared"
+        )
+        head.headers.add(
+            name: "expect",
+            value: "something-else"
+        )
+
+        _ = try channel.writeInbound(
+            HTTPServerRequestPart.head(head)
+        )
+
+        guard case .head(let responseHead)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "Expected expectation-failed response head"
+            )
+        }
+
+        XCTAssertEqual(
+            responseHead.status,
+            .expectationFailed
+        )
+
+        _ = try channel.finish()
+    }
+
     func testDeclaredRequestBodyWaitsForEnd() throws {
         let app = Application()
 
