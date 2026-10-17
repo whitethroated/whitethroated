@@ -9,6 +9,10 @@ let package = Package(
     ],
     products: [
         .executable(
+            name: "whitethroated-benchmark-campaign",
+            targets: ["BenchmarkCampaign"]
+        ),
+        .executable(
             name: "whitethroated-benchmark-merge",
             targets: ["BenchmarkResultMerge"]
         ),
@@ -44,6 +48,11 @@ let package = Package(
         )
     ],
     targets: [
+        .executableTarget(
+            name: "BenchmarkCampaign",
+            dependencies: ["BenchmarkResults"],
+            path: "Benchmarks/BenchmarkCampaign"
+        ),
         .target(name: "BenchmarkResults", path: "Benchmarks/BenchmarkResults"),
         .executableTarget(
             name: "BenchmarkResultMerge",

@@ -52,3 +52,9 @@ jobs:
 
       - name: Build Swift benchmark client
         run: swift build -c release --product whitethroated-benchmark-client
+
+      - name: Build Swift benchmark merger
+        run: swift build -c release --product whitethroated-benchmark-merge
+
+      - name: Build Swift topology campaign runner
+        run: swift build -c release --product whitethroated-benchmark-campaign
