@@ -79,6 +79,26 @@
             "target": "whitethroated-benchmark-client",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release whitethroated-benchmark-client"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-runtime-benchmark-server",
+            "target": "whitethroated-runtime-benchmark-server",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-runtime-benchmark-server"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-runtime-benchmark-server",
+            "target": "whitethroated-runtime-benchmark-server",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-runtime-benchmark-server"
         }
     ]
 }
