@@ -47,5 +47,8 @@ jobs:
       - name: Build raw NIO benchmark server
         run: swift build -c release --product raw-nio-benchmark-server
 
+      - name: Build WhiteThroated runtime benchmark server
+        run: swift build -c release --product whitethroated-runtime-benchmark-server
+
       - name: Build Swift benchmark client
         run: swift build -c release --product whitethroated-benchmark-client
