@@ -302,6 +302,8 @@ Eight single-loop server processes behind a sharding client show tighter tails t
 
 Two macOS caveats. First, plain `SO_REUSEPORT` multi-binds successfully but delivers every TCP accept to one socket (measured 256/0/0/0/0/0/0/0 across eight workers); macOS has no `SO_REUSEPORT_LB` equivalent, so single-port multi-process serving needs userspace distribution or per-worker ports behind a load balancer. Second, mean-of-shard percentiles are a comparison metric only: they overstate shard-local stalls relative to pooled percentiles, so always compare topologies through the identical sharded apparatus rather than against single-client runs.
 
+Measured nulls (2026-10-17, M1 Pro): mimalloc v3.5.4 via `DYLD_INSERT_LIBRARIES`, kept outside the repository, moved tails ±8% mixed on both the runtime and framework servers, so allocator contention is rejected as the tail driver and the system allocator stands. Interposition was verified genuinely active via `vmmap` (dylib mapped in the server process) plus mimalloc's own verbose init banner, so this is a true null, not a silently ignored `DYLD_INSERT_LIBRARIES`. A fixed 2048-byte receive buffer versus the adaptive recv allocator flipped between rounds (null, reverted), and a `consuming` body conversion measured null in-process (reverted). None of these need re-trialling without new profiling evidence.
+
 ## Actix Web comparison
 
 Actix is an external control and is intentionally not implemented or vendored in this repository.
