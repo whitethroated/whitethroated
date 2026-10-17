@@ -1,4 +1,5 @@
 import Dispatch
+import BenchmarkResults
 import Foundation
 import NIOCore
 import NIOHTTP1
@@ -522,6 +523,28 @@ for connection in connections {
 }
 
 print("")
+
+// Export only after the timed phase and channel cleanup. The first request on
+// each connection remains excluded from latency, preserving the baseline.
+if let output = ProcessInfo.processInfo.environment["WHITETHROATED_BENCH_OUTPUT"] {
+    guard let runID = ProcessInfo.processInfo.environment["WHITETHROATED_BENCH_RUN_ID"],
+          !runID.isEmpty else {
+        throw BenchmarkMergeError.invalidSample
+    }
+    let sample = BenchmarkSample(
+        runID: runID, clientHost: ProcessInfo.processInfo.hostName,
+        method: configuration.methodName, path: configuration.path,
+        targetHost: configuration.host, port: configuration.port,
+        connections: configuration.connections, threads: configuration.threads,
+        tcpNoDelay: configuration.tcpNoDelay, collectLatency: configuration.collectLatency,
+        requested: configuration.requests, completed: completedRequests,
+        bodyBytes: responseBodyBytes, startNanoseconds: start, endNanoseconds: end,
+        latencyNanoseconds: latencyNanoseconds
+    )
+    _ = try BenchmarkSummary(samples: [sample])
+    let encoder = JSONEncoder()
+    try encoder.encode(sample).write(to: URL(fileURLWithPath: output), options: .atomic)
+}
 print("WhiteThroated Swift network benchmark client")
 print(
     "target="

@@ -46,17 +46,22 @@ RPS = median of 3; avg/p50/p75/p90/p99/max = mean of 2 (µs).
 
 Framework vs Hono: RPS +43/+35/+35%, avg −28/−28/−29%,
 p50 −48/−47/−44%, p75 −19/−15/−14%, p90 +23/+30/+27%,
-p99 +107/+120/+126%. Framework beats Express on every metric in
-every cell (RPS +88/+89/+90%).
+p99 +107/+120/+126%. Framework beats Express on RPS, average,
+p50, p75 and p90 in every cell (RPS +88/+89/+90%), but loses p99
+in all three cells (2669/8753/13775 µs versus 1680/4122/8449 µs).
+Express also has the lower maximum in each recorded cell.
 
 ## Verdict: B
 
 Same shape as the base-route matrix. WhiteThroated wins throughput,
-average, p50, and p75 in all 12 cells; Hono wins p90/p99 in all 6
-cells by margins (23–126%) far above host noise. Express trails both
-on everything. The tail gap is workload-independent (empty-body and
-27-byte JSON routes agree), consistent with the cost living below the
-framework layer.
+average, p50, and p75 against both competitors at all three concurrency
+levels; Hono wins p90/p99 against WhiteThroated at all three levels
+by margins of 23–126%. Express loses throughput and central latency
+but also beats WhiteThroated at p99. The empty-body and 27-byte JSON
+routes show the same tail pattern, consistent with a substantial cost
+below the framework layer; these workloads do not establish behavior
+for every REST workload. Latency has only two rounds, so further
+replication is required by the current publication gate.
 
 ## New observation: tail-variance gap
 

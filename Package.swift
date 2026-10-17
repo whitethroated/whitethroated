@@ -8,6 +8,10 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
+        .executable(
+            name: "whitethroated-benchmark-merge",
+            targets: ["BenchmarkResultMerge"]
+        ),
         .library(
             name: "WhiteThroated",
             targets: ["WhiteThroated"]
@@ -40,6 +44,13 @@ let package = Package(
         )
     ],
     targets: [
+        .target(name: "BenchmarkResults", path: "Benchmarks/BenchmarkResults"),
+        .executableTarget(
+            name: "BenchmarkResultMerge",
+            dependencies: ["BenchmarkResults"],
+            path: "Benchmarks/BenchmarkResultMerge"
+        ),
+        .testTarget(name: "BenchmarkResultsTests", dependencies: ["BenchmarkResults"]),
         .target(
             name: "WhiteThroated",
             dependencies: [
@@ -101,6 +112,7 @@ let package = Package(
         .executableTarget(
             name: "WhiteThroatedBenchmarkClient",
             dependencies: [
+                "BenchmarkResults",
                 .product(
                     name: "NIOCore",
                     package: "swift-nio"
