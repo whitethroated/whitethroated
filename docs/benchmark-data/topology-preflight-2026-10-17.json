@@ -1,0 +1,12 @@
+{
+  "at" : "2026-10-17T10:27:16Z",
+  "externalCPUPercent" : 78.00000000000003,
+  "load" : [
+    2.791015625,
+    3.7978515625,
+    5.52099609375
+  ],
+  "memoryOK" : false,
+  "memoryState" : "2",
+  "quiet" : false
+}
