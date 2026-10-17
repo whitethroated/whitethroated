@@ -298,7 +298,7 @@ This server drives `WhiteThroatedRuntime` through a hand-built dispatcher with n
 
 ## Multi-process topology
 
-Eight single-loop server processes behind a sharding client show tighter tails than one eight-loop process under the same total load (3 interleaved rounds, matched 8-client apparatus, 1M requests per cell): p90 improves 3–13% and p99 improves 13–20% across `GET /` c64/c256 and `GET /user/42` c256, with neutral p50 and neutral-to-better throughput. Dose-response is monotonic with diminishing returns: 4×2-loop processes roughly match 8×1, both clearly beat 2×4, which beats 1×8 on p90/p99 at fixed total loops. The win transfers to the framework server (2 interleaved rounds, same apparatus): p90 −3–15%, p99 −18–34% for 8×1 versus 1×8, with neutral-to-better throughput. Process isolation (separate allocators and schedulers) explains part of the tail gap to multi-process servers such as Bun's `node:cluster` mode, but not all of it.
+Eight single-loop server processes behind a sharding client show tighter tails than one eight-loop process under the same total load (3 interleaved rounds, matched 8-client apparatus, 1M requests per cell): p90 improves 3–13% and p99 improves 13–20% across `GET /` c64/c256 and `GET /user/42` c256, with neutral p50 and neutral-to-better throughput. Dose-response is monotonic with diminishing returns: 4×2-loop processes roughly match 8×1, both clearly beat 2×4, which beats 1×8 on p90/p99 at fixed total loops. The win transfers to the framework server (2 interleaved rounds, same apparatus): p90 −3–15%, p99 −18–34% for 8×1 versus 1×8, with neutral-to-better throughput. This is a topology correlation; allocator and scheduler causality, and the residual competitor gap, require separate evidence.
 
 Two macOS caveats. First, plain `SO_REUSEPORT` multi-binds successfully but delivers every TCP accept to one socket (measured 256/0/0/0/0/0/0/0 across eight workers); macOS has no `SO_REUSEPORT_LB` equivalent, so single-port multi-process serving needs userspace distribution or per-worker ports behind a load balancer. Second, mean-of-shard percentiles are a comparison metric only: they overstate shard-local stalls relative to pooled percentiles, so always compare topologies through the identical sharded apparatus rather than against single-client runs.
 
@@ -308,7 +308,7 @@ Scheduler evidence (`GET /` c256, same 8-shard apparatus, 2 rotated rounds, `get
 
 Measured nulls (2026-10-17, M1 Pro): mimalloc v3.5.4 via `DYLD_INSERT_LIBRARIES`, kept outside the repository, moved tails ±8% mixed on both the runtime and framework servers, so allocator contention is rejected as the tail driver and the system allocator stands. Interposition was verified genuinely active via `vmmap` (dylib mapped in the server process) plus mimalloc's own verbose init banner, so this is a true null, not a silently ignored `DYLD_INSERT_LIBRARIES`. A fixed 2048-byte receive buffer versus the adaptive recv allocator flipped between rounds (null, reverted), and a `consuming` body conversion measured null in-process (reverted). None of these need re-trialling without new profiling evidence.
 
-Matched small-JSON matrix (`GET /json`, 27-byte body, 5 servers × c64/c256/c512, 1M requests/cell, RPS median-of-3, latency mean-of-2; see `docs/benchmark-json-whitethroated-hono-express-2026-10-17.md`): WhiteThroated beats Hono/Bun on RPS/avg/p50/p75 in all 12 cells (+35–43% RPS) and loses p90/p99 in all 6 cells (+23–30% p90, +107–126% p99); Express/Bun trails both on everything. Same verdict shape as the empty-body matrix, so the tail gap is workload-independent. New: Hono's run-to-run percentile spread is ±0.4–4% versus typically ±4–15% Swift-side — a tail-variance gap, not just a tail-level gap. Resolved as a standing small cost, not a regression (see `docs/benchmark-json-isolation-2026-10-17.md`): a rotated-order 5-round isolation (70 cells, quiet window, control `/` at 99.9/96.8%) shows framework ≈ raw on empty responses and trailing ~2–8% on non-empty responses (`/prepared`, `/json`), order-independent and consistent with the base report's own worst cells (already body routes). Prepared-vs-dynamic parity on identical bytes (±1.2%) exonerates response construction; `PreparedResponse` pre-buffers its body and conversion is shallow, so the residual is dispatch + conversion object work at the apparatus resolution limit. First attempt (42 cells) was inconclusive — the `/` control read −9.2% under host-side load with fixed server order — which motivated the strengthened protocol (machine pre-flight, rotated order, five rounds) now required for any sub-10% claim.
+Matched small-JSON matrix (`GET /json`, 27-byte body, 5 servers × c64/c256/c512, 1M requests/cell, RPS median-of-3, latency mean-of-2; see `docs/benchmark-json-whitethroated-hono-express-2026-10-17.md`): WhiteThroated beats Hono/Bun on RPS/avg/p50/p75 in all 12 cells (+35–43% RPS) and loses p90/p99 in all 6 cells (+23–30% p90, +107–126% p99); Express on Bun trails on throughput, average, p50, p75 and p90 but beats WhiteThroated at p99 in all three cells. Same verdict shape as the empty-body matrix, so the tail gap is workload-independent. New: Hono's run-to-run percentile spread is ±0.4–4% versus typically ±4–15% Swift-side — a tail-variance gap, not just a tail-level gap. Resolved as a standing small cost, not a regression (see `docs/benchmark-json-isolation-2026-10-17.md`): a rotated-order 5-round isolation (70 cells, quiet window, control `/` at 99.9/96.8%) shows framework ≈ raw on empty responses and trailing ~2–8% on non-empty responses (`/prepared`, `/json`), order-independent and consistent with the base report's own worst cells (already body routes). Prepared-vs-dynamic parity on identical bytes (±1.2%) exonerates response construction; `PreparedResponse` pre-buffers its body and conversion is shallow, so the residual is dispatch + conversion object work at the apparatus resolution limit. First attempt (42 cells) was inconclusive — the `/` control read −9.2% under host-side load with fixed server order — which motivated the strengthened protocol (machine pre-flight, rotated order, five rounds) now required for any sub-10% claim.
 
 ## Actix Web comparison
 
@@ -431,3 +431,56 @@ The `text-factory` and `text-shared` paired medians use the same synchronous rou
 
 
 CI transport diagnostics use 50,000 iterations per sample while router, middleware, and generic core smoke benchmarks remain at 10,000. Transport paired benchmarks already rotate/reverse ordering; the larger sample reduces timer and scheduler noise for the sub-microsecond deltas now being optimized.
+
+## Exact pooling of client shards
+
+The release client supports optional `WHITETHROATED_BENCH_OUTPUT=/absolute/path.json`
+and requires a nonempty `WHITETHROATED_BENCH_RUN_ID` when exporting. Give concurrent
+shards of one cell the same unique run ID; use a new ID for every round, mode,
+route, concurrency, server and topology. Use a fresh directory per campaign and
+unique output names. A failed client produces no new result; never reuse stale files.
+
+Schema 1 stores request configuration, client hostname, unique sample ID,
+requested/completed counts, body bytes, monotonic start/end nanoseconds and raw
+latency nanoseconds. Export happens after the timed load and channel cleanup;
+throughput-only mode exports an empty latency array. Existing request bytes and
+latency semantics are unchanged: the first response per connection counts toward
+RPS/body bytes but is excluded from latency. Export and offline pooling consume
+additional client memory; exclude that memory from server RSS and allow headroom.
+
+```sh
+swift build -c release --product whitethroated-benchmark-merge
+.build/release/whitethroated-benchmark-merge 8 /tmp/campaign/round-1-shard-*.json \
+  > /tmp/campaign/round-1-pooled.json
+```
+
+The first argument is the expected shard count, so a missing shard fails rather
+than silently reducing load. The merger rejects duplicate samples, different run
+IDs/configurations/client hosts, incomplete request counts, inconsistent latency
+counts, invalid timing and nonoverlapping measurement intervals. Ports may differ
+for explicit sharding. All shards must run on the **same client host in the same
+boot**; hostname/overlap checks cannot prove this, so retain host/boot metadata.
+It cannot verify response body/header parity or that declared topology actually ran;
+verify those separately before load. It does not provide request timeouts.
+
+Pooled percentiles use the client's existing floor((N−1)×p) order statistic on all
+samples, rather than an average of shard percentiles. Aggregate RPS divides total
+completed requests by earliest start to latest finish, including launch skew;
+it is not the sum of shard-local RPS. Report launch skew and shard durations from
+raw files, keep the same shard apparatus across comparisons, and reject excessive
+skew. Do not mix the new wall-window RPS or pooled tails with historic summed-RPS /
+mean-of-shard-percentile tables. Rebaseline all compared cases. Schema 1 successful
+files imply zero observed failures; absent/failed shards invalidate the cell, not
+zero errors. Preserve stderr and exit status as well as JSON.
+
+This tooling adds no production runtime path and makes no new speed claim.
+
+Pooled topology follow-up (macOS, `GET /`, c256, three interleaved rounds,
+8 one-thread client shards, 1M requests/cell; see
+`docs/benchmark-pooled-topology-2026-10-17.md`): all 24 cells completed, but
+large round variance prevents accepting a Pareto improvement (verdict C).
+Median 4×2 versus 1×8 shows nominal RPS +3.1%, p90 −5.1%, p99 −25.1%
+with **p50 +24.5%**; every multi-process topology misses the p50 gate in
+every paired round. New pooled quantiles and wall-window RPS must not be
+mixed with earlier shard-average/summed-RPS tables or different client thread
+counts. No new deployment recommendation or production optimization follows.

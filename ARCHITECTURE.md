@@ -641,3 +641,19 @@ Response.stream(contentLength:) carries the factory-known length beside the prod
 
 
 Compiled middleware chains now stay in MiddlewareResult form from the router boundary through all registered middleware and convert back to ResponderResult only once at the outer application boundary. Fast middleware therefore passes the next result directly instead of performing ResponderResult → MiddlewareResult → ResponderResult conversions at every layer. Applications with no middleware still use the original InternalHandler terminal directly.
+
+## Process topology and measurement boundaries
+
+Worker processes each own an independent application, runtime and event-loop
+group. Configuration freezes separately in each process. Process supervision,
+port assignment and load balancing remain deployment responsibilities; the
+runtime bootstrap currently exposes no same-port SO_REUSEPORT configuration.
+The macOS multi-port findings do not establish Linux accept distribution or
+Linux scheduler/cache behavior. See `docs/linux-validation-checklist.md` for
+pending topology-transfer controls.
+
+Multi-process recommendations must include aggregate worker memory and CPU,
+not just one worker's RSS or tail percentiles. Benchmark shards can now export
+raw samples for offline pooled quantiles; mean-of-shard percentiles in earlier
+reports remain historical comparison statistics. Neither pooling nor deployment
+orchestration changes the framework/runtime bridge or adds request-path work.

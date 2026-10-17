@@ -99,6 +99,26 @@
             "target": "whitethroated-runtime-benchmark-server",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release whitethroated-runtime-benchmark-server"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-benchmark-merge",
+            "target": "whitethroated-benchmark-merge",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-benchmark-merge"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-benchmark-merge",
+            "target": "whitethroated-benchmark-merge",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-benchmark-merge"
         }
     ]
 }

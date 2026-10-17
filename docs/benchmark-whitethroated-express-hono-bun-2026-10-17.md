@@ -1,10 +1,14 @@
 # WhiteThroated vs Express.js vs Hono on Bun — benchmark report
 
 Date: 2026-10-17. Machine: Apple M1 Pro (8 cores), macOS 26.6.2.
-Runtimes: Bun 1.4.3 (latest stable, verified Rust-based — Rust is the
-top language in oven-sh/bun and Zig no longer appears), Node v24.14.0
+Runtimes: Bun 1.4.3 (recorded campaign version), Node v24.14.0
 present but unused for serving. Frameworks: express 5.3.0, hono
 4.13.13, WhiteThroated @b99c4f8 (Swift 6.2.4, SwiftNIO exactly 2.104.0).
+
+Evidence qualification: this historical matrix has one sample per mode per
+cell. Its directional ranking is exploratory, not a replicated publication
+claim. Current stable versions were not re-verified by the present tooling
+change. Runtime implementation language is irrelevant to these measurements.
 
 ## 1. Verdict
 
@@ -52,8 +56,8 @@ one request in flight per connection, TCP_NODELAY on. Matrix:
 concurrency 64/256/512 × 3 routes, one throughput-only plus one
 latency-enabled sample of 500k requests per cell, interleaved per cell
 (express → hono → WT → raw). Gaps here (30–130%) far exceed the
-±5–15% single-sample noise on this loaded desktop machine, so one
-round per mode suffices. Logs: `/tmp/js-bench/results-js*`.
+±5–15% single-sample noise on this loaded desktop machine, but one
+round per mode does not satisfy the current replication gate. Logs: `/tmp/js-bench/results-js*`.
 
 ## 3. Throughput (requests/second)
 
