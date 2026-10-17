@@ -484,3 +484,88 @@ with **p50 +24.5%**; every multi-process topology misses the p50 gate in
 every paired round. New pooled quantiles and wall-window RPS must not be
 mixed with earlier shard-average/summed-RPS tables or different client thread
 counts. No new deployment recommendation or production optimization follows.
+
+## Swift-native topology campaign
+
+`whitethroated-benchmark-campaign` replaces manual orchestration for the next
+1×8 versus 4×2 adjudication. It never builds during measurement. First run the
+release tests and build the server, client, merger and campaign products:
+
+```sh
+swift test -c release
+swift build -c release --product whitethroated-benchmark-server
+swift build -c release --product whitethroated-benchmark-client
+swift build -c release --product whitethroated-benchmark-merge
+swift build -c release --product whitethroated-benchmark-campaign
+ulimit -n 10240
+WHITETHROATED_CAMPAIGN_OUTPUT=/tmp/topology-unique \
+  .build/release/whitethroated-benchmark-campaign
+```
+
+The output directory must be absolute and not already exist. Default plan:
+5 alternating rounds of 1×8 / 4×2, `GET /`, `GET /user/42`, `POST /user`,
+c64/c256/c512, 8 one-thread client shards, 125000 requests per shard. Each
+worker receives 10000 warmup requests per route. A full campaign has 270 cells:
+throughput-only, latency-enabled and separate resource-observation modes for
+every combination. Resource mode uses the throughput-only client and samples
+worker `ps` RSS/cumulative CPU about every 250 ms; its RPS is diagnostic only.
+The primary throughput and latency cells run without that sampler. Sampling and
+client export overhead are not calibrated away.
+
+Other settings (all optional):
+
+| Environment variable | Meaning |
+|---|---|
+| `WHITETHROATED_CAMPAIGN_ROOT` | Repository path; defaults to current directory |
+| `WHITETHROATED_CAMPAIGN_SERVER` | `whitethroated-benchmark-server` (default), `whitethroated-runtime-benchmark-server`, or `raw-nio-benchmark-server` |
+| `WHITETHROATED_CAMPAIGN_PORT` | First of four loopback ports, default 3310 |
+| `WHITETHROATED_CAMPAIGN_SMOKE=1` | Correctness-only run: one round, c64, 8000 requests/shard; bypasses quiet-host rejection and marks completion as smoke |
+
+Worker/client launch environments remove inherited `WHITETHROATED_*` settings,
+then set the exact cell configuration. Optional middleware/upload/etc. flags
+cannot silently contaminate the matrix. Other runtime interposition/profiling
+environment settings remain the operator's responsibility; use a clean terminal.
+The server must already be built in release mode. Keep the toolchain/build flags
+with the campaign archive; binary location alone cannot prove how it was built.
+
+The runner verifies status, exact body, Content-Length and relevant Content-Type
+on every worker/route before load. The campaign stops on HTTP mismatch, child
+failure, 120-second cell timeout, HEAD change or a quiet-host gate failure.
+SIGINT/SIGTERM request cleanup: it terminates/reaps its own clients/workers and
+uses SIGKILL only for its own children still alive after two seconds. Do not
+SIGKILL the runner if graceful cleanup is needed. Ports must be unused; readiness
+checks alone cannot prove a responder's identity if another service occupies a
+port, so inspect worker failures/logs and reserve the port range.
+
+Initial quiet-host admission requires 1- and 5-minute load averages no greater
+than half the available logical cores, normal macOS memory pressure (level 1),
+and summed unrelated-process `ps %CPU` no greater than 100% (one core). On Linux
+the memory proxy is MemAvailable >=10% of MemTotal; compatibility/performance
+validation remains pending. Between cells, memory and unrelated-process CPU gates
+remain active, but load-average rejection is disabled because it includes the
+campaign's own preceding load. `ps %CPU` is a platform-smoothed estimate, not an
+instantaneous isolation guarantee. These are conservative admission rules,
+not proof of a noiseless machine; inspect round spread before any claim.
+
+Each campaign preserves its configuration/plan, commit, worktree diff, Swift
+version, kernel, dependency lockfile, pre/post host observations, HTTP verification
+outputs, worker/client logs, raw samples and pooled summaries. A resource cell
+also saves raw per-worker observations and a resource summary:
+
+- Initial/post RSS and maximum sampled **concurrent aggregate** RSS (KiB).
+- Summed worker CPU-time delta and observation-envelope wall time.
+- CPU utilization and completed requests per worker CPU second.
+
+The CPU envelope brackets client startup, load and client export/cleanup; it is
+not a pure service-time counter. `ps` CPU time has limited resolution. Sampled
+RSS can miss between-sample peaks and is not process-lifetime high-water RSS.
+Idle worker observations are recorded before warmup. Keep resource cells separate
+from latency/throughput cells when reporting these limitations. Derive memory
+per connection using the cell concurrency with idle baseline shown. The runner
+does not collect hardware counters, context switches or CPU migrations.
+
+`COMPLETE.txt` means execution completed, not that acceptance gates passed.
+`ABORTED.txt` preserves the failure; partial results must not be presented as a
+complete matrix. Do not resume into the same directory or silently drop outliers.
+Raw JSON files can be large; archive/compress externally after all children exit.
+No binary/source changes or other tests/builds should run during a campaign.

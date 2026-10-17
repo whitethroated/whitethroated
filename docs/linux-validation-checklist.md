@@ -350,3 +350,21 @@ A readiness/warmup failure aborts the cell; inspect it before retrying. The fixe
 sleep is startup allowance, not a successful readiness assertion. For production
 Linux recommendations, complete the CPU/memory/accept instrumentation above as
 well as this throughput/latency procedure.
+
+## 10. Swift campaign runner
+
+The manual single-cell procedure above now has a Swift-native equivalent:
+
+```sh
+swift build -c release --product whitethroated-benchmark-campaign
+WHITETHROATED_CAMPAIGN_OUTPUT=/tmp/linux-topology-unique \
+  .build/release/whitethroated-benchmark-campaign
+```
+
+See BENCHMARKS.md for the exact matrix, gates, outputs and cleanup behavior.
+This automates **1×8 versus 4×2 on separate ports**. The first complete Linux
+transfer validation still needs the additional 2×4 and 8×1 controls described
+above, accept-distribution instrumentation for same-port reuseport, full Linux
+host classification/metadata and scheduler/cache counters. The runner's Linux
+branches are prepared source, not locally validated Linux evidence. Smoke mode
+is compatibility/harness validation only and bypasses quiet-host rejection.
