@@ -296,6 +296,12 @@ swift run -c release whitethroated-runtime-benchmark-server
 
 This server drives `WhiteThroatedRuntime` through a hand-built dispatcher with no `Application`, no framework router, no middleware, and no Request/Response types. It implements the same external `GET /`, `GET /user/:id`, `POST /user` contract, so the three-way comparison raw-vs-runtime-vs-framework separates transport overhead (runtime minus raw) from framework overhead (framework minus runtime). When framework throughput regresses against raw, check the runtime level first: a runtime-vs-raw gap points at the transport port, while a framework-vs-runtime gap points at routing, Request/Response construction, or the dispatcher bridge.
 
+## Multi-process topology
+
+Eight single-loop server processes behind a sharding client show tighter tails than one eight-loop process under the same total load (3 interleaved rounds, matched 8-client apparatus, 1M requests per cell): p90 improves 3–13% and p99 improves 13–20% across `GET /` c64/c256 and `GET /user/42` c256, with neutral p50 and neutral-to-better throughput. Process isolation (separate allocators and schedulers) explains part of the tail gap to multi-process servers such as Bun's `node:cluster` mode, but not all of it.
+
+Two macOS caveats. First, plain `SO_REUSEPORT` multi-binds successfully but delivers every TCP accept to one socket (measured 256/0/0/0/0/0/0/0 across eight workers); macOS has no `SO_REUSEPORT_LB` equivalent, so single-port multi-process serving needs userspace distribution or per-worker ports behind a load balancer. Second, mean-of-shard percentiles are a comparison metric only: they overstate shard-local stalls relative to pooled percentiles, so always compare topologies through the identical sharded apparatus rather than against single-client runs.
+
 ## Actix Web comparison
 
 Actix is an external control and is intentionally not implemented or vendored in this repository.
