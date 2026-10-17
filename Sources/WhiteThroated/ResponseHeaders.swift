@@ -1,3 +1,5 @@
+import WhiteThroatedRuntime
+
 extension Response {
     public mutating func setHeader(
         _ name: String,

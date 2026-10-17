@@ -1,5 +1,6 @@
 import NIOCore
 import NIOHTTP1
+import WhiteThroatedRuntime
 
 public struct StreamRequest: @unchecked Sendable {
     private let request: Request
@@ -199,6 +200,7 @@ public enum BodyStreamError: Error, Sendable {
 
 internal final class BodyStreamSession: @unchecked Sendable {
     private let consumer: BodyStreamConsumer
+    private let eventLoop: EventLoop
     private let responsePromise: EventLoopPromise<Response>
     private var finished = false
 
@@ -207,6 +209,7 @@ internal final class BodyStreamSession: @unchecked Sendable {
         eventLoop: EventLoop
     ) {
         self.consumer = consumer
+        self.eventLoop = eventLoop
         self.responsePromise = eventLoop.makePromise(
             of: Response.self
         )
@@ -214,6 +217,33 @@ internal final class BodyStreamSession: @unchecked Sendable {
 
     var responseFuture: EventLoopFuture<Response> {
         responsePromise.futureResult
+    }
+
+    /// Bridges this framework session onto the runtime pump. The
+    /// runtime session owns the returned object graph through its
+    /// closures; callers must bridge exactly once per session.
+    func bridgeToRuntime() -> RuntimeStreamSession {
+        RuntimeStreamSession(
+            consumer: RuntimeStreamConsumer(
+                onChunk: { [self] buffer in
+                    try self.receive(buffer)
+                },
+                onFinish: { [self] in
+                    self.finish()
+                    return self.responseFuture.map {
+                        $0.runtimeResponse
+                    }
+                },
+                onError: { [self] error in
+                    self.fail(
+                        mapRuntimeRequestStreamError(
+                            error
+                        )
+                    )
+                }
+            ),
+            eventLoop: eventLoop
+        )
     }
 
     @inline(__always)
@@ -279,75 +309,7 @@ internal final class BodyStreamSession: @unchecked Sendable {
     }
 }
 
-internal final class StreamingRegistration: @unchecked Sendable {
-    internal enum State {
-        case pending
-        case session(BodyStreamSession)
-        case bypass
-        case cancelled(Error)
-    }
-
-    private let readyPromise: EventLoopPromise<Void>
-    private var state: State = .pending
-
-    init(eventLoop: EventLoop) {
-        self.readyPromise = eventLoop.makePromise(
-            of: Void.self
-        )
-    }
-
-    var readyFuture: EventLoopFuture<Void> {
-        readyPromise.futureResult
-    }
-
-    var currentState: State {
-        state
-    }
-
-    func register(_ session: BodyStreamSession) {
-        switch state {
-        case .pending:
-            state = .session(session)
-            readyPromise.succeed(())
-
-        case .cancelled(let error):
-            session.fail(error)
-
-        case .session, .bypass:
-            preconditionFailure(
-                "Streaming session registered more than once"
-            )
-        }
-    }
-
-    func bypassIfPending() {
-        guard case .pending = state else {
-            return
-        }
-
-        state = .bypass
-        readyPromise.succeed(())
-    }
-
-    func cancel(_ error: Error) {
-        switch state {
-        case .pending:
-            state = .cancelled(error)
-            readyPromise.succeed(())
-
-        case .session(let session):
-            state = .cancelled(error)
-            session.fail(error)
-
-        case .bypass, .cancelled:
-            break
-        }
-    }
-}
-
-internal struct StreamingTransportStart {
-    let result: ResponderResult
-    let registration: StreamingRegistration
-    let maxBodyBytes: Int
-    let declaredBodyTooLarge: Bool
-}
+// Streaming registration and transport-start state moved to
+// WhiteThroatedRuntime (RuntimeStreamRegistration,
+// RuntimeStreamingStart). Framework sessions bridge onto the runtime
+// pump via BodyStreamSession.bridgeToRuntime().

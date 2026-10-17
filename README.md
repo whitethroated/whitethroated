@@ -755,6 +755,32 @@ Compiled middleware / handler
                         Socket
 ```
 
+The transport half of that lifecycle lives in the internal
+`WhiteThroatedRuntime` module:
+
+```text
+Developer API
+     |
+     v
+WhiteThroated ── Application, Router, middleware, Request/Response
+     |
+     v
+WhiteThroatedRuntime ── bootstrap, HTTP/1.1 pipeline, dispatch,
+     |                  response writer, keep-alive, backpressure
+     v
+SwiftNIO
+     |
+     v
+OS networking
+```
+
+`WhiteThroatedRuntime` is an implementation layer in this same
+repository, not a separate framework or package. Users import only
+`WhiteThroated`; the runtime owns low-level HTTP execution so
+framework code stays focused on developer-facing behavior. See
+[ARCHITECTURE.md](ARCHITECTURE.md) for the module boundary and
+event-loop ownership rules.
+
 ## Performance rules
 
 WhiteThroated follows several runtime rules:
@@ -835,7 +861,14 @@ WHITETHROATED_THREADS=4 \
 swift run -c release raw-nio-benchmark-server
 ```
 
-Use the same external load generator and identical settings for both servers. Actix and other non-Swift controls intentionally live outside this repository so WhiteThroated remains a Swift-only codebase.
+Start the runtime-level server to separate runtime overhead from framework overhead:
+
+```bash
+WHITETHROATED_THREADS=4 \
+swift run -c release whitethroated-runtime-benchmark-server
+```
+
+Use the same external load generator and identical settings for every server. Actix and other non-Swift controls intentionally live outside this repository so WhiteThroated remains a Swift-only codebase.
 
 See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.md](ARCHITECTURE.md) for runtime invariants.
 

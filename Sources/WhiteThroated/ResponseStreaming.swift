@@ -1,5 +1,6 @@
 import NIOCore
 import NIOHTTP1
+import WhiteThroatedRuntime
 
 public enum ResponseStreamError: Error, Sendable, Equatable {
     case invalidContentLength(String)
@@ -12,65 +13,6 @@ public enum ResponseStreamError: Error, Sendable, Equatable {
         expected: Int,
         actual: Int
     )
-}
-
-internal final class ResponseStreamLengthTracker:
-    @unchecked Sendable
-{
-    let expected: Int
-    private(set) var written = 0
-    private(set) var failure: ResponseStreamError?
-
-    init(expected: Int) {
-        self.expected = expected
-    }
-
-    @inline(__always)
-    func record(_ bytes: Int) -> ResponseStreamError? {
-        guard failure == nil else {
-            return failure
-        }
-
-        guard bytes >= 0 else {
-            preconditionFailure(
-                "Stream write byte count cannot be negative"
-            )
-        }
-
-        if bytes > expected - written {
-            let attempted =
-                written > Int.max - bytes
-                ? Int.max
-                : written + bytes
-            let error = ResponseStreamError
-                .contentLengthExceeded(
-                    expected: expected,
-                    attempted: attempted
-                )
-
-            failure = error
-            return error
-        }
-
-        written += bytes
-        return nil
-    }
-
-    @inline(__always)
-    func completionError() -> ResponseStreamError? {
-        if let failure {
-            return failure
-        }
-
-        guard written == expected else {
-            return .contentLengthMismatch(
-                expected: expected,
-                actual: written
-            )
-        }
-
-        return nil
-    }
 }
 
 public struct ResponseStream: @unchecked Sendable {
@@ -98,36 +40,31 @@ public struct ResponseStream: @unchecked Sendable {
     }
 }
 
+/// Developer-facing response stream writer. Thin boundary wrapper
+/// over the runtime writer: length tracking, event-loop checks, and
+/// emission all live in WhiteThroatedRuntime. Failures surface as
+/// `ResponseStreamError` to preserve the public API contract.
 public struct ResponseStreamWriter: @unchecked Sendable {
-    private let context: ChannelHandlerContext
-    private let lengthTracker: ResponseStreamLengthTracker?
+    private let runtimeWriter: RuntimeStreamWriter
 
     internal init(
-        context: ChannelHandlerContext,
-        lengthTracker: ResponseStreamLengthTracker? = nil
+        runtimeWriter: RuntimeStreamWriter
     ) {
-        self.context = context
-        self.lengthTracker = lengthTracker
+        self.runtimeWriter = runtimeWriter
     }
 
     public var eventLoop: EventLoop {
-        context.eventLoop
+        runtimeWriter.eventLoop
     }
 
     public var closeFuture: EventLoopFuture<Void> {
-        context.channel.closeFuture
+        runtimeWriter.closeFuture
     }
 
     public func makeBuffer(
         capacity: Int = 0
     ) -> ByteBuffer {
-        requireEventLoop()
-        precondition(
-            capacity >= 0,
-            "Buffer capacity must be zero or greater"
-        )
-
-        return context.channel.allocator.buffer(
+        runtimeWriter.makeBuffer(
             capacity: capacity
         )
     }
@@ -136,80 +73,51 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     public func write(
         _ buffer: ByteBuffer
     ) -> EventLoopFuture<Void> {
-        requireEventLoop()
-        return writeChecked(buffer)
+        mapFailure(
+            runtimeWriter.write(buffer)
+        )
     }
 
     @discardableResult
     public func writeFileRegion(
         _ region: FileRegion
     ) -> EventLoopFuture<Void> {
-        requireEventLoop()
-
-        if let failure = record(
-            region.readableBytes
-        ) {
-            return context.eventLoop.makeFailedFuture(
-                failure
+        mapFailure(
+            runtimeWriter.writeFileRegion(
+                region
             )
-        }
-
-        context.write(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .fileRegion(region)
-                )
-            ),
-            promise: nil
         )
-
-        return context.eventLoop
-            .makeSucceededVoidFuture()
     }
 
     @discardableResult
     public func writeString(
         _ value: String
     ) -> EventLoopFuture<Void> {
-        requireEventLoop()
-
-        var buffer =
-            context.channel.allocator.buffer(
-                capacity: value.utf8.count
-            )
-        buffer.writeString(value)
-
-        return writeChecked(buffer)
+        mapFailure(
+            runtimeWriter.writeString(value)
+        )
     }
 
     @discardableResult
     public func writeAndFlush(
         _ buffer: ByteBuffer
     ) -> EventLoopFuture<Void> {
-        requireEventLoop()
-        return writeAndFlushChecked(buffer)
+        mapFailure(
+            runtimeWriter.writeAndFlush(
+                buffer
+            )
+        )
     }
 
     @discardableResult
     public func writeFileRegionAndFlush(
         _ region: FileRegion
     ) -> EventLoopFuture<Void> {
-        requireEventLoop()
-
-        if let failure = record(
-            region.readableBytes
-        ) {
-            return context.eventLoop.makeFailedFuture(
-                failure
-            )
-        }
-
-        return context.writeAndFlush(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .fileRegion(region)
+        mapFailure(
+            runtimeWriter
+                .writeFileRegionAndFlush(
+                    region
                 )
-            )
         )
     }
 
@@ -217,80 +125,28 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     public func writeStringAndFlush(
         _ value: String
     ) -> EventLoopFuture<Void> {
-        requireEventLoop()
-
-        var buffer =
-            context.channel.allocator.buffer(
-                capacity: value.utf8.count
+        mapFailure(
+            runtimeWriter.writeStringAndFlush(
+                value
             )
-        buffer.writeString(value)
-
-        return writeAndFlushChecked(buffer)
+        )
     }
 
     public func flush() {
-        requireEventLoop()
-        context.flush()
+        runtimeWriter.flush()
     }
 
     @inline(__always)
-    private func writeChecked(
-        _ buffer: ByteBuffer
+    private func mapFailure(
+        _ future: EventLoopFuture<Void>
     ) -> EventLoopFuture<Void> {
-        if let failure = record(
-            buffer.readableBytes
-        ) {
-            return context.eventLoop.makeFailedFuture(
-                failure
+        // Only length-tracker violations fail here; map them onto
+        // framework error identity. Stream writes are cold relative
+        // to the sync fast path, so one mapped future is acceptable.
+        future.flatMapError { error in
+            future.eventLoop.makeFailedFuture(
+                mapRuntimeStreamError(error)
             )
         }
-
-        context.write(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .byteBuffer(buffer)
-                )
-            ),
-            promise: nil
-        )
-
-        return context.eventLoop
-            .makeSucceededVoidFuture()
-    }
-
-    @inline(__always)
-    private func writeAndFlushChecked(
-        _ buffer: ByteBuffer
-    ) -> EventLoopFuture<Void> {
-        if let failure = record(
-            buffer.readableBytes
-        ) {
-            return context.eventLoop.makeFailedFuture(
-                failure
-            )
-        }
-
-        return context.writeAndFlush(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .byteBuffer(buffer)
-                )
-            )
-        )
-    }
-
-    @inline(__always)
-    private func record(
-        _ bytes: Int
-    ) -> ResponseStreamError? {
-        lengthTracker?.record(bytes)
-    }
-
-    @inline(__always)
-    private func requireEventLoop() {
-        precondition(
-            context.eventLoop.inEventLoop,
-            "Response stream writes must occur on the channel event loop"
-        )
     }
 }

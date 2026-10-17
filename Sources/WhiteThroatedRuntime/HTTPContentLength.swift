@@ -1,13 +1,13 @@
 import NIOHTTP1
 
-internal enum HTTPContentLength {
+public enum HTTPContentLength {
     private static let contentLengthNameBytes: [UInt8] = [
         99, 111, 110, 116, 101, 110, 116,
         45, 108, 101, 110, 103, 116, 104
     ]
 
     @inline(__always)
-    static func declaredExceedsLimit(
+    public static func declaredExceedsLimit(
         _ headers: HTTPHeaders,
         limit: Int
     ) -> Bool {
@@ -24,7 +24,7 @@ internal enum HTTPContentLength {
     }
 
     @inline(__always)
-    static func hasSingleExactValue(
+    public static func hasSingleExactValue(
         _ headers: HTTPHeaders,
         value: String
     ) -> Bool {
@@ -49,7 +49,7 @@ internal enum HTTPContentLength {
     }
 
     @inline(__always)
-    static func isContentLengthName(
+    public static func isContentLengthName(
         _ name: String
     ) -> Bool {
         let bytes = name.utf8
@@ -81,7 +81,7 @@ internal enum HTTPContentLength {
     }
 
     @inline(__always)
-    static func exceedsLimit(
+    public static func exceedsLimit(
         _ value: String,
         limit: Int
     ) -> Bool {

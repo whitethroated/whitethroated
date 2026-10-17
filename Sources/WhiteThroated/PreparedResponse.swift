@@ -1,11 +1,13 @@
 import Foundation
 import NIOCore
 import NIOHTTP1
+import WhiteThroatedRuntime
 
 internal final class PreparedResponseStorage: Sendable {
     let response: Response
     let http11Head: HTTPResponseHead
     let bodyBuffer: ByteBuffer?
+    let runtimeStorage: RuntimePreparedResponse
 
     init(
         response: Response,
@@ -19,15 +21,25 @@ internal final class PreparedResponseStorage: Sendable {
                 http11Head: http11Head
             )
 
+        let normalizedBodyBuffer:
+            ByteBuffer?
+
         if
             response.status.mayHaveResponseBody,
             let bodyBuffer,
             bodyBuffer.readableBytes > 0
         {
-            self.bodyBuffer = bodyBuffer
+            normalizedBodyBuffer = bodyBuffer
         } else {
-            self.bodyBuffer = nil
+            normalizedBodyBuffer = nil
         }
+
+        self.bodyBuffer = normalizedBodyBuffer
+        self.runtimeStorage = RuntimePreparedResponse(
+            status: response.status,
+            headers: response.headers,
+            bodyBuffer: normalizedBodyBuffer
+        )
     }
 
     private static func normalizedHTTP11Head(
