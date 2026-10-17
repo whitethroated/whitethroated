@@ -46,10 +46,13 @@ Before changing public API design, also read:
 
 ## Repository map
 
-- `Sources/WhiteThroated/` — framework runtime and public API.
+- `Sources/WhiteThroated/` — framework API: Application, Router, middleware, Request/Response.
+- `Sources/WhiteThroatedRuntime/` — internal runtime: bootstrap, HTTP/1.1 pipeline, dispatch, response writer.
 - `Sources/WhiteThroatedExample/` — minimal usage example.
-- `Tests/WhiteThroatedTests/` — correctness, transport, regression, and diagnostic benchmark tests.
+- `Tests/WhiteThroatedTests/` — framework correctness, transport, regression, and diagnostic benchmark tests.
+- `Tests/WhiteThroatedRuntimeTests/` — runtime-level connection/writer/streaming tests.
 - `Benchmarks/WhiteThroatedBenchmarkServer/` — framework benchmark server.
+- `Benchmarks/WhiteThroatedRuntimeBenchmarkServer/` — runtime-level benchmark server (no framework types).
 - `Benchmarks/RawNIOBenchmarkServer/` — raw SwiftNIO control.
 - `Benchmarks/WhiteThroatedBenchmarkClient/` — Swift benchmark client.
 - `ARCHITECTURE.md` — runtime invariants.
@@ -161,6 +164,8 @@ Protect these design properties:
 - public abstractions must not force unnecessary hot-path materialization
 
 Do not flatten distinct responder types into one generic async abstraction if that makes cheaper paths pay more.
+
+Respect the framework/runtime module boundary: `WhiteThroated` owns developer-facing behavior and depends on `WhiteThroatedRuntime`; the runtime owns HTTP execution on SwiftNIO and must not gain framework concepts (route registration, middleware composition, convenience APIs). Keep the `RuntimeDispatcher` bridge a concrete struct of closures — no protocols, existentials, or per-request allocations. Users import only `WhiteThroated`.
 
 ## Swift performance rules
 

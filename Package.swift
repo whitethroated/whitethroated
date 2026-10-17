@@ -27,6 +27,10 @@ let package = Package(
         .executable(
             name: "whitethroated-benchmark-client",
             targets: ["WhiteThroatedBenchmarkClient"]
+        ),
+        .executable(
+            name: "whitethroated-runtime-benchmark-server",
+            targets: ["WhiteThroatedRuntimeBenchmarkServer"]
         )
     ],
     dependencies: [
@@ -39,6 +43,20 @@ let package = Package(
         .target(
             name: "WhiteThroated",
             dependencies: [
+                "WhiteThroatedRuntime",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedRuntime",
+            dependencies: [
                 .product(
                     name: "NIOCore",
                     package: "swift-nio"
@@ -50,7 +68,7 @@ let package = Package(
                 .product(
                     name: "NIOPosix",
                     package: "swift-nio"
-                )
+                ),
             ]
         ),
         .executableTarget(
@@ -98,10 +116,16 @@ let package = Package(
             ],
             path: "Benchmarks/WhiteThroatedBenchmarkClient"
         ),
+        .executableTarget(
+            name: "WhiteThroatedRuntimeBenchmarkServer",
+            dependencies: ["WhiteThroatedRuntime"],
+            path: "Benchmarks/WhiteThroatedRuntimeBenchmarkServer"
+        ),
         .testTarget(
             name: "WhiteThroatedTests",
             dependencies: [
                 "WhiteThroated",
+                "WhiteThroatedRuntime",
                 .product(
                     name: "NIOEmbedded",
                     package: "swift-nio"
@@ -114,6 +138,24 @@ let package = Package(
                     name: "NIOPosix",
                     package: "swift-nio"
                 )
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedRuntimeTests",
+            dependencies: [
+                "WhiteThroatedRuntime",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOEmbedded",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
             ]
         )
     ]

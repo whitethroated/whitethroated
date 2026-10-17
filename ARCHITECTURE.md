@@ -43,6 +43,49 @@ When the server starts, configuration is frozen. Route and middleware mutation a
 
 Router data structures are therefore setup-mutable and serving-read-only.
 
+## Module boundary
+
+The package has two framework targets with a one-way dependency:
+
+```text
+Developer API
+     |
+     v
+WhiteThroated ── framework: Application, Router, middleware,
+     |           Request/Response, JSON, cookies, ETags
+     v
+WhiteThroatedRuntime ── runtime: bootstrap, HTTP/1.1 pipeline,
+     |                  dispatch state machine, body mechanics,
+     |                  response writer, keep-alive, backpressure
+     v
+SwiftNIO
+     |
+     v
+OS networking (epoll / kqueue)
+```
+
+`WhiteThroatedRuntime` is an internal module in this repository, not
+a separate framework or package. Normal users import only
+`WhiteThroated`. The runtime must not know about route
+registration, route groups, middleware composition, or developer
+convenience APIs; it exposes the smallest interface the framework
+needs: `RuntimeServer`, `RuntimeConnectionHandler`,
+`RuntimeResponseWriter`, `RuntimeStreamWriter`, the
+`RuntimeRequest`/`RuntimeResponse`/`RuntimePreparedResponse` value
+types, and the `RuntimeDispatcher` struct-of-closures bridge.
+
+The dispatcher is a plain struct of `@Sendable` closures built once
+per application: route lookup, middleware-pipeline dispatch, error
+mapping, and four prebuilt fixed responses (404, 413, 417, 500).
+There are no protocols, existentials, or per-request allocations in
+the bridge. The runtime invokes every closure on the connection
+event loop; futures may complete anywhere and the runtime hops
+completion back before writing.
+
+`WhiteThroated` depends on `NIOCore`/`NIOHTTP1` plus
+`WhiteThroatedRuntime`, and deliberately not on `NIOPosix`:
+event-loop groups and server bootstrap live in the runtime.
+
 ## Event-loop model
 
 WhiteThroated uses SwiftNIO event loops as its primary concurrency model.
@@ -57,7 +100,15 @@ Rules:
 4. Offload genuinely blocking work to an appropriate external executor.
 5. Keep request-local operations on the current event loop when possible.
 
-`HTTPServerHandler` is instantiated once per channel. Its mutable request and streaming state is confined to that channel's event loop. The handler is `@unchecked Sendable` only so its reference can pass through SwiftNIO's sendable bootstrap APIs; this does not permit its mutable state to be accessed from arbitrary threads.
+`RuntimeConnectionHandler` is instantiated once per channel. Its mutable request and streaming state is confined to that channel's event loop. The handler is `@unchecked Sendable` only so its reference can pass through SwiftNIO's sendable bootstrap APIs; this does not permit its mutable state to be accessed from arbitrary threads. (The framework keeps a thin internal `HTTPServerHandler` shim with the historical `init(application:maxRequestBodyBytes:)` shape so the EmbeddedChannel test suite keeps exercising the real runtime handler; production serving installs `RuntimeConnectionHandler` directly via `RuntimeServer`.)
+
+Work leaves the connection event loop only in these documented
+cases: an explicit async route future (hopped back before writing),
+an async middleware or error-handler future (hopped back the same
+way), a streaming consumer future (hopped back before the pump
+continues), and a response-stream producer future (hopped back
+before the terminal end is written). Synchronous routes never leave
+the loop and never create a `Task`, future, or promise.
 
 Transport callbacks that mutate handler or channel state are attached only after the future is known to belong to the channel event loop. WhiteThroated uses SwiftNIO's isolated-future callbacks for those sites. The unsafe-unchecked isolation form is intentional: the event-loop ownership invariant is established by the pipeline or an explicit `hop(to:)`, and avoiding a release-build isolation check keeps the request path allocation- and branch-neutral.
 
@@ -481,14 +532,15 @@ This path is opt-in and has no effect on ordinary responses.
 Performance work should proceed in this order:
 
 1. WhiteThroated versus minimal raw SwiftNIO with identical behavior.
-2. WhiteThroated feature deltas, such as prepared versus normal responses.
-3. Router depth, fan-out, and parameter-capture scaling.
-4. Middleware scaling.
-5. ARC and allocation profiling.
-6. Cross-framework Swift comparisons.
-7. Actix Web comparison.
+2. WhiteThroatedRuntime versus raw SwiftNIO, to separate runtime overhead from framework overhead.
+3. WhiteThroated feature deltas, such as prepared versus normal responses.
+4. Router depth, fan-out, and parameter-capture scaling.
+5. Middleware scaling.
+6. ARC and allocation profiling.
+7. Cross-framework Swift comparisons.
+8. Actix Web comparison.
 
-If WhiteThroated is materially slower than the raw-NIO control, investigate WhiteThroated before blaming Swift.
+If WhiteThroated is materially slower than the raw-NIO control, compare the runtime level first: a runtime-vs-raw gap points at the transport port, while a framework-vs-runtime gap points at routing, Request/Response construction, or the dispatcher bridge. Investigate WhiteThroated before blaming Swift.
 
 ## Benchmark invariants
 
@@ -549,13 +601,13 @@ The fluent `Response.header(...)` helper consumes its temporary Response value b
 For the common dynamic HTTP/1.1 200 path, each channel handler owns a cached `HTTPResponseHead` template and replaces only its headers per request. SwiftNIO stores response status/version in reference-backed private storage, so this avoids allocating that storage for every successful HTTP/1.1 response while non-200 and non-HTTP/1.1 responses keep the general constructor path.
 
 
-HTTPServerHandler snapshots middleware and streaming-route presence when each channel handler is created. Application configuration is frozen before production child channels are initialized, so these immutable feature flags do not need to dereference Application collections on every request.
+RuntimeConnectionHandler snapshots the dispatcher's middleware and streaming-route feature flags when each channel handler is created. Application configuration is frozen before production child channels are initialized, so these immutable flags do not need to dereference application collections on every request.
 
 
-The request-head fast path keeps its RouterMatch in a local value and only promotes it into general request-lifecycle state for async, concurrent, or streaming fall-through cases. Prepared, synchronous, and not-found responses return without an unnecessary optional match store.
+The request-head fast path keeps its resolved route action in a local value and only promotes it into general request-lifecycle state for async or streaming fall-through cases. Prepared, synchronous, and not-found responses return without an unnecessary optional action store.
 
 
-Repeated prepared routes keep a side-cache reference to PreparedResponseStorage alongside the generic last-route cache. When method and URI match, the request-head fast path writes that storage directly and avoids copying/pattern-matching RouterMatch again. Any route-cache miss refreshes or clears the prepared side cache, so URI/method changes cannot reuse stale prepared output.
+Each connection caches the resolved dispatcher action (prepared storage, sync/async closures, or streaming action) keyed by method+URI. When method and URI match, the request-head fast path dispatches that cached action directly without re-running router lookup. Any cache miss refreshes the cached action, so URI/method changes cannot reuse stale dispatch state.
 
 
 Bodyless future and Swift-concurrency routes now use the same request-head shortcut as synchronous routes when middleware is absent, no streaming route exists for the method, no Expect header is present, and framing proves the request body is empty. Their response future/task is registered immediately without allocating/resetting the aggregate request lifecycle state; requests with declared or chunked bodies continue through the general path.
@@ -567,13 +619,13 @@ For applications with neither middleware nor request-streaming routes, a repeate
 Short canonical text, HTML, and JSON responses cache complete HTTP/1.1 200 response heads for body lengths through 64 bytes. Response stores only a compact UInt8 cache index; status, header, or body mutation invalidates it. The dynamic writer can therefore reuse the immutable canonical head on persistent HTTP/1.1 responses without enlarging every Response with a cached head object.
 
 
-Bodyless future routes bypass the Application/ResponderResult bridge after routing: HTTPServerHandler constructs the Request and invokes the future handler directly with an immutable Context cached per connection. Bodyless Swift-concurrency routes likewise create their task promise directly. Both paths retain the same future writer, event-loop hop safety, error handling, and framing semantics; middleware, streaming, Expect, and body-bearing requests still use the general application path.
+Bodyless future routes invoke the cached async action directly with a runtime request and the per-connection remote address; Task/promise creation for Swift-concurrency handlers lives inside the framework's async-action closure. Both paths retain the same future writer, event-loop hop safety, error handling, and framing semantics; middleware, streaming, Expect, and body-bearing requests still use the general pipeline path.
 
 
 When a canonical short HTTP/1.1 response head is available, the dynamic writer decides that before materializing mutable response headers. The persistent HTTP/1.1 fast path therefore skips the otherwise-unused HTTPHeaders value copy plus framing and connection normalization branches.
 
 
-Repeated EventLoopFuture routes retain their resolved handler and parameter metadata beside the generic route cache. On an exact method+URI hit, bodyless requests invoke that cached handler directly with the per-connection Context, avoiding RouterMatch extraction as well as the Application/ResponderResult bridge. URI or method changes refresh or clear the side cache before dispatch.
+Repeated EventLoopFuture routes reuse the cached async action beside the generic route cache. On an exact method+URI hit, bodyless requests invoke that cached action directly with the per-connection remote address, avoiding router re-lookup as well as the middleware-pipeline bridge. URI or method changes refresh or clear the cached action before dispatch.
 
 
 Canonical short-response metadata also exposes the already-computed UTF-8 byte length from its compact cache index. The persistent HTTP/1.1 text writer uses that byte length for ByteBuffer capacity instead of scanning the String UTF-8 view a second time before serialization.

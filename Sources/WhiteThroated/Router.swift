@@ -766,7 +766,9 @@ final class Router: @unchecked Sendable {
                 eventLoop: context.eventLoop
             )
             context.streamingRegistration?
-                .register(session)
+                .register(
+                    session.bridgeToRuntime()
+                )
 
             return .streaming(session)
 

@@ -1,6 +1,6 @@
 import NIOCore
 import NIOHTTP1
-import NIOPosix
+import WhiteThroatedRuntime
 
 private enum MiddlewareEntry {
     case asynchronous(Middleware)
@@ -23,13 +23,12 @@ public final class Application: @unchecked Sendable {
     ]
 
     private let router = Router()
-    private let emptyRequestBody =
+    internal let emptyRequestBody =
         ByteBufferAllocator().buffer(capacity: 0)
     private var middleware: [MiddlewareEntry] = []
-    private var errorHandler: ErrorHandlerEntry?
-    private var compiledResponder: InternalHandler?
-    private var group: MultiThreadedEventLoopGroup?
-    private var serverChannel: Channel?
+    internal var errorHandler: ErrorHandlerEntry?
+    internal var compiledResponder: InternalHandler?
+    private var runtimeServer: RuntimeServer?
     private var configurationFrozen = false
 
     internal var hasStreamingRoutes: Bool {
@@ -608,106 +607,11 @@ public final class Application: @unchecked Sendable {
         )
     }
 
-    @inline(__always)
-    func beginStreamingTransport(
-        head: HTTPRequestHead,
-        emptyBody: ByteBuffer,
-        match: RouterMatch,
-        on eventLoop: EventLoop,
-        channel: Channel? = nil
-    ) -> StreamingTransportStart? {
-        guard case .streaming(
-            let handler,
-            let routeMaxBodyBytes,
-            let parameterNames,
-            let parameterRanges
-        ) = match else {
-            return nil
-        }
+    // Streaming begin moved to Application+RuntimeDispatcher
+    // (beginRuntimeStreaming), which builds runtime-typed transport
+    // state directly. The middleware chain below is shared.
 
-        let maxBodyBytes =
-            routeMaxBodyBytes
-            ?? configuration.maxRequestBodyBytes
-        let declaredBodyTooLarge =
-            HTTPContentLength.declaredExceedsLimit(
-                head.headers,
-                limit: maxBodyBytes
-            )
-        let registration = StreamingRegistration(
-            eventLoop: eventLoop
-        )
-        let context = Context(
-            eventLoop: eventLoop,
-            remoteAddress:
-                channel?.remoteAddress,
-            streamingRegistration: registration
-        )
-        let request = Request(
-            head: head,
-            body: emptyBody,
-            routeParameterNames: parameterNames,
-            routeParameterRanges: parameterRanges
-        )
-
-        let terminal: InternalHandler
-
-        if declaredBodyTooLarge {
-            terminal = { _, _ in
-                registration.bypassIfPending()
-                return .immediate(
-                    .payloadTooLarge()
-                )
-            }
-        } else {
-            terminal = {
-                request,
-                context in
-
-                let consumer = handler(
-                    StreamRequest(request),
-                    context
-                )
-                let session = BodyStreamSession(
-                    consumer: consumer,
-                    eventLoop: context.eventLoop
-                )
-                registration.register(session)
-
-                return .streaming(session)
-            }
-        }
-
-        let result = runStreamingMiddleware(
-            index: 0,
-            request: request,
-            context: context,
-            terminal: terminal
-        )
-
-        switch result {
-        case .immediate, .prepared:
-            registration.bypassIfPending()
-
-        case .streaming:
-            break
-
-        case .future(let future):
-            future.whenComplete { _ in
-                registration.bypassIfPending()
-            }
-        }
-
-        return StreamingTransportStart(
-            result: result,
-            registration: registration,
-            maxBodyBytes: maxBodyBytes,
-            declaredBodyTooLarge:
-                declaredBodyTooLarge
-        )
-    }
-
-
-    private func runStreamingMiddleware(
+    func runStreamingMiddleware(
         index: Int,
         request: Request,
         context: Context,
@@ -771,61 +675,22 @@ public final class Application: @unchecked Sendable {
         configurationFrozen = true
         compiledResponder = buildMiddlewarePipeline()
 
-        let group = MultiThreadedEventLoopGroup(
-            numberOfThreads:
-                configuration.eventLoopThreads ?? System.coreCount
+        let server = RuntimeServer(
+            configuration:
+                makeRuntimeConfiguration(),
+            dispatcher:
+                makeRuntimeDispatcher()
         )
 
-        let bootstrap = ServerBootstrap(group: group)
-            .serverChannelOption(
-                ChannelOptions.backlog,
-                value: configuration.backlog
-            )
-            .serverChannelOption(
-                ChannelOptions.socketOption(.so_reuseaddr),
-                value: 1
-            )
-            .childChannelOption(
-                ChannelOptions.socketOption(.so_reuseaddr),
-                value: 1
-            )
-            .childChannelInitializer { channel in
-                channel.setOption(
-                    ChannelOptions.socketOption(.tcp_nodelay),
-                    value: 1
-                )
-                .flatMapError { _ in
-                    channel.eventLoop
-                        .makeSucceededVoidFuture()
-                }
-                .flatMap {
-                    channel.pipeline
-                        .configureHTTPServerPipeline(
-                            withPipeliningAssistance: true,
-                            withErrorHandling: true
-                        )
-                }
-                .flatMap {
-                    channel.pipeline.addHandler(
-                        HTTPServerHandler(
-                            application: self,
-                            maxRequestBodyBytes:
-                                self.configuration.maxRequestBodyBytes
-                        )
-                    )
-                }
-            }
-
         do {
-            let channel = try bootstrap
-                .bind(host: host, port: port)
-                .wait()
+            let channel = try server.start(
+                host: host,
+                port: port
+            )
 
-            self.group = group
-            self.serverChannel = channel
+            self.runtimeServer = server
             return channel
         } catch {
-            try? group.syncShutdownGracefully()
             configurationFrozen = false
             throw error
         }
@@ -845,14 +710,9 @@ public final class Application: @unchecked Sendable {
     }
 
     public func shutdown() throws {
-        if let channel = serverChannel {
-            try channel.close().wait()
-            serverChannel = nil
-        }
-
-        if let group {
-            try group.syncShutdownGracefully()
-            self.group = nil
+        if let server = runtimeServer {
+            try server.stop()
+            runtimeServer = nil
         }
 
         configurationFrozen = false
@@ -1086,7 +946,7 @@ public final class Application: @unchecked Sendable {
     }
 
 
-    private func buildMiddlewarePipeline() -> InternalHandler {
+    func buildMiddlewarePipeline() -> InternalHandler {
         let terminal: InternalHandler = {
             [router] request, context in
 
