@@ -12,6 +12,7 @@ import WhiteThroatedRuntime
 //   GET /          -> empty 200
 //   GET /user/:id  -> echo :id as text/plain
 //   POST /user     -> empty 200
+//   GET /json      -> small JSON as application/json
 
 let environment = ProcessInfo.processInfo.environment
 let host = environment["WHITETHROATED_HOST"] ?? "127.0.0.1"
@@ -24,7 +25,8 @@ let eventLoopThreads = Int(
 
 private func fixedPrepared(
     status: HTTPResponseStatus,
-    body: String?
+    body: String?,
+    contentType: String = "text/plain; charset=utf-8"
 ) -> RuntimePreparedResponse {
     var headers = HTTPHeaders()
     var bodyBuffer: ByteBuffer?
@@ -36,7 +38,7 @@ private func fixedPrepared(
         buffer.writeString(body)
         headers.add(
             name: "content-type",
-            value: "text/plain; charset=utf-8"
+            value: contentType
         )
         headers.add(
             name: "content-length",
@@ -84,6 +86,11 @@ private let emptyOK = fixedPrepared(
     status: .ok,
     body: nil
 )
+private let jsonOK = fixedPrepared(
+    status: .ok,
+    body: #"{"message":"Hello, World!"}"#,
+    contentType: "application/json; charset=utf-8"
+)
 private let notFoundStorage = fixedPrepared(
     status: .notFound,
     body: "Not Found"
@@ -125,6 +132,10 @@ private let dispatcher = RuntimeDispatcher(
         case .GET:
             if head.uri == "/" {
                 return .prepared(emptyOK)
+            }
+
+            if head.uri == "/json" {
+                return .prepared(jsonOK)
             }
 
             if head.uri.hasPrefix(userPrefix) {

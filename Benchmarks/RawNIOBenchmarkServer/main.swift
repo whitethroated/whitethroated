@@ -35,6 +35,9 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     private let http11Head: HTTPResponseHead
     private let emptyHeaders: HTTPHeaders
     private let emptyHTTP11Head: HTTPResponseHead
+    private let jsonBody: ByteBuffer
+    private let jsonBaseHeaders: HTTPHeaders
+    private let jsonHTTP11Head: HTTPResponseHead
     private let dynamicHTTP11HeadTemplate =
         HTTPResponseHead(
             version: .http1_1,
@@ -79,6 +82,26 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             version: .http1_1,
             status: .ok,
             headers: emptyHeaders
+        )
+
+        var jsonBody = allocator.buffer(capacity: 27)
+        jsonBody.writeString(#"{"message":"Hello, World!"}"#)
+        self.jsonBody = jsonBody
+
+        var jsonHeaders = HTTPHeaders()
+        jsonHeaders.add(
+            name: "content-type",
+            value: "application/json; charset=utf-8"
+        )
+        jsonHeaders.add(
+            name: "content-length",
+            value: "27"
+        )
+        self.jsonBaseHeaders = jsonHeaders
+        self.jsonHTTP11Head = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: jsonHeaders
         )
     }
 
@@ -146,6 +169,16 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
 
             if requestHead.uri == "/" {
                 writeEmptyOK(
+                    requestHead: requestHead,
+                    minimalHTTP11:
+                        minimalHTTP11,
+                    context: context
+                )
+                return
+            }
+
+            if requestHead.uri == "/json" {
+                writeJSON(
                     requestHead: requestHead,
                     minimalHTTP11:
                         minimalHTTP11,
@@ -357,6 +390,81 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         )
         context.write(
             wrapOutboundOut(.body(.byteBuffer(body))),
+            promise: nil
+        )
+        finish(
+            keepAlive: requestIsKeepAlive(requestHead),
+            context: context
+        )
+    }
+
+    @inline(__always)
+    private func writeJSON(
+        requestHead: HTTPRequestHead,
+        minimalHTTP11: Bool,
+        context: ChannelHandlerContext
+    ) {
+        if minimalHTTP11 {
+            context.write(
+                wrapOutboundOut(.head(jsonHTTP11Head)),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(.body(.byteBuffer(jsonBody))),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
+
+        if
+            requestHead.version == .http1_1,
+            requestIsKeepAlive(requestHead)
+        {
+            context.write(
+                wrapOutboundOut(.head(jsonHTTP11Head)),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(.body(.byteBuffer(jsonBody))),
+                promise: nil
+            )
+            context.writeAndFlush(
+                wrapOutboundOut(.end(nil)),
+                promise: nil
+            )
+            return
+        }
+
+        var headers = jsonBaseHeaders
+
+        if !requestIsKeepAlive(requestHead) {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "close"
+            )
+        } else if requestHead.version == .http1_0 {
+            headers.replaceOrAdd(
+                name: "connection",
+                value: "keep-alive"
+            )
+        }
+
+        let responseHead = HTTPResponseHead(
+            version: requestHead.version,
+            status: .ok,
+            headers: headers
+        )
+
+        context.write(
+            wrapOutboundOut(.head(responseHead)),
+            promise: nil
+        )
+        context.write(
+            wrapOutboundOut(.body(.byteBuffer(jsonBody))),
             promise: nil
         )
         finish(
