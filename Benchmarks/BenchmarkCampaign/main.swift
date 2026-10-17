@@ -23,6 +23,11 @@ private struct HostObservation: Codable {
     let quiet: Bool
 }
 
+private struct CommandFailure: Error, CustomStringConvertible {
+    let status: Int32
+    let description: String
+}
+
 private final class Campaign {
     let configuration: CampaignConfiguration
     let cancellation: Cancellation
@@ -55,7 +60,8 @@ private final class Campaign {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
-            throw CampaignError.invalid("Command failed: \(executable) \(arguments.joined(separator: " ")): \(String(decoding: data, as: UTF8.self))")
+            throw CommandFailure(status: process.terminationStatus,
+                                 description: "Command failed: \(executable) \(arguments.joined(separator: " ")): \(String(decoding: data, as: UTF8.self))")
         }
         return String(decoding: data, as: UTF8.self)
     }
@@ -178,6 +184,34 @@ private final class Campaign {
         return ResourceObservation(uptimeNanoseconds: DispatchTime.now().uptimeNanoseconds, workers: observations)
     }
 
+    func requireFreePort(_ port: Int) throws {
+        #if os(macOS)
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        #else
+        let descriptor = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+        #endif
+        guard descriptor >= 0 else { throw CampaignError.invalid("Cannot check benchmark port") }
+        defer { _ = close(descriptor) }
+        var reuse: Int32 = 1
+        guard setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout.size(ofValue: reuse))) == 0 else {
+            throw CampaignError.invalid("Cannot configure port availability check")
+        }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(port).bigEndian
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        #if os(macOS)
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        #endif
+        // Standard C socket interop during setup only; no request-path pointers.
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+            }
+        }
+        guard result == 0 else { throw CampaignError.invalid("Benchmark port \(port) is unavailable") }
+    }
+
     func clientEnvironment(port: Int, method: String, path: String, connections: Int, requests: Int) -> [String: String] {
         ["WHITETHROATED_BENCH_HOST": "127.0.0.1", "WHITETHROATED_BENCH_PORT": String(port),
          "WHITETHROATED_BENCH_METHOD": method, "WHITETHROATED_BENCH_PATH": path,
@@ -185,12 +219,26 @@ private final class Campaign {
          "WHITETHROATED_BENCH_THREADS": "1", "WHITETHROATED_BENCH_TCP_NODELAY": "1"]
     }
 
-    func verify(port: Int, method: String, path: String, name: String) throws {
+    func verify(worker: Process, port: Int, method: String, path: String, name: String) throws {
         let body = directory.appendingPathComponent(name + "-body.txt")
         let headers = directory.appendingPathComponent(name + "-headers.txt")
-        let status = try capture("/usr/bin/curl", ["--http1.1", "--silent", "--show-error", "--max-time", "3",
+        let arguments = ["--http1.1", "--silent", "--show-error", "--max-time", "3",
             "--request", method, "--output", body.path, "--dump-header", headers.path, "--write-out", "%{http_code}",
-            "http://127.0.0.1:\(port)\(path)"])
+            "http://127.0.0.1:\(port)\(path)"]
+        let deadline = Date().addingTimeInterval(30)
+        var status: String
+        while true {
+            guard !cancellation.cancelled, worker.isRunning else { throw CampaignError.invalid("Worker exited/interrupted during readiness") }
+            do {
+                status = try capture("/usr/bin/curl", arguments)
+                break
+            } catch let error as CommandFailure {
+                // Only connection-refused startup retries; never retry a bad
+                // HTTP status, payload, framing or a response timeout.
+                guard error.status == 7, Date() < deadline else { throw error }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
         let expected = path == "/user/42" ? "42" : ""
         guard status == "200", try Data(contentsOf: body) == Data(expected.utf8) else {
             throw CampaignError.invalid("Response status/body contract mismatch")
@@ -286,18 +334,22 @@ private final class Campaign {
                 try gate(prefix)
                 var workers: [Process] = []
                 defer { stop(workers) }
+                for worker in 0..<workerCount { try requireFreePort(configuration.basePort + worker) }
                 for worker in 0..<workerCount {
                     workers.append(try spawn(binaries.appendingPathComponent(configuration.serverProduct), environment: [
                         "WHITETHROATED_HOST": "127.0.0.1", "WHITETHROATED_PORT": String(configuration.basePort + worker),
                         "WHITETHROATED_THREADS": String(8 / workerCount)
                     ], log: prefix + "-worker-\(worker).log"))
                 }
-                Thread.sleep(forTimeInterval: 0.5)
+                for worker in 0..<workerCount {
+                    for (method, path, label) in routes {
+                        try verify(worker: workers[worker], port: configuration.basePort + worker, method: method, path: path,
+                                   name: prefix + "-verify-\(worker)-" + label)
+                    }
+                }
                 try save(try observe(workers), prefix + "-idle.json")
                 for worker in 0..<workerCount {
                     for (method, path, label) in routes {
-                        try verify(port: configuration.basePort + worker, method: method, path: path,
-                                   name: prefix + "-verify-\(worker)-" + label)
                         let warm = try spawn(binaries.appendingPathComponent("whitethroated-benchmark-client"), environment:
                             clientEnvironment(port: configuration.basePort + worker, method: method, path: path,
                                               connections: 8, requests: configuration.warmupRequests),
@@ -323,7 +375,10 @@ private let cancellation = Cancellation()
 private let signals = [SIGINT, SIGTERM].map { number in
     signal(number, SIG_IGN)
     let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
-    source.setEventHandler { cancellation.cancel() }
+    let flag = cancellation
+    // Explicit Sendable prevents this top-level callback inheriting MainActor
+    // isolation and trapping when libdispatch invokes it on the global queue.
+    source.setEventHandler { @Sendable in flag.cancel() }
     source.resume()
     return source
 }
@@ -333,7 +388,7 @@ do {
                                                   currentDirectory: FileManager.default.currentDirectoryPath)
     let driver = Campaign(configuration: configuration, cancellation: cancellation)
     campaign = driver
-    // Global lets initialize lazily: force signal installation *before* launch.
+    // Install and retain signal sources across all synchronous child waits.
     try withExtendedLifetime(signals) { try driver.run() }
     driver.stop(driver.children)
 } catch {

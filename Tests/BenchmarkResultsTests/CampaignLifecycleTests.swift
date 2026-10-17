@@ -89,4 +89,44 @@ final class CampaignLifecycleTests: XCTestCase {
         XCTAssertNotEqual(alive, 0, "Observed campaign worker survived SIGTERM")
         if alive != 0 { workerPID = nil }
     }
+
+    func testOccupiedPortAbortsBeforeLaunchingWorker() throws {
+        try requireIntegration()
+        #if os(macOS)
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        #else
+        let descriptor = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+        #endif
+        guard descriptor >= 0 else { throw CampaignError.invalid("Test socket unavailable") }
+        defer { _ = close(descriptor) }
+        var address = sockaddr_in()
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = in_port_t(3490).bigEndian
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        #if os(macOS)
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        #endif
+        let result = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                #if os(macOS)
+                Darwin.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                #else
+                Glibc.bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+                #endif
+            }
+        }
+        guard result == 0, listen(descriptor, 1) == 0 else {
+            throw CampaignError.invalid("Lifecycle test port 3490 must be unused")
+        }
+        let output = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: output) }
+        let process = try launch(output: output, port: 3490)
+        defer { cleanup(process) }
+        try waitForExit(process)
+        XCTAssertEqual(process.terminationStatus, 1)
+        let error = try String(contentsOf: output.appendingPathComponent("ABORTED.txt"), encoding: .utf8)
+        XCTAssertTrue(error.contains("port 3490 is unavailable"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: output.appendingPathComponent("r1-1x8-worker-0.log").path))
+        XCTAssertNotEqual(fcntl(descriptor, F_GETFD), -1, "Original listening socket must remain open")
+    }
 }

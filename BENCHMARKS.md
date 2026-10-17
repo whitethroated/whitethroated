@@ -528,14 +528,17 @@ environment settings remain the operator's responsibility; use a clean terminal.
 The server must already be built in release mode. Keep the toolchain/build flags
 with the campaign archive; binary location alone cannot prove how it was built.
 
-The runner verifies status, exact body, Content-Length and relevant Content-Type
-on every worker/route before load. The campaign stops on HTTP mismatch, child
+The runner checks that the required ports are free with temporary loopback binds
+before starting workers. It waits up to 30 seconds for connection readiness,
+retrying only connection-refused startup failures; bad HTTP responses and
+response timeouts fail immediately. It verifies status, exact body,
+Content-Length and relevant Content-Type on every worker/route before load.
+The campaign stops on HTTP mismatch, child
 failure, 120-second cell timeout, HEAD change or a quiet-host gate failure.
 SIGINT/SIGTERM request cleanup: it terminates/reaps its own clients/workers and
 uses SIGKILL only for its own children still alive after two seconds. Do not
-SIGKILL the runner if graceful cleanup is needed. Ports must be unused; readiness
-checks alone cannot prove a responder's identity if another service occupies a
-port, so inspect worker failures/logs and reserve the port range.
+SIGKILL the runner if graceful cleanup is needed. Reserve the port range for the
+campaign and inspect worker failures/logs before interpreting results.
 
 Initial quiet-host admission requires 1- and 5-minute load averages no greater
 than half the available logical cores, normal macOS memory pressure (level 1),
@@ -559,7 +562,8 @@ also saves raw per-worker observations and a resource summary:
 The CPU envelope brackets client startup, load and client export/cleanup; it is
 not a pure service-time counter. `ps` CPU time has limited resolution. Sampled
 RSS can miss between-sample peaks and is not process-lifetime high-water RSS.
-Idle worker observations are recorded before warmup. Keep resource cells separate
+Ready worker observations are recorded after HTTP verification and before warmup.
+Keep resource cells separate
 from latency/throughput cells when reporting these limitations. Derive memory
 per connection using the cell concurrency with idle baseline shown. The runner
 does not collect hardware counters, context switches or CPU migrations.
@@ -569,3 +573,19 @@ does not collect hardware counters, context switches or CPU migrations.
 complete matrix. Do not resume into the same directory or silently drop outliers.
 Raw JSON files can be large; archive/compress externally after all children exit.
 No binary/source changes or other tests/builds should run during a campaign.
+
+Campaign readiness follow-up: the five-round attempt at 17:27 Asia/Jakarta on
+2026-10-17 failed initial admission because macOS memory-pressure level was 2
+(warning), despite passing CPU/load checks. Zero performance cells started;
+see `docs/benchmark-campaign-readiness-2026-10-17.md` and its raw preflight JSON.
+The gate remained enabled. Harness smoke results are not comparative evidence.
+
+Run the opt-in campaign lifecycle regressions after building the campaign product:
+
+```sh
+WHITETHROATED_CAMPAIGN_INTEGRATION=1 swift test -c release --filter CampaignLifecycleTests
+```
+
+They require loopback access and unused test ports 3470/3480/3490. Normal test runs
+skip these three subprocess tests; an explicitly enabled full release run executes
+them along with the suite. They verify correctness and cleanup, never timing wins.
