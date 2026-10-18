@@ -155,7 +155,7 @@ private final class Fixture {
     }
 
     deinit {
-        try? channel.finish()
+        _ = try? channel.finish()
     }
 
     func write(_ string: String) throws {
