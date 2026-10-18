@@ -13,6 +13,7 @@ public struct CampaignConfiguration: Codable, Sendable {
     public let serverProduct: String
     public let basePort: Int
     public let smoke: Bool
+    public let http1Experiment: Bool
     public var rounds: Int { smoke ? 1 : 5 }
     public var concurrencies: [Int] { smoke ? [64] : [64, 256, 512] }
     public var requestsPerShard: Int { smoke ? 8_000 : 125_000 }
@@ -39,6 +40,30 @@ public struct CampaignConfiguration: Codable, Sendable {
             throw CampaignError.invalid("SMOKE must be 0 or 1")
         }
         smoke = smokeText == "1"
+
+        let http1ExperimentText =
+            environment["WHITETHROATED_CAMPAIGN_HTTP1_EXPERIMENT"] ?? "0"
+        guard
+            http1ExperimentText == "0"
+            || http1ExperimentText == "1"
+        else {
+            throw CampaignError.invalid(
+                "HTTP1_EXPERIMENT must be 0 or 1"
+            )
+        }
+        http1Experiment =
+            http1ExperimentText == "1"
+
+        if http1Experiment {
+            guard [
+                "raw-nio-benchmark-server",
+                "custom-http1-benchmark-server"
+            ].contains(serverProduct) else {
+                throw CampaignError.invalid(
+                    "HTTP1 experiment requires raw-nio or custom-http1 server"
+                )
+            }
+        }
     }
 }
 
