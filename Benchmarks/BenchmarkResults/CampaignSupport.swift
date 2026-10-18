@@ -26,7 +26,7 @@ public struct CampaignConfiguration: Codable, Sendable {
         }
         self.output = output
         serverProduct = environment["WHITETHROATED_CAMPAIGN_SERVER"] ?? "whitethroated-benchmark-server"
-        guard ["whitethroated-benchmark-server", "whitethroated-runtime-benchmark-server", "raw-nio-benchmark-server"].contains(serverProduct) else {
+        guard ["whitethroated-benchmark-server", "whitethroated-runtime-benchmark-server", "raw-nio-benchmark-server", "custom-http1-benchmark-server"].contains(serverProduct) else {
             throw CampaignError.invalid("Unsupported Swift control product")
         }
         let portText = environment["WHITETHROATED_CAMPAIGN_PORT"] ?? "3310"
