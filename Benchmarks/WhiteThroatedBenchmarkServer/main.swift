@@ -13,7 +13,10 @@ let eventLoopThreads = Int(
 let app = Application(
     configuration: ServerConfiguration(
         maxRequestBodyBytes: 16 * 1024 * 1024,
-        eventLoopThreads: eventLoopThreads
+        eventLoopThreads: eventLoopThreads,
+        useTier1HTTP1Experimental: environment[
+            "WHITETHROATED_TIER1_HTTP1"
+        ] == "1"
     )
 )
 

@@ -12,7 +12,9 @@ extension Application {
             backlog: configuration.backlog,
             maxRequestBodyBytes:
                 maxRequestBodyBytes
-                ?? configuration.maxRequestBodyBytes
+                ?? configuration.maxRequestBodyBytes,
+            useTier1HTTP1: configuration
+                .useTier1HTTP1Experimental
         )
     }
 
