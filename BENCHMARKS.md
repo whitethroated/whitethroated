@@ -353,9 +353,17 @@ swift build -c release --product whitethroated-benchmark-client
 swift build -c release --product whitethroated-benchmark-campaign
 
 WHITETHROATED_CAMPAIGN_SERVER=custom-http1-benchmark-server \
+WHITETHROATED_CAMPAIGN_HTTP1_EXPERIMENT=1 \
 WHITETHROATED_CAMPAIGN_OUTPUT=/tmp/custom-http1-campaign \
 .build/release/whitethroated-benchmark-campaign
 ```
+
+With `WHITETHROATED_CAMPAIGN_HTTP1_EXPERIMENT=1`, the campaign keeps the
+historical `GET /`, `GET /user/42`, and `POST /user` cells and adds
+`GET /prepared` plus `GET /json`. The profile is accepted only for the
+raw-NIO and custom-HTTP/1 controls so the isolation question stays narrow.
+Run the raw-NIO archive with the same flag, topology, concurrency matrix,
+request counts and quiet-host gates.
 
 Compare that archive against a fresh `raw-nio-benchmark-server` campaign on
 the same quiet host. A result is evidence only about the cost of the
@@ -574,6 +582,7 @@ Other settings (all optional):
 | `WHITETHROATED_CAMPAIGN_ROOT` | Repository path; defaults to current directory |
 | `WHITETHROATED_CAMPAIGN_SERVER` | `whitethroated-benchmark-server` (default), `whitethroated-runtime-benchmark-server`, `raw-nio-benchmark-server`, or `custom-http1-benchmark-server` |
 | `WHITETHROATED_CAMPAIGN_PORT` | First of four loopback ports, default 3310 |
+| `WHITETHROATED_CAMPAIGN_HTTP1_EXPERIMENT=1` | Opt-in five-route raw-NIO vs custom-HTTP/1 matrix; adds `/prepared` and `/json` without changing the historical default campaign |
 | `WHITETHROATED_CAMPAIGN_SMOKE=1` | Correctness-only run: one round, c64, 8000 requests/shard; bypasses quiet-host rejection and marks completion as smoke |
 
 Worker/client launch environments remove inherited `WHITETHROATED_*` settings,
