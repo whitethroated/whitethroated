@@ -239,9 +239,39 @@ private final class Campaign {
                 Thread.sleep(forTimeInterval: 0.1)
             }
         }
-        let expected = path == "/user/42" ? "42" : ""
-        guard status == "200", try Data(contentsOf: body) == Data(expected.utf8) else {
-            throw CampaignError.invalid("Response status/body contract mismatch")
+        let expected: String
+        let expectedContentType: String?
+
+        switch path {
+        case "/user/42":
+            expected = "42"
+            expectedContentType =
+                "text/plain; charset=utf-8"
+
+        case "/prepared":
+            expected = "Hello, World!"
+            expectedContentType =
+                "text/plain; charset=utf-8"
+
+        case "/json":
+            expected =
+                #"{"message":"Hello, World!"}"#
+            expectedContentType =
+                "application/json; charset=utf-8"
+
+        default:
+            expected = ""
+            expectedContentType = nil
+        }
+
+        guard
+            status == "200",
+            try Data(contentsOf: body)
+                == Data(expected.utf8)
+        else {
+            throw CampaignError.invalid(
+                "Response status/body contract mismatch"
+            )
         }
         let text = try String(contentsOf: headers, encoding: .utf8)
         let fields = text.components(separatedBy: "\r\n").compactMap { line -> (String, String)? in
@@ -249,10 +279,29 @@ private final class Campaign {
             return (line[..<colon].lowercased(), line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces))
         }
         let lengths = fields.filter { $0.0 == "content-length" }.map(\.1)
-        guard lengths == [String(expected.utf8.count)],
-              !fields.contains(where: { $0.0 == "transfer-encoding" }),
-              (expected.isEmpty || fields.filter { $0.0 == "content-type" }.map(\.1) == ["text/plain; charset=utf-8"]) else {
-            throw CampaignError.invalid("Response framing/content-type contract mismatch")
+        let contentTypes =
+            fields
+                .filter { $0.0 == "content-type" }
+                .map(\.1)
+
+        guard
+            lengths == [
+                String(expected.utf8.count)
+            ],
+            !fields.contains(
+                where: {
+                    $0.0 == "transfer-encoding"
+                }
+            ),
+            expectedContentType == nil
+                ? contentTypes.isEmpty
+                : contentTypes == [
+                    expectedContentType!
+                ]
+        else {
+            throw CampaignError.invalid(
+                "Response framing/content-type contract mismatch"
+            )
         }
     }
 
@@ -304,6 +353,21 @@ private final class Campaign {
     }
 
     func run() throws {
+        var routes = [
+            ("GET", "/", "root"),
+            ("GET", "/user/42", "parameter"),
+            ("POST", "/user", "post")
+        ]
+
+        if configuration.http1Experiment {
+            routes.append(
+                ("GET", "/prepared", "prepared")
+            )
+            routes.append(
+                ("GET", "/json", "json")
+            )
+        }
+
         guard !FileManager.default.fileExists(atPath: directory.path) else {
             throw CampaignError.invalid("Campaign output already exists; use a fresh directory")
         }
@@ -314,7 +378,12 @@ private final class Campaign {
             "rounds": configuration.rounds, "shards": 8, "serverLoops": 8,
             "clientThreadsPerShard": 1, "requestsPerShard": configuration.requestsPerShard,
             "warmupRequestsPerWorkerRoute": configuration.warmupRequests,
-            "cellCount": configuration.rounds * 2 * 3 * configuration.concurrencies.count * 3
+            "cellCount":
+                configuration.rounds
+                * 2
+                * routes.count
+                * configuration.concurrencies.count
+                * 3
         ], "plan.json")
         baseline = try capture("/usr/bin/git", ["-C", configuration.root, "rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
         try saveText(baseline, "head.txt")
@@ -328,7 +397,6 @@ private final class Campaign {
                 throw CampaignError.invalid("Build release product before campaign: \(product)")
             }
         }
-        let routes = [("GET", "/", "root"), ("GET", "/user/42", "parameter"), ("POST", "/user", "post")]
         for round in 1...configuration.rounds {
             for workerCount in (round.isMultiple(of: 2) ? [4, 1] : [1, 4]) {
                 let prefix = "r\(round)-\(workerCount)x\(8 / workerCount)"
