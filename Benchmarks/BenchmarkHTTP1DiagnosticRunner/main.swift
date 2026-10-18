@@ -288,13 +288,10 @@ for round in 0..<rounds {
     let order =
         round.isMultiple(of: 2)
         ? servers
-        : servers.reversed()
+        : Array(servers.reversed())
 
     for server in order {
         let process = try startServer(server)
-        defer {
-            stopServer(process)
-        }
 
         for path in paths {
             _ = try runClient(
