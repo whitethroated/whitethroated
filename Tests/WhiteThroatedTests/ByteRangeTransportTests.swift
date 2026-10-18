@@ -9,6 +9,13 @@ final class ByteRangeTransportTests: XCTestCase {
         let handle = NIOFileHandle(
             _deprecatedTakingOwnershipOfDescriptor: -1
         )
+
+        // The fake descriptor is never a real open file; release
+        // ownership so debug builds don't trip the leaked-handle
+        // assertion on deinit.
+        defer {
+            _ = try? handle.takeDescriptorOwnership()
+        }
         let source = FileRegion(
             fileHandle: handle,
             readerIndex: 0,
@@ -95,6 +102,13 @@ final class ByteRangeTransportTests: XCTestCase {
         let handle = NIOFileHandle(
             _deprecatedTakingOwnershipOfDescriptor: -1
         )
+
+        // The fake descriptor is never a real open file; release
+        // ownership so debug builds don't trip the leaked-handle
+        // assertion on deinit.
+        defer {
+            _ = try? handle.takeDescriptorOwnership()
+        }
         let source = FileRegion(
             fileHandle: handle,
             readerIndex: 0,
@@ -159,6 +173,13 @@ final class ByteRangeTransportTests: XCTestCase {
         let handle = NIOFileHandle(
             _deprecatedTakingOwnershipOfDescriptor: -1
         )
+
+        // The fake descriptor is never a real open file; release
+        // ownership so debug builds don't trip the leaked-handle
+        // assertion on deinit.
+        defer {
+            _ = try? handle.takeDescriptorOwnership()
+        }
         let source = FileRegion(
             fileHandle: handle,
             readerIndex: 0,
