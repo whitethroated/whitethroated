@@ -56,6 +56,18 @@ jobs:
       - name: Build Swift benchmark client
         run: swift build -c release --product whitethroated-benchmark-client
 
+      - name: Build HTTP/1 diagnostic runner
+        run: swift build -c release --product whitethroated-http1-diagnostic
+
+      - name: Run HTTP/1 diagnostic A/B
+        env:
+          WHITETHROATED_HTTP1_DIAGNOSTIC_REQUESTS: "100000"
+          WHITETHROATED_HTTP1_DIAGNOSTIC_WARMUP: "10000"
+          WHITETHROATED_HTTP1_DIAGNOSTIC_ROUNDS: "3"
+          WHITETHROATED_HTTP1_DIAGNOSTIC_CONNECTIONS: "64"
+          WHITETHROATED_HTTP1_DIAGNOSTIC_THREADS: "2"
+        run: .build/release/whitethroated-http1-diagnostic
+
       - name: Build Swift benchmark merger
         run: swift build -c release --product whitethroated-benchmark-merge
 
