@@ -61,6 +61,10 @@ private let rounds = positiveInt(
     environment["WHITETHROATED_HTTP1_DIAGNOSTIC_ROUNDS"],
     defaultValue: 3
 )
+private let tcpNoDelay =
+    environment[
+        "WHITETHROATED_HTTP1_DIAGNOSTIC_TCP_NODELAY"
+    ] != "0"
 private let port = positiveInt(
     environment["WHITETHROATED_HTTP1_DIAGNOSTIC_PORT"],
     defaultValue: 38180
@@ -100,7 +104,9 @@ private func benchmarkEnvironment(
         "WHITETHROATED_BENCH_CONNECTIONS": String(connections),
         "WHITETHROATED_BENCH_REQUESTS": String(requests),
         "WHITETHROATED_BENCH_THREADS": String(threads),
-        "WHITETHROATED_BENCH_LATENCY": latency ? "1" : "0"
+        "WHITETHROATED_BENCH_LATENCY": latency ? "1" : "0",
+        "WHITETHROATED_BENCH_TCP_NODELAY":
+            tcpNoDelay ? "1" : "0"
     ]
 }
 
@@ -281,7 +287,7 @@ print(
     "shared/virtualized hosts are diagnostic only; do not publish these values"
 )
 print(
-    "rounds=\(rounds) requests=\(requests) warmup=\(warmupRequests) connections=\(connections) threads=\(threads)"
+    "rounds=\(rounds) requests=\(requests) warmup=\(warmupRequests) connections=\(connections) threads=\(threads) tcp_nodelay=\(tcpNoDelay ? "on" : "off")"
 )
 
 for round in 0..<rounds {
