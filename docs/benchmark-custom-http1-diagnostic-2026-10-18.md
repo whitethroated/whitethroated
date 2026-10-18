@@ -57,6 +57,36 @@ Correctness gate before measurement:
 
 Lower latency is better. Positive RPS delta is better.
 
+## Replication check
+
+The same branch also completed two additional independent GitHub-hosted jobs:
+one focused diagnostic with the same 75,000-request configuration and one full
+CI job using 100,000 measured requests per sample. Absolute values differed
+across virtual machines, as expected, but the direction of the trade-off
+repeated.
+
+The full-CI median deltas were:
+
+| Route | RPS delta | p50 delta | p90 delta | p99 delta |
+|---|---:|---:|---:|---:|
+| `GET /` | -2.11% | +18.86% | -36.93% | -8.59% |
+| `GET /json` | -5.76% | +8.33% | -37.94% | -24.60% |
+| `GET /user/42` | -1.74% | +3.41% | -37.00% | -8.64% |
+
+Across all three independent jobs, three routes and three rounds per job
+(27 matched route-round comparisons):
+
+- custom p90 was lower in **27/27** comparisons;
+- custom p99 was lower in **26/27** comparisons;
+- custom RPS was higher in only **4/27** comparisons;
+- custom p50 was lower in only **2/27** comparisons.
+
+This repetition strengthens the diagnostic signal that the transport changes
+the latency distribution, but it still does not turn hosted-runner timing into
+publication-grade evidence. In particular, the container forced client
+TCP_NODELAY off, and the absolute throughput is far below dedicated-host
+benchmark levels.
+
 ## Verdict
 
 The first custom transport is **not a Pareto win**.
