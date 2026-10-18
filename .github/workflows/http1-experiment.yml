@@ -1,0 +1,54 @@
+name: HTTP1 Experiment
+
+on:
+  push:
+    branches:
+      - experiment/custom-http1-transport
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "Benchmarks/BenchmarkHTTP1Experiment/**"
+      - "Benchmarks/CustomHTTP1BenchmarkServer/**"
+      - "Benchmarks/BenchmarkHTTP1DiagnosticRunner/**"
+      - "Tests/BenchmarkHTTP1ExperimentTests/**"
+      - "Package.swift"
+      - ".github/workflows/http1-experiment.yml"
+
+jobs:
+  diagnostic:
+    name: Swift 6.4 HTTP1 diagnostic
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.4.0-noble
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve pinned dependencies
+        run: swift package resolve
+
+      - name: Test custom HTTP1 experiment
+        run: swift test -c release --filter BenchmarkHTTP1ExperimentTests
+
+      - name: Build raw NIO server
+        run: swift build -c release --product raw-nio-benchmark-server
+
+      - name: Build custom HTTP1 server
+        run: swift build -c release --product custom-http1-benchmark-server
+
+      - name: Build benchmark client
+        run: swift build -c release --product whitethroated-benchmark-client
+
+      - name: Build diagnostic runner
+        run: swift build -c release --product whitethroated-http1-diagnostic
+
+      - name: Run matched A/B diagnostic
+        env:
+          WHITETHROATED_HTTP1_DIAGNOSTIC_REQUESTS: "75000"
+          WHITETHROATED_HTTP1_DIAGNOSTIC_WARMUP: "7500"
+          WHITETHROATED_HTTP1_DIAGNOSTIC_ROUNDS: "3"
+          WHITETHROATED_HTTP1_DIAGNOSTIC_CONNECTIONS: "64"
+          WHITETHROATED_HTTP1_DIAGNOSTIC_THREADS: "2"
+        run: .build/release/whitethroated-http1-diagnostic
