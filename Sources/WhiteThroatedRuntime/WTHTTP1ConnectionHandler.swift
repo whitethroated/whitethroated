@@ -3,7 +3,8 @@ import NIOHTTP1
 
 import WhiteThroatedHTTP1
 
-/// Experimental Tier 1 HTTP/1 connection handler.
+/// Default Tier 1 HTTP/1 connection handler for applications without
+/// request-streaming routes.
 ///
 /// Speaks raw `ByteBuffer` in both directions, replacing the stock
 /// `HTTPRequestDecoder` + `HTTPServerPipelineHandler` +
@@ -18,15 +19,22 @@ import WhiteThroatedHTTP1
 /// framework-facing `RuntimeDispatcher` contract is unchanged. The
 /// dispatcher still speaks NIO request/response types, so one
 /// boundary conversion per request is the known Tier 1 tax this
-/// experiment measures around.
+/// transport retains at the module boundary.
 ///
 /// Documented Tier 1 divergences (all fail safe, never permissive):
 /// - Request-streaming routes are answered 500
 ///   (`internalServerError`, keep-alive preserved) without invoking
 ///   the consumer; stock would stream. A 413 still wins when a body
-///   limit is exceeded first.
-/// - `fileRegion`/`stream` response bodies are answered 500 without
-///   invoking the producer; stock would serve them.
+///   limit is exceeded first. Automatic transport mode never sends
+///   such apps here.
+/// - CONNECT and bodyless-status response streams suppress the
+///   producer (clean head, no body); stock would run it into
+///   encoder drops or raw framing garbage.
+/// - A producer write after its stream ended closes the connection;
+///   stock would emit protocol garbage past the end marker.
+/// - An error handler that answers a stream-length failure with
+///   another invalid stream gets 500 (single mapping per request);
+///   stock recurses until it overflows or ping-pongs.
 /// - Chunked trailer VALUES are validated then discarded; framing is
 ///   equivalent with stock.
 /// - A response the writer refuses (invalid bytes, mirroring NIO's
@@ -38,8 +46,8 @@ public final class WTHTTP1ConnectionHandler:
 {
     public typealias InboundIn = ByteBuffer
     public typealias InboundOut = ByteBuffer
-    public typealias OutboundIn = ByteBuffer
-    public typealias OutboundOut = ByteBuffer
+    public typealias OutboundIn = IOData
+    public typealias OutboundOut = IOData
 
     private struct ActiveRequest {
         var head: HTTPRequestHead
@@ -60,7 +68,9 @@ public final class WTHTTP1ConnectionHandler:
 
     private struct HeldResponse {
         var bytes: ByteBuffer
+        var region: FileRegion?
         var closeAfter: Bool
+        var buffered: Bool
     }
 
     private static let sharedEmptyBody =
@@ -81,10 +91,29 @@ public final class WTHTTP1ConnectionHandler:
     private var cumulation: ByteBuffer
     private var closed = false
     private var activeRequest: ActiveRequest?
+    private var draining = false
+    private var readPending = false
 
     private var nextSequence = 0
     private var emitSequence = 0
     private var heldResponses: [Int: HeldResponse]?
+
+    // Response-stream state, all nil until the first stream. At most
+    // one stream head is on the wire at a time (`openStreamSequence`
+    // gates every later response, mirroring the stock pipelining
+    // handler's in-order guarantee); the end watermark turns
+    // post-end producer writes into a clean close (the NIO encoder
+    // errors the connection there).
+    private var tier1Streams: [Int: Tier1StreamState]?
+    private var openStreamSequence: Int?
+    private var maxEndedStreamSeq: Int?
+
+    // Request sequences that already consumed their error mapping
+    // for a stream-length failure. Without this, an error handler
+    // that returns another invalid stream would recurse forever
+    // (stock stack-overflows or ping-pongs here); Tier 1 fails safe
+    // with 500 instead.
+    internal private(set) var streamValidationFailed: Set<Int>?
 
     private var cachedRouteMethod: WTHTTP1Method?
     private var cachedRouteURI: [UInt8]?
@@ -133,7 +162,30 @@ public final class WTHTTP1ConnectionHandler:
     public func channelInactive(
         context: ChannelHandlerContext
     ) {
+        closed = true
+        activeRequest = nil
+        heldResponses = nil
+        cumulation.clear()
+        dropTier1Streams()
+        readPending = false
         context.fireChannelInactive()
+    }
+
+    /// Match stock pipelining assistance: after a request body ends,
+    /// withhold socket reads until its response ends. Already received
+    /// bytes remain in cumulation, without dispatching later handlers.
+    public func read(context: ChannelHandlerContext) {
+        guard !closed else { return }
+        if waitingForResponse {
+            readPending = true
+        } else {
+            context.read()
+        }
+    }
+
+    private var waitingForResponse: Bool {
+        activeRequest == nil
+            && (nextSequence != emitSequence || openStreamSequence != nil)
     }
 
     public func errorCaught(
@@ -141,6 +193,7 @@ public final class WTHTTP1ConnectionHandler:
         error: Error
     ) {
         closed = true
+        dropTier1Streams()
         context.close(promise: nil)
     }
 
@@ -150,8 +203,25 @@ public final class WTHTTP1ConnectionHandler:
     private func drain(
         context: ChannelHandlerContext
     ) {
+        // A synchronous response may complete inside beginRequest or
+        // body consumption. Let the outer drain finish updating that
+        // state before parsing another request.
+        guard !draining else { return }
+        draining = true
+        defer {
+            draining = false
+            if readPending, !closed, !waitingForResponse {
+                readPending = false
+                context.read()
+            }
+        }
+
         while !closed {
             if activeRequest == nil {
+                guard !waitingForResponse else {
+                    compactCumulation()
+                    return
+                }
                 let head: WTHTTP1RequestHead?
 
                 do {
@@ -1141,13 +1211,15 @@ public final class WTHTTP1ConnectionHandler:
                 keepAlive: keepAlive,
                 context: context
             )
+            clearCompletedStreamValidationFailure(sequence)
 
         case .future(let future):
-            // Mirrors stock: the mapped future is already on-loop,
-            // so no hop precedes completion.
             future
+                .hop(to: context.eventLoop)
                 .assumeIsolatedUnsafeUnchecked()
                 .whenComplete { result in
+                    guard !self.closed, context.channel.isActive else { return }
+                    defer { self.clearCompletedStreamValidationFailure(sequence) }
                     switch result {
                     case .success(let response):
                         self.writeSyncGeneral(
@@ -1173,6 +1245,18 @@ public final class WTHTTP1ConnectionHandler:
                         )
                     }
                 }
+        }
+    }
+
+    /// Error mapping may itself return an invalid stream or a pending
+    /// future. Keep its recursion guard until a response head has actually
+    /// emitted (or the connection closes), then release the request key.
+    /// This is called only on error paths, never ordinary responses.
+    private func clearCompletedStreamValidationFailure(_ sequence: Int) {
+        guard closed || sequence < emitSequence else { return }
+        streamValidationFailed?.remove(sequence)
+        if streamValidationFailed?.isEmpty == true {
+            streamValidationFailed = nil
         }
     }
 
@@ -1213,9 +1297,58 @@ public final class WTHTTP1ConnectionHandler:
                 context: context
             )
 
+        case .bytesWithRegion(let bytes, let region):
+            emit(
+                bytes: bytes,
+                region: region,
+                sequence: sequence,
+                closeAfter: !keepAlive,
+                context: context
+            )
+
+        case .streamPending(let pending):
+            writeTier1Stream(
+                pending,
+                sequence: sequence,
+                context: context
+            )
+
+        case .streamFailed(let error):
+            if streamValidationFailed?.contains(sequence)
+                == true
+            {
+                // The error handler already ran for this request
+                // and produced another invalid stream: fail safe
+                // with 500 instead of recursing forever.
+                writePreparedGeneral(
+                    dispatcher.internalServerError,
+                    sequence: sequence,
+                    method: method,
+                    isHeadRequest: isHeadRequest,
+                    version: version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+            } else {
+                if streamValidationFailed == nil {
+                    streamValidationFailed = []
+                }
+
+                streamValidationFailed?.insert(sequence)
+                writeFailure(
+                    error,
+                    sequence: sequence,
+                    method: method,
+                    isHeadRequest: isHeadRequest,
+                    version: version,
+                    keepAlive: keepAlive,
+                    context: context
+                )
+            }
+
         case .unsupportedBody:
-            // Tier 1 serves fileRegion/stream bodies as 500 without
-            // invoking the producer; stock would serve them.
+            // Tier 1 serves bodies it cannot frame as 500 without
+            // invoking the producer; stock serves them.
             writePreparedGeneral(
                 dispatcher.internalServerError,
                 sequence: sequence,
@@ -1231,6 +1364,484 @@ public final class WTHTTP1ConnectionHandler:
             // can be written, so the connection closes silently.
             closeSilently(context: context)
         }
+    }
+
+    /// Emits a validated stream head in sequence; the producer
+    /// starts when the head releases (unless suppressed). The head
+    /// is buffered like stock's (`write`, not `writeAndFlush`):
+    /// the first flush is the stream end, an explicit flush, or a
+    /// flushing chunk write. Ordering mirrors the stock pipelining
+    /// handler: the open stream gates every later response, and the
+    /// end releases them.
+    private func writeTier1Stream(
+        _ pending: Tier1PendingStream,
+        sequence: Int,
+        context: ChannelHandlerContext
+    ) {
+        var endBytes = context.channel.allocator.buffer(
+            capacity: 5
+        )
+
+        if pending.chunked, !pending.suppressProducer {
+            endBytes.writeStaticString("0\r\n\r\n")
+        }
+
+        let state = Tier1StreamState(
+            chunked: pending.chunked,
+            endBytes: endBytes,
+            endCloseAfter: !pending.streamKeepAlive,
+            stream: pending.suppressProducer
+                ? nil : pending.stream,
+            tracker: pending.tracker
+        )
+
+        if tier1Streams == nil {
+            tier1Streams = [:]
+        }
+
+        tier1Streams?[sequence] = state
+
+        emit(
+            bytes: pending.headBytes,
+            sequence: sequence,
+            closeAfter: false,
+            buffered: true,
+            context: context
+        )
+
+        // A late async completion after a close must not start the
+        // producer (stock guards channel-active the same way).
+        guard !closed else {
+            tier1Streams?[sequence] = nil
+            return
+        }
+
+        guard !pending.suppressProducer else {
+            streamEnded(
+                sequence: sequence,
+                state: state,
+                context: context
+            )
+            return
+        }
+    }
+
+    /// Runs the producer after its head released, mirroring stock
+    /// (head `write`, then produce, then chunks). Runs exactly once
+    /// per stream.
+    private func startTier1Producer(
+        _ stream: RuntimeResponseStream,
+        tracker: RuntimeStreamLengthTracker?,
+        sequence: Int,
+        context: ChannelHandlerContext
+    ) {
+        // A release racing a close must not start the producer.
+        guard !closed else {
+            tier1Streams?[sequence] = nil
+            return
+        }
+
+        let sink = RuntimeStreamChunkSink(
+            eventLoop: context.eventLoop,
+            allocator: context.channel.allocator,
+            closeFuture: context.channel.closeFuture,
+            writeBody: { data in
+                self.tier1WriteBody(
+                    data,
+                    sequence: sequence,
+                    context: context
+                )
+            },
+            writeBodyAndFlush: { data in
+                self.tier1WriteBodyAndFlush(
+                    data,
+                    sequence: sequence,
+                    context: context
+                )
+            },
+            flush: {
+                context.flush()
+            }
+        )
+        let writer = RuntimeStreamWriter(
+            sink: sink,
+            lengthTracker: tracker
+        )
+
+        stream.produce(writer).hop(to: context.eventLoop)
+            .assumeIsolatedUnsafeUnchecked()
+            .whenComplete { result in
+                self.tier1ProducerCompleted(
+                    result,
+                    sequence: sequence,
+                    stream: stream,
+                    tracker: tracker,
+                    context: context
+                )
+            }
+    }
+
+    private func tier1WriteBody(
+        _ data: IOData,
+        sequence: Int,
+        context: ChannelHandlerContext
+    ) {
+        // Writes to a dead channel are dropped (the stock writer
+        // returns success for fire-and-forget writes there too).
+        guard !closed, context.channel.isActive else {
+            return
+        }
+
+        guard let state = tier1Streams?[sequence] else {
+            // Ended (a post-end write errors the connection, like
+            // the NIO encoder) or dropped on close (drop silently).
+            if let maxEnded = maxEndedStreamSeq,
+                sequence <= maxEnded
+            {
+                closeSilently(context: context)
+            }
+
+            return
+        }
+
+        // The head is still held behind an earlier response: hold
+        // the fragment too (stock holds out-of-order parts).
+        guard state.headReleased else {
+            state.pending.append(data)
+            return
+        }
+
+        writeTier1Chunk(
+            data,
+            state: state,
+            context: context
+        )
+    }
+
+    private func tier1WriteBodyAndFlush(
+        _ data: IOData,
+        sequence: Int,
+        context: ChannelHandlerContext
+    ) -> EventLoopFuture<Void> {
+        guard !closed, context.channel.isActive else {
+            return context.eventLoop.makeFailedFuture(
+                ChannelError.ioOnClosedChannel
+            )
+        }
+
+        guard let state = tier1Streams?[sequence] else {
+            if let maxEnded = maxEndedStreamSeq,
+                sequence <= maxEnded
+            {
+                closeSilently(context: context)
+            }
+
+            return context.eventLoop.makeFailedFuture(
+                ChannelError.ioOnClosedChannel
+            )
+        }
+
+        // Held fragments report success at accept; they flush when
+        // the head releases and always by stream completion.
+        guard state.headReleased else {
+            state.pending.append(data)
+
+            return context.eventLoop
+                .makeSucceededVoidFuture()
+        }
+
+        if state.chunked {
+            guard data.readableBytes > 0 else {
+                // Unframed empties still flush honestly: zero bytes
+                // with a real flush future (mirrors NIO's
+                // promise-passing zero write).
+                return context.writeAndFlush(
+                    wrapOutboundOut(
+                        .byteBuffer(
+                            context.channel.allocator
+                                .buffer(capacity: 0)
+                        )
+                    )
+                )
+            }
+
+            var line = context.channel.allocator.buffer(
+                capacity: 32
+            )
+            line.writeString(
+                String(data.readableBytes, radix: 16)
+            )
+            line.writeStaticString("\r\n")
+            context.write(
+                wrapOutboundOut(.byteBuffer(line)),
+                promise: nil
+            )
+            context.write(
+                wrapOutboundOut(data),
+                promise: nil
+            )
+            line.moveReaderIndex(
+                forwardBy: line.readableBytes - 2
+            )
+
+            return context.writeAndFlush(
+                wrapOutboundOut(.byteBuffer(line))
+            )
+        }
+
+        return context.writeAndFlush(
+            wrapOutboundOut(data)
+        )
+    }
+
+    /// Frames one fragment exactly like NIO's chunk writer: empty
+    /// chunked fragments are skipped (framing one would end the
+    /// stream), lowercase hex length, shared-storage trailing CRLF.
+    private func writeTier1Chunk(
+        _ data: IOData,
+        state: Tier1StreamState,
+        context: ChannelHandlerContext
+    ) {
+        guard state.chunked else {
+            context.write(
+                wrapOutboundOut(data),
+                promise: nil
+            )
+            return
+        }
+
+        guard data.readableBytes > 0 else {
+            return
+        }
+
+        var line = context.channel.allocator.buffer(
+            capacity: 32
+        )
+        line.writeString(
+            String(data.readableBytes, radix: 16)
+        )
+        line.writeStaticString("\r\n")
+        context.write(
+            wrapOutboundOut(.byteBuffer(line)),
+            promise: nil
+        )
+        context.write(
+            wrapOutboundOut(data),
+            promise: nil
+        )
+        line.moveReaderIndex(
+            forwardBy: line.readableBytes - 2
+        )
+        context.write(
+            wrapOutboundOut(.byteBuffer(line)),
+            promise: nil
+        )
+    }
+
+    private func tier1ProducerCompleted(
+        _ result: Result<Void, Error>,
+        sequence: Int,
+        stream: RuntimeResponseStream,
+        tracker: RuntimeStreamLengthTracker?,
+        context: ChannelHandlerContext
+    ) {
+        guard context.channel.isActive, !closed else {
+            return
+        }
+
+        guard let state = tier1Streams?[sequence] else {
+            return
+        }
+
+        switch result {
+        case .success:
+            if let error = tracker?.completionError() {
+                stream.onError?(error)
+                flushAndCloseForStreamError(
+                    context: context
+                )
+                return
+            }
+
+            streamEnded(
+                sequence: sequence,
+                state: state,
+                context: context
+            )
+
+        case .failure(let error):
+            stream.onError?(error)
+            flushAndCloseForStreamError(
+                context: context
+            )
+        }
+    }
+
+    /// Writes the end marker (or nothing) and releases everything
+    /// the open stream gated. When the head is still held, the end
+    /// waits for it so head, chunks, and end stay ordered.
+    private func streamEnded(
+        sequence: Int,
+        state: Tier1StreamState,
+        context: ChannelHandlerContext
+    ) {
+        guard state.headReleased else {
+            state.endPending = true
+            return
+        }
+
+        let endBytes = state.endBytes
+        let closeAfter = state.endCloseAfter
+
+        tier1Streams?[sequence] = nil
+
+        if let maxEnded = maxEndedStreamSeq {
+            maxEndedStreamSeq = max(maxEnded, sequence)
+        } else {
+            maxEndedStreamSeq = sequence
+        }
+
+        writeAndMaybeClose(
+            endBytes,
+            closeAfter: closeAfter,
+            context: context
+        )
+
+        guard !closed else {
+            return
+        }
+
+        if openStreamSequence == sequence {
+            openStreamSequence = nil
+        }
+
+        cascadeHeldResponses(context: context)
+
+        if heldResponses?.isEmpty == true {
+            heldResponses = nil
+        }
+
+        if !draining {
+            drain(context: context)
+        }
+    }
+
+    /// Releases a stream head onto the wire: opens the stream gate,
+    /// starts the producer (stock order: head write, then produce),
+    /// then emits a pre-requested end.
+    private func streamHeadEmitted(
+        _ sequence: Int,
+        context: ChannelHandlerContext
+    ) {
+        guard let state = tier1Streams?[sequence],
+            !state.headReleased
+        else {
+            return
+        }
+
+        // Structural: the open-stream gate holds every later head,
+        // so no other stream can be open when this head emits.
+        assert(openStreamSequence == nil)
+        openStreamSequence = sequence
+        state.headReleased = true
+
+        for data in state.pending {
+            writeTier1Chunk(
+                data,
+                state: state,
+                context: context
+            )
+        }
+
+        state.pending.removeAll(keepingCapacity: false)
+
+        if !state.producerStarted,
+            let stream = state.stream
+        {
+            state.producerStarted = true
+            state.stream = nil
+            let tracker = state.tracker
+            state.tracker = nil
+            startTier1Producer(
+                stream,
+                tracker: tracker,
+                sequence: sequence,
+                context: context
+            )
+        }
+
+        if state.endPending {
+            streamEnded(
+                sequence: sequence,
+                state: state,
+                context: context
+            )
+        }
+    }
+
+    /// Flushes accepted bytes, then closes (mirrors the stock
+    /// producer-failure path).
+    private func flushAndCloseForStreamError(
+        context: ChannelHandlerContext
+    ) {
+        context.flush()
+        closeSilently(context: context)
+    }
+
+    /// Releases held responses in order. Shared by the emit fast
+    /// path and by stream completion.
+    private func cascadeHeldResponses(
+        context: ChannelHandlerContext
+    ) {
+        while let held = heldResponses?[emitSequence] {
+            heldResponses?[emitSequence] = nil
+
+            let released = emitSequence
+
+            if held.buffered {
+                // A held stream head buffers like an in-order one;
+                // its end or an explicit flush moves it.
+                context.write(
+                    wrapOutboundOut(
+                        .byteBuffer(held.bytes)
+                    ),
+                    promise: nil
+                )
+            } else {
+                writeAndMaybeClose(
+                    held.bytes,
+                    region: held.region,
+                    closeAfter: held.closeAfter,
+                    context: context
+                )
+            }
+
+            guard !closed else {
+                return
+            }
+
+            emitSequence += 1
+            streamHeadEmitted(released, context: context)
+
+            guard !closed else {
+                return
+            }
+
+            // A freshly opened stream owns the wire: later held
+            // responses wait for its end marker (releasing them
+            // here would interleave them with stream chunks).
+            guard openStreamSequence == nil else {
+                return
+            }
+        }
+    }
+
+    /// Drops all stream tracking (close paths only).
+    private func dropTier1Streams() {
+        tier1Streams = nil
+        openStreamSequence = nil
+        maxEndedStreamSeq = nil
+        streamValidationFailed = nil
     }
 
     private func rejectRequestEarly(
@@ -1262,7 +1873,7 @@ public final class WTHTTP1ConnectionHandler:
             into: &bytes
         )
         context.writeAndFlush(
-            wrapOutboundOut(bytes),
+            wrapOutboundOut(.byteBuffer(bytes)),
             promise: nil
         )
     }
@@ -1282,10 +1893,11 @@ public final class WTHTTP1ConnectionHandler:
         activeRequest = nil
         heldResponses = nil
         cumulation.clear()
+        dropTier1Streams()
 
         context
             .writeAndFlush(
-                wrapOutboundOut(bytes)
+                wrapOutboundOut(.byteBuffer(bytes))
             )
             .assumeIsolatedUnsafeUnchecked()
             .whenComplete { _ in
@@ -1300,6 +1912,7 @@ public final class WTHTTP1ConnectionHandler:
         activeRequest = nil
         heldResponses = nil
         cumulation.clear()
+        dropTier1Streams()
         context.close(promise: nil)
     }
 
@@ -1316,8 +1929,10 @@ public final class WTHTTP1ConnectionHandler:
     /// out of order.
     private func emit(
         bytes: ByteBuffer,
+        region: FileRegion? = nil,
         sequence: Int,
         closeAfter: Bool,
+        buffered: Bool = false,
         context: ChannelHandlerContext
     ) {
         // Late async completions after a close must not write.
@@ -1325,45 +1940,80 @@ public final class WTHTTP1ConnectionHandler:
             return
         }
 
-        guard sequence != emitSequence else {
-            writeAndMaybeClose(
-                bytes,
+        // An open stream owns the wire until its end marker (the
+        // stock pipelining handler holds later responses the same
+        // way); without this gate a pipelined response could
+        // interleave with stream chunks.
+        if let open = openStreamSequence, sequence > open {
+            holdResponse(
+                bytes: bytes,
+                region: region,
+                sequence: sequence,
                 closeAfter: closeAfter,
-                context: context
+                buffered: buffered
             )
+            return
+        }
+
+        guard sequence != emitSequence else {
+            if buffered {
+                // Stream heads buffer like stock's head `write`:
+                // the stream end or an explicit flush moves them.
+                context.write(
+                    wrapOutboundOut(
+                        .byteBuffer(bytes)
+                    ),
+                    promise: nil
+                )
+            } else {
+                writeAndMaybeClose(
+                    bytes,
+                    region: region,
+                    closeAfter: closeAfter,
+                    context: context
+                )
+            }
 
             guard !closed else {
                 return
             }
 
             emitSequence += 1
+            streamHeadEmitted(sequence, context: context)
 
-            while let held = heldResponses?[
-                emitSequence
-            ] {
-                heldResponses?[
-                    emitSequence
-                ] = nil
-                writeAndMaybeClose(
-                    held.bytes,
-                    closeAfter: held.closeAfter,
-                    context: context
-                )
-
-                guard !closed else {
-                    return
-                }
-
-                emitSequence += 1
+            guard !closed else {
+                return
             }
+
+            cascadeHeldResponses(context: context)
 
             if heldResponses?.isEmpty == true {
                 heldResponses = nil
             }
 
+            if !draining {
+                drain(context: context)
+            }
+
             return
         }
 
+        holdResponse(
+            bytes: bytes,
+            region: region,
+            sequence: sequence,
+            closeAfter: closeAfter,
+            buffered: buffered
+        )
+    }
+
+    private func holdResponse(
+        bytes: ByteBuffer,
+        region: FileRegion?,
+        sequence: Int,
+        closeAfter: Bool,
+        buffered: Bool = false
+    ) {
         if heldResponses == nil {
             heldResponses = [:]
         }
@@ -1372,20 +2022,35 @@ public final class WTHTTP1ConnectionHandler:
             sequence
         ] = HeldResponse(
             bytes: bytes,
-            closeAfter: closeAfter
+            region: region,
+            closeAfter: closeAfter,
+            buffered: buffered
         )
     }
 
     private func writeAndMaybeClose(
         _ bytes: ByteBuffer,
+        region: FileRegion? = nil,
         closeAfter: Bool,
         context: ChannelHandlerContext
     ) {
         guard closeAfter else {
-            context.writeAndFlush(
-                wrapOutboundOut(bytes),
-                promise: nil
-            )
+            if let region {
+                context.write(
+                    wrapOutboundOut(.byteBuffer(bytes)),
+                    promise: nil
+                )
+                context.writeAndFlush(
+                    wrapOutboundOut(.fileRegion(region)),
+                    promise: nil
+                )
+            } else {
+                context.writeAndFlush(
+                    wrapOutboundOut(.byteBuffer(bytes)),
+                    promise: nil
+                )
+            }
+
             return
         }
 
@@ -1396,10 +2061,22 @@ public final class WTHTTP1ConnectionHandler:
         activeRequest = nil
         heldResponses = nil
         cumulation.clear()
+        dropTier1Streams()
+
+        if region != nil {
+            context.write(
+                wrapOutboundOut(.byteBuffer(bytes)),
+                promise: nil
+            )
+        }
 
         context
             .writeAndFlush(
-                wrapOutboundOut(bytes)
+                region.map {
+                    wrapOutboundOut(
+                        .fileRegion($0)
+                    )
+                } ?? wrapOutboundOut(.byteBuffer(bytes))
             )
             .assumeIsolatedUnsafeUnchecked()
             .whenComplete { _ in
@@ -1504,8 +2181,25 @@ public final class WTHTTP1ConnectionHandler:
             bodyLength = value.readableBytes
             bodyBuffer = value
 
-        case .fileRegion, .stream:
-            return .unsupportedBody
+        case .fileRegion(let region):
+            return fileRegionResponse(
+                region,
+                response: response,
+                method: method,
+                version: version,
+                keepAlive: keepAlive,
+                allocator: allocator
+            )
+
+        case .stream(let stream):
+            return streamPendingResponse(
+                stream,
+                response: response,
+                method: method,
+                version: version,
+                keepAlive: keepAlive,
+                allocator: allocator
+            )
         }
 
         var headers: [(name: [UInt8], value: [UInt8])] = []
@@ -1546,6 +2240,182 @@ public final class WTHTTP1ConnectionHandler:
         }
 
         return .bytes(out)
+    }
+
+    /// Zero-copy file response: the head carries the region length
+    /// as Content-Length and the region itself flows to the channel
+    /// untouched. HEAD/CONNECT and bodyless statuses keep the head
+    /// but suppress the region, mirroring the NIO encoder.
+    private func fileRegionResponse(
+        _ region: FileRegion,
+        response: RuntimeResponse,
+        method: WTHTTP1Method,
+        version: WTHTTP1Version,
+        keepAlive: Bool,
+        allocator: ByteBufferAllocator
+    ) -> SerializedResponse {
+        var headers: [(name: [UInt8], value: [UInt8])] = []
+        headers.reserveCapacity(
+            Int(response.headers.count)
+        )
+
+        for (name, value) in response.headers {
+            headers.append((
+                name: Array(name.utf8),
+                value: Array(value.utf8)
+            ))
+        }
+
+        var out = allocator.buffer(capacity: 256)
+        let written = WTHTTP1ResponseWriter.write(
+            head: WTHTTP1ResponseHead(
+                statusCode: Int(response.status.code),
+                reasonBytes: Array(
+                    response.status.reasonPhrase.utf8
+                ),
+                headers: headers
+            ),
+            version: version,
+            keepAlive: keepAlive,
+            mayHaveBody: response.status
+                .mayHaveResponseBody,
+            requestMethod: method,
+            contentLength: region.readableBytes,
+            body: nil,
+            trustFraming: response
+                .contentLengthIsNormalized,
+            into: &out
+        )
+
+        guard written else {
+            return .invalid
+        }
+
+        let suppressBody =
+            method == .head || method == .connect
+        let stripFraming =
+            !response.status.mayHaveResponseBody
+            || method == .connect
+
+        // Empty regions carry zero bytes; stock never emits them
+        // as outbound messages, so neither does Tier 1.
+        guard !suppressBody, !stripFraming,
+            region.readableBytes > 0
+        else {
+            return .bytes(out)
+        }
+
+        return .bytesWithRegion(out, region)
+    }
+
+    /// Validates a response stream and serializes its head, mirroring
+    /// the stock streaming writer plus the NIO encoder's framing
+    /// decision: declared length resolves identically (trusted fast
+    /// path or header scan), the head carries identical framing and
+    /// Connection tokens, and chunk-vs-raw follows the encoder rule
+    /// (Content-Length present means raw, otherwise HTTP/1.1 means
+    /// chunked).
+    private func streamPendingResponse(
+        _ stream: RuntimeResponseStream,
+        response: RuntimeResponse,
+        method: WTHTTP1Method,
+        version: WTHTTP1Version,
+        keepAlive: Bool,
+        allocator: ByteBufferAllocator
+    ) -> SerializedResponse {
+        let declared: Int?
+
+        if response.contentLengthIsNormalized,
+            let expected = stream.expectedContentLength
+        {
+            declared = expected
+        } else {
+            switch RuntimeResponseWriter
+                .declaredStreamContentLength(
+                    headers: response.headers
+                )
+            {
+            case .success(let length):
+                declared = length
+
+            case .failure(let error):
+                stream.onError?(error)
+                return .streamFailed(error)
+            }
+        }
+
+        let tracker = declared.map {
+            RuntimeStreamLengthTracker(expected: $0)
+        }
+        let streamKeepAlive =
+            keepAlive
+            && (version != .http10 || tracker != nil)
+
+        var headers: [(name: [UInt8], value: [UInt8])] = []
+        headers.reserveCapacity(
+            Int(response.headers.count)
+        )
+
+        for (name, value) in response.headers {
+            headers.append((
+                name: Array(name.utf8),
+                value: Array(value.utf8)
+            ))
+        }
+
+        var out = allocator.buffer(capacity: 256)
+        let written = WTHTTP1ResponseWriter.write(
+            head: WTHTTP1ResponseHead(
+                statusCode: Int(response.status.code),
+                reasonBytes: Array(
+                    response.status.reasonPhrase.utf8
+                ),
+                headers: headers
+            ),
+            version: version,
+            keepAlive: streamKeepAlive,
+            mayHaveBody: response.status
+                .mayHaveResponseBody,
+            requestMethod: method,
+            contentLength: declared,
+            body: nil,
+            trustFraming: false,
+            leaveBodyOpen: true,
+            into: &out
+        )
+
+        guard written else {
+            return .invalid
+        }
+
+        // Framing keys off the declared length (which the repair
+        // above wrote into the head), so head and framing can never
+        // disagree: unknown length chunks on HTTP/1.1, everything
+        // else flows raw. (A lying direct construction with a
+        // trusted length but inconsistent headers normalizes to the
+        // declared value; stock passes such garbage through.)
+        let chunked =
+            version == .http11 && declared == nil
+
+        // HEAD never runs the producer (stock-identical). CONNECT
+        // and bodyless statuses suppress it too: stock would run it
+        // into encoder drops or raw garbage, while Tier 1 fails safe
+        // with a clean head (documented intentional divergence).
+        let suppressProducer =
+            method == .head
+            || method == .connect
+            || !response.status.mayHaveResponseBody
+
+        return .streamPending(
+            Tier1PendingStream(
+                stream: stream,
+                tracker: tracker,
+                headBytes: out,
+                chunked: chunked,
+                streamKeepAlive: streamKeepAlive,
+                suppressProducer: suppressProducer
+            )
+        )
     }
 
     @inline(__always)
@@ -1805,6 +2675,72 @@ public final class WTHTTP1ConnectionHandler:
 
 private enum SerializedResponse {
     case bytes(ByteBuffer)
+    case bytesWithRegion(ByteBuffer, FileRegion)
+    case streamPending(Tier1PendingStream)
+    case streamFailed(RuntimeStreamError)
     case unsupportedBody
     case invalid
+}
+
+/// Live Tier 1 response-stream state, keyed by head sequence.
+/// Event-loop confined; entries are removed when the stream ends.
+private final class Tier1StreamState {
+    /// Frame each fragment (`len CRLF data CRLF`) vs raw.
+    let chunked: Bool
+
+    /// Terminal (`0 CRLF CRLF`) or empty end bytes, fixed at stream
+    /// start.
+    let endBytes: ByteBuffer
+
+    /// Close after the end marker (vs keep-alive).
+    let endCloseAfter: Bool
+
+    /// True once the head hits the wire. The producer starts at
+    /// release (stock runs it after the head write), so fragments
+    /// written before that are unexpected; `pending` holds them as
+    /// a safety net rather than dropping bytes.
+    var headReleased = false
+
+    /// Fragments written while the head was still held (defensive;
+    /// unreachable while produce starts at release).
+    var pending: [IOData] = []
+
+    /// The end was requested before the head hit the wire (HEAD
+    /// suppression on a held head); it goes out at release.
+    var endPending = false
+
+    /// The validated stream, consumed when the producer starts at
+    /// head release. Nil for suppressed producers (never started).
+    var stream: RuntimeResponseStream?
+
+    /// Length contract for the deferred producer start.
+    var tracker: RuntimeStreamLengthTracker?
+
+    /// True once the producer has started (exactly once).
+    var producerStarted = false
+
+    init(
+        chunked: Bool,
+        endBytes: ByteBuffer,
+        endCloseAfter: Bool,
+        stream: RuntimeResponseStream?,
+        tracker: RuntimeStreamLengthTracker?
+    ) {
+        self.chunked = chunked
+        self.endBytes = endBytes
+        self.endCloseAfter = endCloseAfter
+        self.stream = stream
+        self.tracker = tracker
+    }
+}
+
+/// A validated Tier 1 stream ready to emit: head bytes plus the
+/// framing contract the producer must follow.
+private struct Tier1PendingStream {
+    var stream: RuntimeResponseStream
+    var tracker: RuntimeStreamLengthTracker?
+    var headBytes: ByteBuffer
+    var chunked: Bool
+    var streamKeepAlive: Bool
+    var suppressProducer: Bool
 }

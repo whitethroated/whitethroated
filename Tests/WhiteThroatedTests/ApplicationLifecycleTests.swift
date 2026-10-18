@@ -5,6 +5,17 @@ import NIOEmbedded
 import NIOHTTP1
 
 final class ApplicationLifecycleTests: XCTestCase {
+    func testTier1IsDefaultAndStockOverrideReachesRuntime() {
+        let app = Application()
+        XCTAssertTrue(app.configuration.useTier1HTTP1Experimental)
+        XCTAssertTrue(app.makeRuntimeConfiguration().useTier1HTTP1)
+
+        let stock = Application(configuration: ServerConfiguration(
+            useTier1HTTP1Experimental: false
+        ))
+        XCTAssertFalse(stock.makeRuntimeConfiguration().useTier1HTTP1)
+    }
+
     func testApplicationCanDispatchBeforeListening() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()

@@ -425,6 +425,231 @@ private func normalizeTrailers(
             Array(
                 "GET / HTTP/1.1\r\nConnection: \r\n\r\n".utf8
             ),
+            // Audit probes: chunk-size line and extension boundaries.
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5; x=y\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;\te\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nA\r\n0123456789\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0;e=1\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n  5\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5 \r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n+5\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=1;\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;;e=1\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=1;;\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;a;;b\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"q\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"a b\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"q\"x\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;=\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=v;w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array("POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;".utf8) + [0xC3, 0xA9]
+                + Array("\r\nhello\r\n0\r\n\r\n".utf8),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;a=b=c\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=v/w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=v@w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;*\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=v|w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"a\\\"b\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"a\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=v\"q\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"q\";w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array("POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;".utf8) + [0x7F]
+                + Array("\r\nhello\r\n0\r\n\r\n".utf8),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;=\"q\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;\"=v\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e(v)\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e#v\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e\\v\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array("POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"".utf8) + [0xC3, 0xA9]
+                + Array("\"\r\nhello\r\n0\r\n\r\n".utf8),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"a\\\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"a;b\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;v\"q\"=w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;;\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;~\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;v\"q\";w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;a\"b=c\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;v\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=v=w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array("POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"a\\".utf8) + [0x01]
+                + Array("\"\r\nhello\r\n0\r\n\r\n".utf8),
+            Array("POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"a\\".utf8) + [0xFF]
+                + Array("\"\r\nhello\r\n0\r\n\r\n".utf8),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"a\tb\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=v\"q\"r\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=v\";w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"a\\nb\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=\"\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=;w\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e=;\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;e =1\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;\"q\"\r\nhello\r\n0\r\n\r\n"
+                    .utf8
+            ),
+            Array("POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5;".utf8) + [0xFF]
+                + Array("\r\nhello\r\n0\r\n\r\n".utf8),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0;\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T: a\u{1}b\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T\r\n\r\n"
+                    .utf8
+            ),
         ]
 
         // Trailer-bearing bodies: framing and body bytes must match;
@@ -437,6 +662,20 @@ private func normalizeTrailers(
             ),
             Array(
                 "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nbye\r\n0\r\nA: 1\r\nB: two\r\n\r\n"
+                    .utf8
+            ),
+            // Trailer values are discarded; only accept/reject and
+            // framing/body bytes are compared (see normalizeTrailers).
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T: v \r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T:\r\n\r\n"
+                    .utf8
+            ),
+            Array(
+                "POST /u HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T: v\t\r\n\r\n"
                     .utf8
             ),
         ]

@@ -1,5 +1,10 @@
 # Tier 1 custom HTTP/1 A/B: Raw NIO vs WT stock vs WT custom (2026-10-18)
 
+Historical configuration: stock was the default for this campaign. On current
+code, explicitly set `WHITETHROATED_TIER1_HTTP1=0` to reproduce its stock path.
+See [the default-transport validation](benchmark-tier1-default-2026-10-18.md)
+for the subsequent parser, streaming, and pipelining correctness changes.
+
 ## Verdict
 
 **Neutral.** The Tier 1 custom HTTP/1 path (`WTHTTP1ConnectionHandler`,

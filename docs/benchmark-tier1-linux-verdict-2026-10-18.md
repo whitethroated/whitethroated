@@ -1,5 +1,11 @@
 # Tier-1 Linux verdict: WhiteThroated leads all 8 aspects (2026-10-18)
 
+Transport-status update: this is the historical campaign at `4acc77c`.
+Tier 1 is now the preferred default, with application-wide stock fallback
+for request streaming. The original rankings are not new-default measurements;
+see [the default-transport validation](benchmark-tier1-default-2026-10-18.md)
+for correctness changes, fresh controls, and the unresolved tail-latency limits.
+
 ## Verdict
 
 On isolated-CPU Linux, with the Tier-1 custom HTTP/1 engine enabled

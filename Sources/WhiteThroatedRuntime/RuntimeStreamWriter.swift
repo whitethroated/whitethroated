@@ -78,10 +78,61 @@ public final class RuntimeStreamLengthTracker:
     }
 }
 
+/// Chunk emission strategy for response-stream producers.
+///
+/// The stock transport builds part-writing closures (response parts
+/// flow through the NIO HTTP encoder); Tier 1 builds direct
+/// chunk-framing closures (bytes flow straight to the channel).
+/// Declared-length accounting and event-loop checks stay in
+/// `RuntimeStreamWriter`, shared by both transports.
+public struct RuntimeStreamChunkSink: @unchecked Sendable {
+    /// Event loop chunk writes must run on.
+    public var eventLoop: EventLoop
+
+    /// Allocator for producer-owned buffers.
+    public var allocator: ByteBufferAllocator
+
+    /// Completes when the underlying channel closes.
+    public var closeFuture: EventLoopFuture<Void>
+
+    /// Emits one body fragment without flushing.
+    public var writeBody:
+        (IOData) -> Void
+
+    /// Emits one body fragment and flushes.
+    public var writeBodyAndFlush:
+        (IOData) -> EventLoopFuture<Void>
+
+    /// Flushes previously written fragments.
+    public var flush:
+        () -> Void
+
+    /// Creates a sink from explicit closures.
+    public init(
+        eventLoop: EventLoop,
+        allocator: ByteBufferAllocator,
+        closeFuture: EventLoopFuture<Void>,
+        writeBody:
+            @escaping (IOData) -> Void,
+        writeBodyAndFlush:
+            @escaping (IOData)
+                -> EventLoopFuture<Void>,
+        flush:
+            @escaping () -> Void
+    ) {
+        self.eventLoop = eventLoop
+        self.allocator = allocator
+        self.closeFuture = closeFuture
+        self.writeBody = writeBody
+        self.writeBodyAndFlush = writeBodyAndFlush
+        self.flush = flush
+    }
+}
+
 /// Event-loop-bound response stream writer. All methods must run on
 /// the connection event loop.
 public struct RuntimeStreamWriter: @unchecked Sendable {
-    private let context: ChannelHandlerContext
+    private let sink: RuntimeStreamChunkSink
     private let lengthTracker:
         RuntimeStreamLengthTracker?
 
@@ -89,16 +140,67 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
         context: ChannelHandlerContext,
         lengthTracker: RuntimeStreamLengthTracker? = nil
     ) {
-        self.context = context
+        let eventLoop = context.eventLoop
+        let allocator = context.channel.allocator
+        let closeFuture = context.channel.closeFuture
+
+        self.sink = RuntimeStreamChunkSink(
+            eventLoop: eventLoop,
+            allocator: allocator,
+            closeFuture: closeFuture,
+            writeBody: { data in
+                context.write(
+                    Self.part(data),
+                    promise: nil
+                )
+            },
+            writeBodyAndFlush: { data in
+                context.writeAndFlush(
+                    Self.part(data)
+                )
+            },
+            flush: {
+                context.flush()
+            }
+        )
         self.lengthTracker = lengthTracker
     }
 
+    /// Creates a writer over an explicit chunk sink.
+    ///
+    /// Used by transports that frame chunks themselves (Tier 1).
+    internal init(
+        sink: RuntimeStreamChunkSink,
+        lengthTracker: RuntimeStreamLengthTracker? = nil
+    ) {
+        self.sink = sink
+        self.lengthTracker = lengthTracker
+    }
+
+    private static func part(_ data: IOData) -> NIOAny {
+        switch data {
+        case .byteBuffer(let buffer):
+            NIOAny(
+                HTTPServerResponsePart.body(
+                    .byteBuffer(buffer)
+                )
+            )
+
+        case .fileRegion(let region):
+            NIOAny(
+                HTTPServerResponsePart.body(
+                    .fileRegion(region)
+                )
+            )
+        }
+    }
+
     public var eventLoop: EventLoop {
-        context.eventLoop
+        sink.eventLoop
     }
 
     public var closeFuture: EventLoopFuture<Void> {
-        context.channel.closeFuture
+        sink.closeFuture
     }
 
     public func makeBuffer(
@@ -110,7 +212,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
             "Buffer capacity must be zero or greater"
         )
 
-        return context.channel.allocator.buffer(
+        return sink.allocator.buffer(
             capacity: capacity
         )
     }
@@ -132,21 +234,14 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
         if let failure = record(
             region.readableBytes
         ) {
-            return context.eventLoop.makeFailedFuture(
+            return sink.eventLoop.makeFailedFuture(
                 failure
             )
         }
 
-        context.write(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .fileRegion(region)
-                )
-            ),
-            promise: nil
-        )
+        sink.writeBody(.fileRegion(region))
 
-        return context.eventLoop
+        return sink.eventLoop
             .makeSucceededVoidFuture()
     }
 
@@ -157,7 +252,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
         requireEventLoop()
 
         var buffer =
-            context.channel.allocator.buffer(
+            sink.allocator.buffer(
                 capacity: value.utf8.count
             )
         buffer.writeString(value)
@@ -182,17 +277,13 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
         if let failure = record(
             region.readableBytes
         ) {
-            return context.eventLoop.makeFailedFuture(
+            return sink.eventLoop.makeFailedFuture(
                 failure
             )
         }
 
-        return context.writeAndFlush(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .fileRegion(region)
-                )
-            )
+        return sink.writeBodyAndFlush(
+            .fileRegion(region)
         )
     }
 
@@ -203,7 +294,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
         requireEventLoop()
 
         var buffer =
-            context.channel.allocator.buffer(
+            sink.allocator.buffer(
                 capacity: value.utf8.count
             )
         buffer.writeString(value)
@@ -213,7 +304,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
 
     public func flush() {
         requireEventLoop()
-        context.flush()
+        sink.flush()
     }
 
     @inline(__always)
@@ -223,21 +314,14 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
         if let failure = record(
             buffer.readableBytes
         ) {
-            return context.eventLoop.makeFailedFuture(
+            return sink.eventLoop.makeFailedFuture(
                 failure
             )
         }
 
-        context.write(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .byteBuffer(buffer)
-                )
-            ),
-            promise: nil
-        )
+        sink.writeBody(.byteBuffer(buffer))
 
-        return context.eventLoop
+        return sink.eventLoop
             .makeSucceededVoidFuture()
     }
 
@@ -248,17 +332,13 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
         if let failure = record(
             buffer.readableBytes
         ) {
-            return context.eventLoop.makeFailedFuture(
+            return sink.eventLoop.makeFailedFuture(
                 failure
             )
         }
 
-        return context.writeAndFlush(
-            NIOAny(
-                HTTPServerResponsePart.body(
-                    .byteBuffer(buffer)
-                )
-            )
+        return sink.writeBodyAndFlush(
+            .byteBuffer(buffer)
         )
     }
 
@@ -272,7 +352,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
     @inline(__always)
     private func requireEventLoop() {
         precondition(
-            context.eventLoop.inEventLoop,
+            sink.eventLoop.inEventLoop,
             "Response stream writes must occur on the channel event loop"
         )
     }

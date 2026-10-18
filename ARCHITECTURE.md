@@ -45,7 +45,7 @@ Router data structures are therefore setup-mutable and serving-read-only.
 
 ## Module boundary
 
-The package has two framework targets with a one-way dependency:
+The package has three framework targets with one-way dependencies:
 
 ```text
 Developer API
@@ -57,6 +57,7 @@ WhiteThroated ── framework: Application, Router, middleware,
 WhiteThroatedRuntime ── runtime: bootstrap, HTTP/1.1 pipeline,
      |                  dispatch state machine, body mechanics,
      |                  response writer, keep-alive, backpressure
+     +── WhiteThroatedHTTP1 ── byte parser and response serializer
      v
 SwiftNIO
      |
@@ -86,11 +87,68 @@ completion back before writing.
 `WhiteThroatedRuntime`, and deliberately not on `NIOPosix`:
 event-loop groups and server bootstrap live in the runtime.
 
+`WhiteThroatedHTTP1` imports only `NIOCore`. It has no framework or
+dispatcher concepts. The runtime converts parsed heads to NIOHTTP1 types
+at the dispatcher boundary; this conversion remains request-time work.
+
+## Transport selection
+
+`RuntimeServer` installs `WTHTTP1ConnectionHandler` by default. It combines
+the Tier 1 parser and writer with the same prepared, sync, future, and
+async/await dispatcher contract. SwiftNIO still owns sockets, event loops,
+buffers, and file-region I/O.
+
+If the frozen dispatcher reports any request-streaming routes, the server
+installs the stock NIOHTTP1 pipeline plus `RuntimeConnectionHandler` for
+every connection. This is an application-wide setup decision, including
+ordinary routes and middleware requests, with no per-request transport
+switch or replay of partially parsed bytes. Response streaming alone does
+not require fallback. Setting `useTier1HTTP1Experimental: false` in the
+framework configuration (runtime: `useTier1HTTP1: false`) also selects stock.
+
+The standalone Tier 1 handler still rejects request-streaming actions with
+500 without invoking the consumer; production pipeline selection prevents
+those applications from reaching it. A declared or incremental body-limit
+failure takes precedence. Direct-handler tests retain this fail-safe guard.
+
+Both transports validate outbound header bytes. Tier 1 validation is
+differential-tested against the pinned NIO validator and encoder; invalid
+headers close the connection. Chunk-extension syntax is checked against
+the pinned NIO decoder. Trailer values are validated before discard.
+
+Tier 1 holds out-of-order response heads behind earlier responses. A held
+response-stream producer starts only after its head is released. An open
+stream gates later responses until its end; head writes remain buffered
+until producer flush, flushing write, or completion. File regions remain
+`IOData.fileRegion`, including stream chunks. Declared-length tracking and
+event-loop checks are shared through `RuntimeStreamWriter`; the stock sink
+writes HTTP parts and the Tier 1 sink writes framed bytes.
+
+After a request body is consumed, Tier 1 withholds outbound `read()` calls
+and stops dispatching later pipelined requests while a response future or
+response stream remains pending. Already received bytes stay in cumulation.
+Response completion resumes parsing those bytes before forwarding a pending
+read. Body aggregation still permits reads until the current body ends.
+A drain reentrancy guard prevents synchronous completion from parsing a
+follower before the current request state is reset. Disconnect drops pending
+request, response, and stream state. These rules mirror stock pipelining
+backpressure and prevent an unbounded queue of completed follower responses
+behind one stalled producer.
+
+Fail-safe differences from stock are intentional: CONNECT/bodyless-status
+streams suppress the producer, post-end producer writes close the connection,
+and recursive invalid-stream error mapping terminates with a fixed 500.
+These paths have direct regression coverage alongside byte-equivalence tests.
+Stream-validation recursion keys are retained while error mapping is pending
+and released once its response head emits; keep-alive errors cannot accumulate
+keys for the connection lifetime. Error-handler futures are hopped to the
+connection event loop before transport state changes.
+
 ## Event-loop model
 
 WhiteThroated uses SwiftNIO event loops as its primary concurrency model.
 
-The configured SwiftNIO HTTP server pipeline keeps outbound response-header validation enabled. Invalid field values such as CR/LF response-splitting attempts are rejected before the HTTP encoder and the connection is closed. WhiteThroated convenience APIs may add stricter validation, but must not disable this transport-level safety boundary.
+The stock SwiftNIO HTTP server pipeline keeps outbound response-header validation enabled. Tier 1 applies equivalent byte validation in its writer. Invalid field values such as CR/LF response-splitting attempts are rejected and the connection is closed. WhiteThroated convenience APIs may add stricter validation, but must not disable this transport-level safety boundary.
 
 Rules:
 
@@ -100,7 +158,14 @@ Rules:
 4. Offload genuinely blocking work to an appropriate external executor.
 5. Keep request-local operations on the current event loop when possible.
 
-`RuntimeConnectionHandler` is instantiated once per channel. Its mutable request and streaming state is confined to that channel's event loop. The handler is `@unchecked Sendable` only so its reference can pass through SwiftNIO's sendable bootstrap APIs; this does not permit its mutable state to be accessed from arbitrary threads. (The framework keeps a thin internal `HTTPServerHandler` shim with the historical `init(application:maxRequestBodyBytes:)` shape so the EmbeddedChannel test suite keeps exercising the real runtime handler; production serving installs `RuntimeConnectionHandler` directly via `RuntimeServer`.)
+The selected connection handler (`WTHTTP1ConnectionHandler` or stock
+`RuntimeConnectionHandler`) is instantiated once per channel. Its mutable
+request and streaming state is confined to that channel's event loop. The
+handlers are `@unchecked Sendable` only so their references can pass through
+SwiftNIO's sendable bootstrap APIs; this does not permit arbitrary-thread
+access to mutable state. The framework's thin `HTTPServerHandler` test shim
+continues to exercise the stock runtime handler. Pipeline-selection and
+raw-byte equivalence tests cover Tier 1 and the production installer.
 
 Work leaves the connection event loop only in these documented
 cases: an explicit async route future (hopped back before writing),
@@ -348,7 +413,7 @@ JSON convenience must never add encoding or Foundation parsing to requests that 
 
 ## HTTP/1 framing validation
 
-WhiteThroated uses SwiftNIO's production HTTP/1 server pipeline with protocol error handling enabled. Framing validation remains in the decoder rather than being duplicated in WhiteThroated's request hot path.
+WhiteThroated validates request framing in the selected decoder: the Tier 1 parser by default, or SwiftNIO's HTTP/1 server pipeline with protocol error handling enabled for the stock fallback. Runtime body-limit enforcement follows decoding on either transport.
 
 Regression tests feed raw HTTP bytes through the same configured pipeline and verify that ambiguous request framing such as simultaneous `Content-Length` plus `Transfer-Encoding`, or invalid duplicate Content-Length syntax, produces a 400 response before a WhiteThroated route is invoked.
 
@@ -467,7 +532,7 @@ WhiteThroated must not introduce a convenience API that performs blocking file-o
 
 Use `PreparedResponse` for immutable in-memory payloads where avoiding repeated serialization matters.
 
-Streaming responses are opt-in. WhiteThroated writes the response head, lets the producer emit HTTP body parts on the channel event loop, and writes the terminal HTTP end after the producer future succeeds. SwiftNIO's HTTP response encoder remains responsible for wire framing such as HTTP/1.1 chunked transfer encoding.
+Streaming responses are opt-in. WhiteThroated writes the response head, lets the producer emit body chunks on the channel event loop, and writes the terminal HTTP end after the producer future succeeds. The selected transport handles wire framing: the Tier 1 writer emits bytes directly, while the stock sink uses SwiftNIO's HTTP response encoder.
 
 If a streaming producer fails after headers have started, WhiteThroated invokes the optional response-stream error cleanup hook, flushes bytes that were already accepted by the stream writer, and closes the connection rather than attempting to emit a second response or HTTP end marker. The same rule applies when declared Content-Length accounting detects an underflow or overflow after streaming has started. Client disconnects can be observed through the stream writer's close future. HEAD requests suppress the producer. HTTP/1.0 unknown-length streams force connection-close framing unless an explicit content length is supplied.
 

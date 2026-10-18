@@ -59,36 +59,11 @@ public final class RuntimeServer: @unchecked Sendable {
                         .makeSucceededVoidFuture()
                 }
                 .flatMap {
-                    if self.configuration
-                        .useTier1HTTP1
-                    {
-                        return channel.pipeline
-                            .addHandler(
-                                WTHTTP1ConnectionHandler(
-                                    dispatcher:
-                                        self.dispatcher,
-                                    configuration: self
-                                        .configuration
-                                )
-                            )
-                    }
-
-                    return channel.pipeline
-                        .configureHTTPServerPipeline(
-                            withPipeliningAssistance:
-                                true,
-                            withErrorHandling: true
-                        )
-                        .flatMap {
-                            channel.pipeline.addHandler(
-                                RuntimeConnectionHandler(
-                                    dispatcher:
-                                        self.dispatcher,
-                                    configuration: self
-                                        .configuration
-                                )
-                            )
-                        }
+                    Self.configureHTTPPipeline(
+                        channel: channel,
+                        dispatcher: self.dispatcher,
+                        configuration: self.configuration
+                    )
                 }
             }
 
@@ -102,6 +77,38 @@ public final class RuntimeServer: @unchecked Sendable {
         } catch {
             try? group.syncShutdownGracefully()
             throw error
+        }
+    }
+
+    /// Application configuration is frozen before child channels are
+    /// initialized. Select the transport once for the entire connection;
+    /// request streaming needs the stock decoder and backpressure pump.
+    internal static func configureHTTPPipeline(
+        channel: Channel,
+        dispatcher: RuntimeDispatcher,
+        configuration: RuntimeServerConfiguration
+    ) -> EventLoopFuture<Void> {
+        if configuration.useTier1HTTP1,
+            !dispatcher.hasStreamingRoutes
+        {
+            return channel.pipeline.addHandler(
+                WTHTTP1ConnectionHandler(
+                    dispatcher: dispatcher,
+                    configuration: configuration
+                )
+            )
+        }
+
+        return channel.pipeline.configureHTTPServerPipeline(
+            withPipeliningAssistance: true,
+            withErrorHandling: true
+        ).flatMap {
+            channel.pipeline.addHandler(
+                RuntimeConnectionHandler(
+                    dispatcher: dispatcher,
+                    configuration: configuration
+                )
+            )
         }
     }
 

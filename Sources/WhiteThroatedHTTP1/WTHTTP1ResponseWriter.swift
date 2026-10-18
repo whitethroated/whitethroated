@@ -36,6 +36,7 @@ public enum WTHTTP1ResponseWriter {
         contentLength: Int?,
         body: ByteBuffer?,
         trustFraming: Bool = false,
+        leaveBodyOpen: Bool = false,
         into out: inout ByteBuffer
     ) -> Bool {
         guard
@@ -91,13 +92,27 @@ public enum WTHTTP1ResponseWriter {
         } else if skipRepair {
             // Headers pass through untouched.
         } else if let contentLength {
+            // Mirror the stock writer's single-exact fast path: a
+            // lone correct Content-Length stays in place (only a
+            // stray Transfer-Encoding is stripped, which the NIO
+            // encoder would drop downstream); otherwise strip and
+            // re-append at the end, exactly like `replaceOrAdd`.
             headers.removeAll(where: {
-                isFramingHeader($0.name)
+                isTransferEncodingHeader($0.name)
             })
-            headers.append((
-                name: WTHTTP1ResponseTokens.contentLength,
-                value: Array(String(contentLength).utf8)
-            ))
+
+            if !hasSingleExactContentLength(
+                headers,
+                value: contentLength
+            ) {
+                headers.removeAll(where: {
+                    isContentLengthHeader($0.name)
+                })
+                headers.append((
+                    name: WTHTTP1ResponseTokens.contentLength,
+                    value: Array(String(contentLength).utf8)
+                ))
+            }
         } else if version == .http11 {
             headers.removeAll(where: {
                 isFramingHeader($0.name)
@@ -153,7 +168,10 @@ public enum WTHTTP1ResponseWriter {
         }
 
         guard var body, body.readableBytes > 0 else {
-            if chunkedBody {
+            // Stream heads leave the body open: chunks arrive later
+            // and the terminal is emitted at completion. Every other
+            // empty chunked body terminates immediately.
+            if chunkedBody, !leaveBodyOpen {
                 out.writeBytes([48, 13, 10, 13, 10])
             }
 
@@ -205,14 +223,26 @@ public enum WTHTTP1ResponseWriter {
     private static func isFramingHeader(
         _ name: [UInt8]
     ) -> Bool {
+        isContentLengthHeader(name)
+            || isTransferEncodingHeader(name)
+    }
+
+    private static func isContentLengthHeader(
+        _ name: [UInt8]
+    ) -> Bool {
         foldedEqual(
             name,
             WTHTTP1ResponseTokens.contentLength
         )
-            || foldedEqual(
-                name,
-                WTHTTP1ResponseTokens.transferEncoding
-            )
+    }
+
+    private static func isTransferEncodingHeader(
+        _ name: [UInt8]
+    ) -> Bool {
+        foldedEqual(
+            name,
+            WTHTTP1ResponseTokens.transferEncoding
+        )
     }
 
     private static func isConnectionHeader(
@@ -222,6 +252,32 @@ public enum WTHTTP1ResponseWriter {
             name,
             WTHTTP1ResponseTokens.connection
         )
+    }
+
+    /// True when the headers carry exactly one Content-Length whose
+    /// value spells `contentLength` (mirrors the stock writer's
+    /// `hasSingleExactValue` gate, including its exact-match rule:
+    /// `042` does not equal `42`).
+    private static func hasSingleExactContentLength(
+        _ headers: [(name: [UInt8], value: [UInt8])],
+        value contentLength: Int
+    ) -> Bool {
+        let expected = Array(String(contentLength).utf8)
+        var found = false
+
+        for header in headers {
+            guard isContentLengthHeader(header.name) else {
+                continue
+            }
+
+            guard !found, header.value == expected else {
+                return false
+            }
+
+            found = true
+        }
+
+        return found
     }
 
     private static func foldedEqual(

@@ -171,6 +171,31 @@ Core routes include:
 
 The default server registers no request-streaming route. Upload and multipart streaming routes remain opt-in so the baseline transport path is not charged request-streaming bookkeeping merely because benchmark-only feature routes exist.
 
+The framework and runtime benchmark servers now default to Tier 1 HTTP/1.
+Set `WHITETHROATED_TIER1_HTTP1=0` to select the stock NIOHTTP1 pipeline, or
+`WHITETHROATED_TIER1_HTTP1=1` to prefer Tier 1 explicitly. Registering any
+request-streaming route selects stock for the entire application even with
+the flag set to 1. The raw NIO control is unchanged. Historical reports
+collected before this default change retain their original transport;
+reproducing a stock report now requires the explicit 0 setting.
+
+The opt-in raw-byte pipeline diagnostic compares the installed stock and
+Tier 1 paths for identical synchronous and unknown-length streamed responses:
+
+```bash
+WHITETHROATED_HTTP1_BENCHMARK=1 \
+WHITETHROATED_HTTP1_ITERATIONS=20000 \
+swift test -c release \
+  --filter RuntimeServerPipelineTests/testHTTP1PipelineBenchmark
+```
+
+It checks byte equivalence before timing, warms both channels, and reports
+six alternating rounds plus medians. It includes parsing, boundary conversion,
+dispatch, and response framing through active EmbeddedChannels, without socket
+I/O. The older `CoreBenchmarkTests` transport writer diagnostic still drives
+the stock HTTP-parts handler directly. Neither diagnostic alone establishes
+network performance; CI smoke timings are not performance claims.
+
 WhiteThroated also ships a SwiftNIO benchmark client, so raw-NIO and framework network throughput can be compared without vendoring `wrk`, Python, or shell benchmark code.
 
 With either benchmark server already running:

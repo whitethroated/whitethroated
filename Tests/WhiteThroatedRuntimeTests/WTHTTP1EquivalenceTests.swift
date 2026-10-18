@@ -11,11 +11,78 @@ import NIOPosix
 ///
 /// Every case feeds identical raw bytes through both channels (stock:
 /// decoder + pipelining + error handler + encoder + connection
-/// handler; Tier 1: the single experimental handler) and requires
+/// handler; Tier 1: the single custom handler) and requires
 /// identical outbound bytes plus identical channel-active state.
-/// Documented Tier 1 divergences (streaming routes, fileRegion/stream
-/// bodies) are covered by direct Tier 1 tests instead.
+/// Request-streaming routes are tested directly as unsupported by this
+/// handler; the server selects the stock transport for those applications.
+/// File regions and response streams have equivalence coverage below.
 final class WTHTTP1EquivalenceTests: XCTestCase {
+    func testPendingAsyncDefersFollowerAndSocketReads() throws {
+        let fixture = EquivalenceFixture()
+        let probe = EquivalenceReadProbe()
+        try fixture.tier1Channel.pipeline.syncOperations.addHandler(probe, position: .first)
+        try fixture.writeBoth(
+            "GET /async HTTP/1.1\r\nHost: x\r\n\r\n"
+                + "GET / HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        XCTAssertEqual(fixture.ordinaryRunCount, 0)
+        fixture.tier1Channel.read()
+        XCTAssertEqual(probe.reads, 0)
+        fixture.succeedAsync(value: "late")
+        XCTAssertEqual(fixture.ordinaryRunCount, 2)
+        XCTAssertEqual(probe.reads, 1)
+        try fixture.assertEqual()
+    }
+
+    func testOpenStreamDefersFollowerAndSocketReads() throws {
+        let fixture = EquivalenceFixture()
+        let probe = EquivalenceReadProbe()
+        try fixture.tier1Channel.pipeline.syncOperations.addHandler(probe, position: .first)
+        try fixture.writeBoth(
+            "GET /stream-slow HTTP/1.1\r\nHost: x\r\n\r\n"
+                + "GET / HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        XCTAssertEqual(fixture.ordinaryRunCount, 0)
+        fixture.tier1Channel.read()
+        XCTAssertEqual(probe.reads, 0)
+        try fixture.assertEqual()
+        fixture.completeSlowStream()
+        XCTAssertEqual(fixture.ordinaryRunCount, 2)
+        XCTAssertEqual(probe.reads, 1)
+        try fixture.assertEqual()
+    }
+
+    func testRequestBodyStillAllowsSocketReads() throws {
+        let fixture = EquivalenceFixture()
+        let probe = EquivalenceReadProbe()
+        try fixture.tier1Channel.pipeline.syncOperations.addHandler(probe, position: .first)
+        try fixture.writeBoth(
+            "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhe"
+        )
+        fixture.tier1Channel.read()
+        XCTAssertEqual(probe.reads, 1)
+        try fixture.writeBoth("llo")
+        try fixture.assertEqual()
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testDisconnectDropsPendingFollowerAndRead() throws {
+        let fixture = EquivalenceFixture()
+        let probe = EquivalenceReadProbe()
+        try fixture.tier1Channel.pipeline.syncOperations.addHandler(probe, position: .first)
+        try fixture.writeBoth(
+            "GET /async HTTP/1.1\r\nHost: x\r\n\r\n"
+                + "GET / HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        fixture.tier1Channel.read()
+        try fixture.stockChannel.close().wait()
+        try fixture.tier1Channel.close().wait()
+        fixture.succeedAsync(value: "late")
+        XCTAssertEqual(fixture.ordinaryRunCount, 0)
+        XCTAssertEqual(probe.reads, 0)
+        try fixture.assertEqual()
+    }
+
     func testMinimalGetTwice() throws {
         try assertEquivalent(
             writes: [
@@ -486,56 +553,659 @@ final class WTHTTP1EquivalenceTests: XCTestCase {
         XCTAssertTrue(fixture.tier1Channel.isActive)
     }
 
-    func testTier1FileRegion500() throws {
+    func testFileRegionEquivalent() throws {
         let fixture = EquivalenceFixture()
 
-        try fixture.tier1Channel.writeInbound(
-            fixture.inboundBuffer(
-                "GET /file HTTP/1.1\r\nHost: x\r\n\r\n"
-            )
+        try fixture.writeBoth(
+            "GET /file HTTP/1.1\r\nHost: x\r\n\r\n"
         )
-        fixture.tier1Loop.run()
 
-        let bytes = try fixture.readTier1()
+        XCTAssertEqual(
+            try fixture.readStockIO(),
+            try fixture.readTier1IO()
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testFileRegionContentEquivalent() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /file-content HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+
+        let stock = try fixture.readStockIO()
+        let tier1 = try fixture.readTier1IO()
+
+        XCTAssertEqual(stock, tier1)
+        // Zero-copy preserved: a region (not inlined bytes)
+        // crosses on both transports.
+        XCTAssertEqual(stock.regions.count, 1)
+        XCTAssertEqual(stock.regions.first?.reader, 16)
+        XCTAssertEqual(stock.regions.first?.end, 4096)
+
+        let head = String(
+            decoding: stock.bytes,
+            as: UTF8.self
+        )
+        XCTAssertTrue(
+            head.contains("content-length: 4080\r\n"),
+            head
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testFileRegionHeadSuppressesRegion() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "HEAD /file-content HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+
+        let stock = try fixture.readStockIO()
+        let tier1 = try fixture.readTier1IO()
+
+        XCTAssertEqual(stock, tier1)
+        XCTAssertTrue(stock.regions.isEmpty)
+
+        let head = String(
+            decoding: stock.bytes,
+            as: UTF8.self
+        )
+        XCTAssertTrue(
+            head.contains("content-length: 4080\r\n"),
+            head
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamBodyEquivalent() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-body HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
         let text = String(
-            decoding: bytes,
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 200 OK\r\n"
+                + "transfer-encoding: chunked\r\n\r\n"
+                + "0\r\n\r\n"
+        )
+        // The producer runs on both transports now.
+        XCTAssertEqual(fixture.streamProduceCount, 2)
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamChunksEquivalent() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-chunks HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        // Empty fragments are skipped (framing one would end the
+        // stream); lowercase hex lengths, shared terminal.
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 200 OK\r\n"
+                + "transfer-encoding: chunked\r\n\r\n"
+                + "2\r\nab\r\n"
+                + "3\r\ncde\r\n"
+                + "0\r\n\r\n"
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamDeclaredLengthEquivalent() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-cl HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 200 OK\r\n"
+                + "content-length: 5\r\n\r\n"
+                + "hello"
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamDeclaredLengthFastPath() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-cl-fast HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 200 OK\r\n"
+                + "content-type: text/plain\r\n"
+                + "content-length: 5\r\n\r\n"
+                + "hello"
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamLengthOverflowCloses() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-cl-over HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+
+        // The overflowing write emits nothing on either transport;
+        // both heads match and both connections close.
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 200 OK\r\n"
+                + "content-length: 5\r\n\r\n"
+        )
+        XCTAssertFalse(fixture.stockChannel.isActive)
+        XCTAssertFalse(fixture.tier1Channel.isActive)
+        XCTAssertEqual(
+            fixture.streamErrorDescriptions.sorted(),
+            [
+                "contentLengthExceeded(expected: 5, attempted: 10)",
+                "contentLengthExceeded(expected: 5, attempted: 10)",
+            ]
+        )
+    }
+
+    func testStreamLengthUnderflowCloses() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-cl-short HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 200 OK\r\n"
+                + "content-length: 5\r\n\r\n"
+                + "hey"
+        )
+        XCTAssertFalse(fixture.stockChannel.isActive)
+        XCTAssertFalse(fixture.tier1Channel.isActive)
+        XCTAssertEqual(
+            fixture.streamErrorDescriptions.sorted(),
+            [
+                "contentLengthMismatch(expected: 5, actual: 3)",
+                "contentLengthMismatch(expected: 5, actual: 3)",
+            ]
+        )
+    }
+
+    func testStreamProducerFailureCloses() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-fail HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        // Accepted bytes flush, then the connection closes with no
+        // terminal (a terminal would lie about completeness).
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 200 OK\r\n"
+                + "transfer-encoding: chunked\r\n\r\n"
+                + "2\r\nab\r\n"
+        )
+        XCTAssertFalse(fixture.stockChannel.isActive)
+        XCTAssertFalse(fixture.tier1Channel.isActive)
+        XCTAssertEqual(
+            fixture.streamErrorDescriptions.sorted(),
+            [
+                "EquivalenceProbeError()",
+                "EquivalenceProbeError()",
+            ]
+        )
+    }
+
+    func testStreamHeadSuppressesProducer() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "HEAD /stream-body HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        // Framing is advertised but nothing follows: no producer,
+        // no chunks, no terminal.
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 200 OK\r\n"
+                + "transfer-encoding: chunked\r\n\r\n"
+        )
+        XCTAssertEqual(fixture.streamProduceCount, 0)
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamConnectSuppressesProducerTier1() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "CONNECT /stream-body HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        // Identical wire (stripped head only); only the producer
+        // visibility differs (documented intentional divergence:
+        // stock runs it into encoder drops, Tier 1 never starts it).
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(text, "HTTP/1.1 200 OK\r\n\r\n")
+        XCTAssertEqual(fixture.streamProduceCount, 1)
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamBodilessStatusSuppresses() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-204 HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+
+        // The bodiless guard sits above the stream branch on both
+        // transports: a clean head, producer never started.
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 204 No Content\r\n\r\n"
+        )
+        XCTAssertEqual(fixture.streamProduceCount, 0)
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamInvalidLengthMapsError() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-bad-cl HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        // No head is written; the mapped error response flows on
+        // both transports and the producer never runs.
+        try fixture.assertEqual()
+        XCTAssertEqual(fixture.streamProduceCount, 0)
+        XCTAssertEqual(
+            fixture.streamErrorDescriptions.sorted(),
+            [
+                "invalidContentLength(\"xyz\")",
+                "invalidContentLength(\"xyz\")",
+            ]
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamValidationGuardsDoNotAccumulateOnKeepAlive() throws {
+        let fixture = EquivalenceFixture()
+        let handler = try fixture.tier1Channel.pipeline.syncOperations
+            .handler(type: WTHTTP1ConnectionHandler.self)
+        for _ in 0..<32 {
+            try fixture.writeBoth(
+                "GET /stream-bad-cl HTTP/1.1\r\nHost: x\r\n\r\n"
+            )
+            try fixture.assertEqual()
+            XCTAssertNil(handler.streamValidationFailed)
+        }
+        XCTAssertEqual(fixture.streamErrorDescriptions.count, 64)
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamValidationGuardSurvivesPendingForeignErrorFuture() throws {
+        for outcome in 0..<3 {
+            let errorLoop = EmbeddedEventLoop()
+            let promise = errorLoop.makePromise(of: RuntimeResponse.self)
+            let fixture = EquivalenceFixture(errorFuture: promise.futureResult)
+            let handler = try fixture.tier1Channel.pipeline.syncOperations
+                .handler(type: WTHTTP1ConnectionHandler.self)
+            try fixture.tier1Channel.writeInbound(fixture.inboundBuffer(
+                "GET /stream-bad-cl HTTP/1.1\r\nHost: x\r\n\r\n"
+            ))
+            fixture.tier1Loop.run()
+            XCTAssertEqual(handler.streamValidationFailed?.count, 1)
+            XCTAssertEqual(try fixture.readTier1(), [])
+            switch outcome {
+            case 0:
+                promise.succeed(RuntimeResponse(
+                    status: .ok, headers: HTTPHeaders(), body: .text("fixed")
+                ))
+            case 1:
+                promise.succeed(RuntimeResponse(
+                    status: .ok,
+                    headers: HTTPHeaders([("content-length", "xyz")]),
+                    body: .stream(RuntimeResponseStream(produce: { writer in
+                        XCTFail("An invalid error stream must never produce")
+                        return writer.eventLoop.makeSucceededVoidFuture()
+                    }))
+                ))
+            default:
+                promise.fail(EquivalenceProbeError())
+            }
+            errorLoop.run()
+            fixture.tier1Loop.run()
+            let response = String(decoding: try fixture.readTier1(), as: UTF8.self)
+            XCTAssertTrue(response.contains(outcome == 0 ? "200 OK" : "500 Internal Server Error"))
+            XCTAssertNil(handler.streamValidationFailed)
+            XCTAssertTrue(fixture.tier1Channel.isActive)
+        }
+    }
+
+    func testStreamAmbiguousLengthMapsError() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-amb-cl HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+        try fixture.assertEqual()
+        XCTAssertEqual(fixture.streamProduceCount, 0)
+        // One comma-joined line stays one value; both
+        // transports map it through the same helper.
+        XCTAssertEqual(
+            fixture.streamErrorDescriptions.sorted(),
+            [
+                "ambiguousContentLength([\"5, 5\"])",
+                "ambiguousContentLength([\"5, 5\"])",
+            ]
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+    }
+
+    func testStreamRegionEquivalent() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-region HTTP/1.1\r\nHost: x\r\n\r\n"
+        )
+
+        let stock = try fixture.readStockIO()
+        let tier1 = try fixture.readTier1IO()
+
+        XCTAssertEqual(stock, tier1)
+        XCTAssertEqual(stock.regions.count, 1)
+        XCTAssertEqual(stock.regions.first?.reader, 16)
+        XCTAssertEqual(stock.regions.first?.end, 4096)
+
+        let text = String(
+            decoding: stock.bytes,
             as: UTF8.self
         )
         XCTAssertTrue(
             text.hasPrefix(
-                "HTTP/1.1 500 Internal Server Error\r\n"
+                "HTTP/1.1 200 OK\r\n"
+                    + "transfer-encoding: chunked\r\n\r\n"
+                    + "ff0\r\n"
             ),
+            text
+        )
+        XCTAssertTrue(
+            text.hasSuffix("\r\n0\r\n\r\n"),
             text
         )
         XCTAssertTrue(fixture.tier1Channel.isActive)
     }
 
-    func testTier1StreamBody500WithoutProducing() throws {
+    func testStreamPipelinedAfterSlowAsync() throws {
         let fixture = EquivalenceFixture()
 
-        try fixture.tier1Channel.writeInbound(
-            fixture.inboundBuffer(
-                "GET /stream-body HTTP/1.1\r\nHost: x\r\n\r\n"
-            )
+        try fixture.writeBoth(
+            "GET /async HTTP/1.1\r\nHost: x\r\n\r\n"
+                + "GET /stream-chunks HTTP/1.1\r\nHost: x\r\n\r\n",
+            runLoops: false
         )
-        fixture.tier1Loop.run()
+        fixture.driveLoops()
 
-        let bytes = try fixture.readTier1()
+        // The async response is pending, so the stream head is held
+        // on both transports: nothing on the wire yet.
+        XCTAssertEqual(try fixture.readStock(), [])
+        XCTAssertEqual(try fixture.readTier1(), [])
+
+        fixture.succeedAsync(value: "late")
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
         let text = String(
-            decoding: bytes,
+            decoding: tier1,
             as: UTF8.self
         )
-        XCTAssertTrue(
-            text.hasPrefix(
-                "HTTP/1.1 500 Internal Server Error\r\n"
+        XCTAssertEqual(
+            text,
+            "HTTP/1.1 200 OK\r\n"
+                + "content-type: text/plain; charset=utf-8\r\n"
+                + "content-length: 4\r\n\r\n"
+                + "late"
+                + "HTTP/1.1 200 OK\r\n"
+                + "transfer-encoding: chunked\r\n\r\n"
+                + "2\r\nab\r\n"
+                + "3\r\ncde\r\n"
+                + "0\r\n\r\n"
+        )
+    }
+
+    func testStreamGatesPipelinedFollower() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-slow HTTP/1.1\r\nHost: x\r\n\r\n"
+                + "GET / HTTP/1.1\r\nHost: x\r\n\r\n",
+            runLoops: false
+        )
+        fixture.driveLoops()
+
+        // The follower is held behind the open stream on both
+        // transports: head plus the first chunk only.
+        let partial =
+            "HTTP/1.1 200 OK\r\n"
+            + "transfer-encoding: chunked\r\n\r\n"
+            + "1\r\na\r\n"
+        XCTAssertEqual(
+            String(
+                decoding: try fixture.readStock(),
+                as: UTF8.self
             ),
-            text
+            partial
         )
         XCTAssertEqual(
-            fixture.streamProduceCount,
-            0
+            String(
+                decoding: try fixture.readTier1(),
+                as: UTF8.self
+            ),
+            partial
         )
-        XCTAssertTrue(fixture.tier1Channel.isActive)
+
+        fixture.completeSlowStream()
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "0\r\n\r\n"
+                + "HTTP/1.1 200 OK\r\n"
+                + "content-type: text/plain; charset=utf-8\r\n"
+                + "content-length: 5\r\n\r\n"
+                + "hello"
+        )
+    }
+
+    func testStreamHeldHeadGatesFollower() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /async HTTP/1.1\r\nHost: x\r\n\r\n"
+                + "GET /stream-slow HTTP/1.1\r\nHost: x\r\n\r\n"
+                + "GET / HTTP/1.1\r\nHost: x\r\n\r\n",
+            runLoops: false
+        )
+        fixture.driveLoops()
+
+        // The slow stream head is held behind the pending async
+        // response on both transports: nothing on the wire and the
+        // producer has not started on either.
+        XCTAssertEqual(try fixture.readStock(), [])
+        XCTAssertEqual(try fixture.readTier1(), [])
+        XCTAssertEqual(fixture.streamProduceCount, 0)
+
+        fixture.succeedAsync(value: "late")
+
+        // The async bytes move, the stream head releases with its
+        // flushed first chunk, and the follower stays held behind
+        // the open stream.
+        let partial =
+            "HTTP/1.1 200 OK\r\n"
+            + "content-type: text/plain; charset=utf-8\r\n"
+            + "content-length: 4\r\n\r\n"
+            + "late"
+            + "HTTP/1.1 200 OK\r\n"
+            + "transfer-encoding: chunked\r\n\r\n"
+            + "1\r\na\r\n"
+        XCTAssertEqual(
+            String(
+                decoding: try fixture.readStock(),
+                as: UTF8.self
+            ),
+            partial
+        )
+        XCTAssertEqual(
+            String(
+                decoding: try fixture.readTier1(),
+                as: UTF8.self
+            ),
+            partial
+        )
+        XCTAssertEqual(fixture.streamProduceCount, 2)
+
+        fixture.completeSlowStream()
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "0\r\n\r\n"
+                + "HTTP/1.1 200 OK\r\n"
+                + "content-type: text/plain; charset=utf-8\r\n"
+                + "content-length: 5\r\n\r\n"
+                + "hello"
+        )
+    }
+
+    func testStreamHTTP10UnknownCloses() throws {
+        let fixture = EquivalenceFixture()
+
+        try fixture.writeBoth(
+            "GET /stream-body HTTP/1.0\r\n\r\n"
+        )
+        // Unknown length on HTTP/1.0 is close-delimited (no
+        // Transfer-Encoding); the end closes the connection.
+        let stock = try fixture.readStock()
+        let tier1 = try fixture.readTier1()
+
+        XCTAssertEqual(stock, tier1)
+
+        let text = String(
+            decoding: tier1,
+            as: UTF8.self
+        )
+        XCTAssertEqual(
+            text,
+            "HTTP/1.0 200 OK\r\n"
+                + "connection: close\r\n\r\n"
+        )
+        XCTAssertFalse(fixture.stockChannel.isActive)
+        XCTAssertFalse(fixture.tier1Channel.isActive)
     }
 
     private func assertEquivalent(
@@ -572,6 +1242,24 @@ private final class EquivalenceCounter:
     var value = 0
 }
 
+private final class EquivalenceStrings:
+    @unchecked Sendable
+{
+    var values: [String] = []
+}
+
+private struct EquivalenceProbeError: Error {}
+
+private final class EquivalenceReadProbe: ChannelOutboundHandler {
+    typealias OutboundIn = IOData
+    var reads = 0
+
+    func read(context: ChannelHandlerContext) {
+        reads += 1
+        context.read()
+    }
+}
+
 private final class EquivalenceFixture {
     let stockLoop = EmbeddedEventLoop()
     let tier1Loop = EmbeddedEventLoop()
@@ -581,11 +1269,20 @@ private final class EquivalenceFixture {
     private let asyncPromise:
         EventLoopPromise<RuntimeResponse>
     private var asyncCompleted = false
+    private let slowStreamPromise:
+        EventLoopPromise<Void>
+    private var slowStreamCompleted = false
     private let streamingBegins =
         EquivalenceCounter()
+    private let ordinaryRuns = EquivalenceCounter()
     private let streamProduces =
         EquivalenceCounter()
+    private let streamErrors =
+        EquivalenceCounter()
+    private let streamErrorBox =
+        EquivalenceStrings()
     private let fileHandle: NIOFileHandle?
+    private let contentHandle: NIOFileHandle?
 
     deinit {
         // Embedded promises trap on deinit when never completed.
@@ -593,21 +1290,35 @@ private final class EquivalenceFixture {
             asyncPromise.succeed(Self.text("unused"))
         }
 
+        if !slowStreamCompleted {
+            slowStreamPromise.succeed(())
+        }
+
         try? fileHandle?.close()
+        try? contentHandle?.close()
     }
 
     var streamingBeginCount: Int {
         streamingBegins.value
     }
 
+    var ordinaryRunCount: Int {
+        ordinaryRuns.value
+    }
+
     var streamProduceCount: Int {
         streamProduces.value
+    }
+
+    var streamErrorDescriptions: [String] {
+        streamErrorBox.values
     }
 
     init(
         maxBodyBytes: Int = 1_048_576,
         hasMiddleware: Bool = false,
-        hasStreamingRoutes: Bool = false
+        hasStreamingRoutes: Bool = false,
+        errorFuture: EventLoopFuture<RuntimeResponse>? = nil
     ) {
         stockChannel = EmbeddedChannel(
             loop: stockLoop
@@ -618,9 +1329,14 @@ private final class EquivalenceFixture {
         asyncPromise = stockLoop.makePromise(
             of: RuntimeResponse.self
         )
+        slowStreamPromise = stockLoop.makePromise(
+            of: Void.self
+        )
 
+        let ordinaryRuns = ordinaryRuns
         let hello = RuntimeSyncAction { _ in
-            Self.text("hello")
+            ordinaryRuns.value += 1
+            return Self.text("hello")
         }
         let preparedHello = Self.fixed(
             status: .ok,
@@ -628,13 +1344,31 @@ private final class EquivalenceFixture {
         )
         let streamingBegins = streamingBegins
         let streamProduces = streamProduces
+        let streamErrors = streamErrors
+        let streamErrorBox = streamErrorBox
         let asyncPromise = asyncPromise
+        let slowStreamPromise = slowStreamPromise
         let produceLoop = stockLoop
+
+        let recordStreamError:
+            @Sendable (Error) -> Void =
+            { error in
+                streamErrors.value += 1
+                streamErrorBox.values.append(
+                    String(describing: error)
+                )
+            }
         let fileHandle = try! NIOFileHandle(
             path: "/dev/null",
             mode: .read
         )
         self.fileHandle = fileHandle
+
+        let contentHandle = try! NIOFileHandle(
+            path: "/dev/urandom",
+            mode: .read
+        )
+        self.contentHandle = contentHandle
 
         var routes: [String: RuntimeRouteAction] = [
             "GET /": .sync(hello),
@@ -740,6 +1474,36 @@ private final class EquivalenceFixture {
                     )
                 }
             ),
+            "GET /file-content": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .ok,
+                        headers: HTTPHeaders(),
+                        body: .fileRegion(
+                            FileRegion(
+                                fileHandle: contentHandle,
+                                readerIndex: 16,
+                                endIndex: 4096
+                            )
+                        )
+                    )
+                }
+            ),
+            "HEAD /file-content": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .ok,
+                        headers: HTTPHeaders(),
+                        body: .fileRegion(
+                            FileRegion(
+                                fileHandle: contentHandle,
+                                readerIndex: 16,
+                                endIndex: 4096
+                            )
+                        )
+                    )
+                }
+            ),
             "GET /stream-body": .sync(
                 RuntimeSyncAction { _ in
                     RuntimeResponse(
@@ -755,6 +1519,320 @@ private final class EquivalenceFixture {
                                         .makeSucceededFuture(
                                             ()
                                         )
+                                }
+                            )
+                        )
+                    )
+                }
+            ),
+            "HEAD /stream-body": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .ok,
+                        headers: HTTPHeaders(),
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: {
+                                    _ in
+                                    streamProduces
+                                        .value += 1
+                                    return produceLoop
+                                        .makeSucceededFuture(
+                                            ()
+                                        )
+                                }
+                            )
+                        )
+                    )
+                }
+            ),
+            "CONNECT /stream-body": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .ok,
+                        headers: HTTPHeaders(),
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: {
+                                    _ in
+                                    streamProduces
+                                        .value += 1
+                                    return produceLoop
+                                        .makeSucceededFuture(
+                                            ()
+                                        )
+                                }
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-chunks": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .ok,
+                        headers: HTTPHeaders(),
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    writer.writeString("ab")
+                                    writer.writeString("")
+                                    writer.writeStringAndFlush(
+                                        "cde"
+                                    )
+                                    return writer.eventLoop
+                                        .makeSucceededVoidFuture()
+                                }
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-cl": .sync(
+                RuntimeSyncAction { _ in
+                    var headers = HTTPHeaders()
+                    headers.add(
+                        name: "content-length",
+                        value: "5"
+                    )
+                    return RuntimeResponse(
+                        status: .ok,
+                        headers: headers,
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    writer.writeString("hello")
+                                    return writer.eventLoop
+                                        .makeSucceededVoidFuture()
+                                }
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-cl-fast": .sync(
+                RuntimeSyncAction { _ in
+                    var headers = HTTPHeaders()
+                    headers.add(
+                        name: "content-type",
+                        value: "text/plain"
+                    )
+                    headers.add(
+                        name: "content-length",
+                        value: "5"
+                    )
+                    return RuntimeResponse(
+                        status: .ok,
+                        headers: headers,
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    writer.writeString("he")
+                                    writer.writeString("llo")
+                                    return writer.eventLoop
+                                        .makeSucceededVoidFuture()
+                                },
+                                expectedContentLength: 5
+                            )
+                        ),
+                        contentLengthIsNormalized: true
+                    )
+                }
+            ),
+            "GET /stream-cl-over": .sync(
+                RuntimeSyncAction { _ in
+                    var headers = HTTPHeaders()
+                    headers.add(
+                        name: "content-length",
+                        value: "5"
+                    )
+                    return RuntimeResponse(
+                        status: .ok,
+                        headers: headers,
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    // The write fails (nothing
+                                    // emitted); observing the
+                                    // failure and succeeding anyway
+                                    // surfaces the recorded
+                                    // overflow at completion.
+                                    return writer.writeString(
+                                        "toolong!!!"
+                                    ).flatMapError { _ in
+                                        writer.eventLoop
+                                            .makeSucceededVoidFuture()
+                                    }
+                                },
+                                onError: recordStreamError
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-cl-short": .sync(
+                RuntimeSyncAction { _ in
+                    var headers = HTTPHeaders()
+                    headers.add(
+                        name: "content-length",
+                        value: "5"
+                    )
+                    return RuntimeResponse(
+                        status: .ok,
+                        headers: headers,
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    writer.writeString("hey")
+                                    return writer.eventLoop
+                                        .makeSucceededVoidFuture()
+                                },
+                                onError: recordStreamError
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-fail": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .ok,
+                        headers: HTTPHeaders(),
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    writer.writeString("ab")
+                                    return writer.eventLoop
+                                        .makeFailedFuture(
+                                            EquivalenceProbeError()
+                                        )
+                                },
+                                onError: recordStreamError
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-slow": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .ok,
+                        headers: HTTPHeaders(),
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    writer.writeStringAndFlush(
+                                        "a"
+                                    )
+                                    return slowStreamPromise
+                                        .futureResult
+                                }
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-region": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .ok,
+                        headers: HTTPHeaders(),
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    writer.writeFileRegion(
+                                        FileRegion(
+                                            fileHandle:
+                                                contentHandle,
+                                            readerIndex: 16,
+                                            endIndex: 4096
+                                        )
+                                    )
+                                    return writer.eventLoop
+                                        .makeSucceededVoidFuture()
+                                }
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-bad-cl": .sync(
+                RuntimeSyncAction { _ in
+                    var headers = HTTPHeaders()
+                    headers.add(
+                        name: "content-length",
+                        value: "xyz"
+                    )
+                    return RuntimeResponse(
+                        status: .ok,
+                        headers: headers,
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    return writer.eventLoop
+                                        .makeSucceededVoidFuture()
+                                },
+                                onError: recordStreamError
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-amb-cl": .sync(
+                RuntimeSyncAction { _ in
+                    var headers = HTTPHeaders()
+                    headers.add(
+                        name: "content-length",
+                        value: "5, 5"
+                    )
+                    return RuntimeResponse(
+                        status: .ok,
+                        headers: headers,
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    return writer.eventLoop
+                                        .makeSucceededVoidFuture()
+                                },
+                                onError: recordStreamError
+                            )
+                        )
+                    )
+                }
+            ),
+            "GET /stream-204": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .noContent,
+                        headers: HTTPHeaders(),
+                        body: .stream(
+                            RuntimeResponseStream(
+                                produce: { writer in
+                                    streamProduces
+                                        .value += 1
+                                    writer.writeString("x")
+                                    return writer.eventLoop
+                                        .makeSucceededVoidFuture()
                                 }
                             )
                         )
@@ -802,7 +1880,8 @@ private final class EquivalenceFixture {
                 )
             },
             mapError: { _, _, _ in
-                .response(
+                if let errorFuture { return .future(errorFuture) }
+                return .response(
                     Self.text(
                         "Mapped Error",
                         status: .internalServerError
@@ -872,6 +1951,15 @@ private final class EquivalenceFixture {
     ) {
         asyncCompleted = true
         asyncPromise.succeed(Self.text(value))
+        stockLoop.run()
+        tier1Loop.run()
+        stockLoop.run()
+        tier1Loop.run()
+    }
+
+    func completeSlowStream() {
+        slowStreamCompleted = true
+        slowStreamPromise.succeed(())
         stockLoop.run()
         tier1Loop.run()
         stockLoop.run()
@@ -950,6 +2038,83 @@ private final class EquivalenceFixture {
             .readOutbound(as: ByteBuffer.self)
         {
             out += chunk.readableBytesView
+        }
+
+        return out
+    }
+
+    struct OutboundIO: Equatable {
+        var bytes: [UInt8] = []
+        var regions: [(reader: Int, end: Int)] = []
+
+        static func == (
+            left: OutboundIO,
+            right: OutboundIO
+        ) -> Bool {
+            guard left.bytes == right.bytes else {
+                return false
+            }
+
+            guard left.regions.count == right.regions.count
+            else {
+                return false
+            }
+
+            for (l, r) in zip(
+                left.regions,
+                right.regions
+            ) {
+                guard l.reader == r.reader && l.end == r.end
+                else {
+                    return false
+                }
+            }
+
+            return true
+        }
+    }
+
+    func readStockIO() throws -> OutboundIO {
+        stockLoop.run()
+
+        var out = OutboundIO()
+
+        while let data = try stockChannel
+            .readOutbound(as: IOData.self)
+        {
+            switch data {
+            case .byteBuffer(let chunk):
+                out.bytes += chunk.readableBytesView
+
+            case .fileRegion(let region):
+                out.regions.append((
+                    reader: region.readerIndex,
+                    end: region.endIndex
+                ))
+            }
+        }
+
+        return out
+    }
+
+    func readTier1IO() throws -> OutboundIO {
+        tier1Loop.run()
+
+        var out = OutboundIO()
+
+        while let data = try tier1Channel
+            .readOutbound(as: IOData.self)
+        {
+            switch data {
+            case .byteBuffer(let chunk):
+                out.bytes += chunk.readableBytesView
+
+            case .fileRegion(let region):
+                out.regions.append((
+                    reader: region.readerIndex,
+                    end: region.endIndex
+                ))
+            }
         }
 
         return out

@@ -16,7 +16,7 @@ let app = Application(
         eventLoopThreads: eventLoopThreads,
         useTier1HTTP1Experimental: environment[
             "WHITETHROATED_TIER1_HTTP1"
-        ] == "1"
+        ] != "0"
     )
 )
 

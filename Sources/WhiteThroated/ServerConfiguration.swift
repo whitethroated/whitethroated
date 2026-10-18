@@ -3,16 +3,17 @@ public struct ServerConfiguration: Sendable {
     public var backlog: Int32
     public var eventLoopThreads: Int?
 
-    /// Experimental Tier 1 HTTP/1 connection path. Unsupported:
-    /// exists only to benchmark the custom parser/writer against the
-    /// stock NIOHTTP1 pipeline.
+    /// Prefer the Tier 1 HTTP/1 transport (enabled by default). Applications
+    /// with request-streaming routes automatically use SwiftNIO's HTTP/1
+    /// pipeline. Set false to select that pipeline explicitly.
+    /// The historical property name is retained for source compatibility.
     public var useTier1HTTP1Experimental: Bool
 
     public init(
         maxRequestBodyBytes: Int = 1_048_576,
         backlog: Int32 = 256,
         eventLoopThreads: Int? = nil,
-        useTier1HTTP1Experimental: Bool = false
+        useTier1HTTP1Experimental: Bool = true
     ) {
         precondition(
             maxRequestBodyBytes >= 0,
