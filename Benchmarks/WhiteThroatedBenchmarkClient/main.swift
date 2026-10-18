@@ -16,6 +16,7 @@ private struct BenchmarkConfiguration {
     let threads: Int
     let collectLatency: Bool
     let tcpNoDelay: Bool
+    let connStats: Bool
 
     static func load() -> BenchmarkConfiguration {
         let environment =
@@ -98,7 +99,11 @@ private struct BenchmarkConfiguration {
             requests: requests,
             threads: threads,
             collectLatency: collectLatency,
-            tcpNoDelay: tcpNoDelay
+            tcpNoDelay: tcpNoDelay,
+            connStats:
+                environment[
+                    "WHITETHROATED_BENCH_CONN_STATS"
+                ] == "1"
         )
     }
 
@@ -390,6 +395,12 @@ private var connections: [BenchmarkConnection] = []
 connections.reserveCapacity(
     configuration.connections
 )
+private var loopIndexByID:
+    [ObjectIdentifier: Int] = [:]
+private var connectionLoopIndices: [Int] = []
+connectionLoopIndices.reserveCapacity(
+    configuration.connections
+)
 
 for index in 0..<configuration.connections {
     let targetRequests =
@@ -451,6 +462,18 @@ for index in 0..<configuration.connections {
             requestHead: requestHead
         )
     )
+
+    let loopID = ObjectIdentifier(
+        channel.eventLoop
+    )
+
+    if let known = loopIndexByID[loopID] {
+        connectionLoopIndices.append(known)
+    } else {
+        let assigned = loopIndexByID.count
+        loopIndexByID[loopID] = assigned
+        connectionLoopIndices.append(assigned)
+    }
 }
 
 let start =
@@ -696,6 +719,100 @@ if configuration.collectLatency {
                     ]
                 ) / 1_000
             )
+        )
+    }
+}
+
+if
+    configuration.collectLatency,
+    configuration.connStats
+{
+    var connectionMeans: [Double] = []
+    connectionMeans.reserveCapacity(
+        results.count
+    )
+
+    var loopCounts: [Int: Int] = [:]
+    var loopSums: [Int: Double] = [:]
+
+    for (index, result) in results.enumerated() {
+        guard
+            !result.latencyNanoseconds.isEmpty
+        else {
+            continue
+        }
+
+        var sum = 0.0
+
+        for sample in result.latencyNanoseconds {
+            sum += Double(sample)
+        }
+
+        let mean = sum
+            / Double(
+                result.latencyNanoseconds.count
+            )
+            / 1_000
+
+        connectionMeans.append(mean)
+
+        if index < connectionLoopIndices.count {
+            let loop = connectionLoopIndices[index]
+            loopCounts[loop, default: 0] += 1
+            loopSums[loop, default: 0.0] += mean
+        }
+    }
+
+    connectionMeans.sort()
+
+    print(
+        "conn_used_loops="
+        + String(loopCounts.count)
+    )
+
+    for loop in loopCounts.keys.sorted() {
+        let count = loopCounts[loop] ?? 0
+        let mean = count > 0
+            ? (loopSums[loop] ?? 0.0)
+                / Double(count)
+            : 0.0
+
+        print(
+            "conn_loop_"
+            + String(loop)
+            + "_count="
+            + String(count)
+            + " conn_loop_"
+            + String(loop)
+            + "_mean_us="
+            + String(
+                format: "%.3f",
+                mean
+            )
+        )
+    }
+
+    if !connectionMeans.isEmpty {
+        var deciles: [String] = []
+        deciles.reserveCapacity(11)
+
+        for step in 0...10 {
+            let position = Int(
+                Double(
+                    connectionMeans.count - 1
+                ) * Double(step) / 10.0
+            )
+            deciles.append(
+                String(
+                    format: "%.1f",
+                    connectionMeans[position]
+                )
+            )
+        }
+
+        print(
+            "conn_mean_deciles_us="
+            + deciles.joined(separator: ",")
         )
     }
 }
