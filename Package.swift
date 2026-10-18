@@ -37,6 +37,10 @@ let package = Package(
             targets: ["CustomHTTP1BenchmarkServer"]
         ),
         .executable(
+            name: "whitethroated-http1-diagnostic",
+            targets: ["BenchmarkHTTP1DiagnosticRunner"]
+        ),
+        .executable(
             name: "whitethroated-benchmark-client",
             targets: ["WhiteThroatedBenchmarkClient"]
         ),
@@ -160,6 +164,10 @@ let package = Package(
                 )
             ],
             path: "Benchmarks/CustomHTTP1BenchmarkServer"
+        ),
+        .executableTarget(
+            name: "BenchmarkHTTP1DiagnosticRunner",
+            path: "Benchmarks/BenchmarkHTTP1DiagnosticRunner"
         ),
         .executableTarget(
             name: "WhiteThroatedBenchmarkClient",
