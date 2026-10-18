@@ -31,6 +31,7 @@ swift package resolve
 swift test -c release
 swift build -c release --product whitethroated-benchmark-server
 swift build -c release --product raw-nio-benchmark-server
+swift build -c release --product custom-http1-benchmark-server
 swift build -c release --product whitethroated-benchmark-client
 ```
 
@@ -310,6 +311,60 @@ Measured nulls (2026-10-17, M1 Pro): mimalloc v3.5.4 via `DYLD_INSERT_LIBRARIES`
 
 Matched small-JSON matrix (`GET /json`, 27-byte body, 5 servers × c64/c256/c512, 1M requests/cell, RPS median-of-3, latency mean-of-2; see `docs/benchmark-json-whitethroated-hono-express-2026-10-17.md`): WhiteThroated beats Hono/Bun on RPS/avg/p50/p75 in all 12 cells (+35–43% RPS) and loses p90/p99 in all 6 cells (+23–30% p90, +107–126% p99); Express on Bun trails on throughput, average, p50, p75 and p90 but beats WhiteThroated at p99 in all three cells. Same verdict shape as the empty-body matrix, so the tail gap is workload-independent. New: Hono's run-to-run percentile spread is ±0.4–4% versus typically ±4–15% Swift-side — a tail-variance gap, not just a tail-level gap. Resolved as a standing small cost, not a regression (see `docs/benchmark-json-isolation-2026-10-17.md`): a rotated-order 5-round isolation (70 cells, quiet window, control `/` at 99.9/96.8%) shows framework ≈ raw on empty responses and trailing ~2–8% on non-empty responses (`/prepared`, `/json`), order-independent and consistent with the base report's own worst cells (already body routes). Prepared-vs-dynamic parity on identical bytes (±1.2%) exonerates response construction; `PreparedResponse` pre-buffers its body and conversion is shallow, so the residual is dispatch + conversion object work at the apparatus resolution limit. First attempt (42 cells) was inconclusive — the `/` control read −9.2% under host-side load with fixed server order — which motivated the strengthened protocol (machine pre-flight, rotated order, five rounds) now required for any sub-10% claim.
 
+## Custom HTTP/1 transport experiment
+
+The repository includes an experimental benchmark-only server that removes
+`NIOHTTP1` from the server transport path while retaining `NIOCore` and
+`NIOPosix`:
+
+```bash
+swift build -c release --product custom-http1-benchmark-server
+
+WHITETHROATED_HOST=127.0.0.1 \
+WHITETHROATED_PORT=3000 \
+WHITETHROATED_THREADS=4 \
+.build/release/custom-http1-benchmark-server
+```
+
+The experiment implements the same benchmark contract used by the raw-NIO
+control for `GET /`, `GET /prepared`, `GET /json`, `GET /user/:id`,
+and `POST /user`. It parses request bytes directly from `ByteBuffer` and
+writes HTTP/1.1 response bytes directly to the channel. The executable target
+depends on `NIOCore` and `NIOPosix`, not `NIOHTTP1`.
+
+This is an isolation experiment, not a production transport. It intentionally
+accepts only the HTTP/1.1 subset exercised by the benchmark contract:
+Content-Length request bodies are supported, while Transfer-Encoding and
+Expect are rejected rather than implementing chunked decoding or
+100-continue. The parser requires Host, rejects duplicate Content-Length,
+rejects ambiguous framing, bounds request headers at 16 KiB and request bodies
+at 16 MiB, handles fragmented reads, and can consume multiple complete
+requests from one inbound buffer. The benchmark client remains closed-loop
+with one request in flight per connection, so lack of NIO HTTP pipelining
+assistance does not change the measured contract.
+
+Use the existing campaign harness so thread count, warm-up, routes,
+concurrency, request counts, latency collection, resource observation and
+HTTP verification remain identical:
+
+```bash
+swift build -c release --product custom-http1-benchmark-server
+swift build -c release --product whitethroated-benchmark-client
+swift build -c release --product whitethroated-benchmark-campaign
+
+WHITETHROATED_CAMPAIGN_SERVER=custom-http1-benchmark-server \
+WHITETHROATED_CAMPAIGN_OUTPUT=/tmp/custom-http1-campaign \
+.build/release/whitethroated-benchmark-campaign
+```
+
+Compare that archive against a fresh `raw-nio-benchmark-server` campaign on
+the same quiet host. A result is evidence only about the cost of the
+`NIOHTTP1` parser/encoder plus surrounding pipeline behavior under this
+specific HTTP/1.1 contract. It is not evidence that a production replacement
+for `NIOHTTP1` is safe or faster until chunked framing, Expect handling,
+HTTP/1.0 semantics, parser adversarial tests, and equivalent production
+correctness are implemented and validated.
+
 ## Actix Web comparison
 
 Actix is an external control and is intentionally not implemented or vendored in this repository.
@@ -517,7 +572,7 @@ Other settings (all optional):
 | Environment variable | Meaning |
 |---|---|
 | `WHITETHROATED_CAMPAIGN_ROOT` | Repository path; defaults to current directory |
-| `WHITETHROATED_CAMPAIGN_SERVER` | `whitethroated-benchmark-server` (default), `whitethroated-runtime-benchmark-server`, or `raw-nio-benchmark-server` |
+| `WHITETHROATED_CAMPAIGN_SERVER` | `whitethroated-benchmark-server` (default), `whitethroated-runtime-benchmark-server`, `raw-nio-benchmark-server`, or `custom-http1-benchmark-server` |
 | `WHITETHROATED_CAMPAIGN_PORT` | First of four loopback ports, default 3310 |
 | `WHITETHROATED_CAMPAIGN_SMOKE=1` | Correctness-only run: one round, c64, 8000 requests/shard; bypasses quiet-host rejection and marks completion as smoke |
 
