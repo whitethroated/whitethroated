@@ -64,6 +64,20 @@ let package = Package(
             path: "Benchmarks/BenchmarkResultMerge"
         ),
         .testTarget(name: "BenchmarkResultsTests", dependencies: ["BenchmarkResults"]),
+        .testTarget(
+            name: "BenchmarkHTTP1ExperimentTests",
+            dependencies: [
+                "BenchmarkHTTP1Experiment",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOEmbedded",
+                    package: "swift-nio"
+                )
+            ]
+        ),
         .target(
             name: "WhiteThroated",
             dependencies: [
@@ -122,9 +136,20 @@ let package = Package(
             ],
             path: "Benchmarks/RawNIOBenchmarkServer"
         ),
+        .target(
+            name: "BenchmarkHTTP1Experiment",
+            dependencies: [
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                )
+            ],
+            path: "Benchmarks/BenchmarkHTTP1Experiment"
+        ),
         .executableTarget(
             name: "CustomHTTP1BenchmarkServer",
             dependencies: [
+                "BenchmarkHTTP1Experiment",
                 .product(
                     name: "NIOCore",
                     package: "swift-nio"
