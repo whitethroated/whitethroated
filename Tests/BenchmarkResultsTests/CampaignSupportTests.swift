@@ -10,6 +10,14 @@ final class CampaignSupportTests: XCTestCase {
         let smoke = try CampaignConfiguration(environment: ["WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/smoke", "WHITETHROATED_CAMPAIGN_SMOKE": "1"], currentDirectory: "/project")
         XCTAssertEqual(smoke.rounds, 1)
         XCTAssertEqual(smoke.concurrencies, [64])
+        let customHTTP1 = try CampaignConfiguration(
+            environment: [
+                "WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/custom",
+                "WHITETHROATED_CAMPAIGN_SERVER": "custom-http1-benchmark-server"
+            ],
+            currentDirectory: "/project"
+        )
+        XCTAssertEqual(customHTTP1.serverProduct, "custom-http1-benchmark-server")
         XCTAssertThrowsError(try CampaignConfiguration(environment: [:], currentDirectory: "/project"))
         XCTAssertThrowsError(try CampaignConfiguration(environment: ["WHITETHROATED_CAMPAIGN_OUTPUT": "relative"], currentDirectory: "/project"))
         for (key, value) in [("WHITETHROATED_CAMPAIGN_SERVER", "unknown"), ("WHITETHROATED_CAMPAIGN_PORT", "65535"), ("WHITETHROATED_CAMPAIGN_SMOKE", "true")] {
