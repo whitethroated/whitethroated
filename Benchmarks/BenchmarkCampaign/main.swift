@@ -298,8 +298,9 @@ private final class Campaign {
         }
         // Check host only after *all* clients have exited, including export work.
         try gate(id + "-after")
-        print("completed \(id)")
-        fflush(stdout)
+        FileHandle.standardOutput.write(
+            Data("completed \(id)\n".utf8)
+        )
     }
 
     func run() throws {
