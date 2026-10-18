@@ -38,6 +38,12 @@ jobs:
           WHITETHROATED_TRANSPORT_ITERATIONS: "50000"
         run: swift test -c release --filter CoreBenchmarkTests
 
+      - name: Smoke HTTP/1 pipeline diagnostic
+        env:
+          WHITETHROATED_HTTP1_BENCHMARK: "1"
+          WHITETHROATED_HTTP1_ITERATIONS: "1000"
+        run: swift test -c release --filter RuntimeServerPipelineTests/testHTTP1PipelineBenchmark
+
       - name: Build example
         run: swift build -c release --product whitethroated-example
 

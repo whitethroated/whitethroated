@@ -244,7 +244,10 @@ private let dispatcher = RuntimeDispatcher(
 let server = RuntimeServer(
     configuration: RuntimeServerConfiguration(
         eventLoopThreads: eventLoopThreads,
-        maxRequestBodyBytes: 16 * 1024 * 1024
+        maxRequestBodyBytes: 16 * 1024 * 1024,
+        useTier1HTTP1: environment[
+            "WHITETHROATED_TIER1_HTTP1"
+        ] != "0"
     ),
     dispatcher: dispatcher
 )

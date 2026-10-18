@@ -497,4 +497,55 @@ private func writtenString(
             ) == nil
         )
     }
+
+    @Test func streamHeadLeavesBodyOpen() throws {
+        var out = ByteBufferAllocator().buffer(
+            capacity: 256
+        )
+        let written = WTHTTP1ResponseWriter.write(
+            head: responseHead(),
+            version: .http11,
+            keepAlive: true,
+            mayHaveBody: true,
+            requestMethod: .get,
+            contentLength: nil,
+            body: nil,
+            leaveBodyOpen: true,
+            into: &out
+        )
+
+        #expect(written)
+        #expect(
+            String(
+                decoding: out.readableBytesView,
+                as: UTF8.self
+            )
+                == "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n"
+        )
+    }
+
+    @Test func emptyChunkedBodyTerminatesByDefault() throws {
+        var out = ByteBufferAllocator().buffer(
+            capacity: 256
+        )
+        let written = WTHTTP1ResponseWriter.write(
+            head: responseHead(),
+            version: .http11,
+            keepAlive: true,
+            mayHaveBody: true,
+            requestMethod: .get,
+            contentLength: nil,
+            body: nil,
+            into: &out
+        )
+
+        #expect(written)
+        #expect(
+            String(
+                decoding: out.readableBytesView,
+                as: UTF8.self
+            )
+                == "HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n0\r\n\r\n"
+        )
+    }
 }

@@ -905,6 +905,16 @@ public struct WTHTTP1ChunkState: Sendable {
     public init() {}
 }
 
+/// Chunk-extension scan position within one size line.
+private enum WTHTTP1ExtensionState {
+    case segmentStart
+    case name
+    case value
+    case quoted
+    case pair
+    case quotedDone
+}
+
 /// One chunked-body step result.
 public enum WTHTTP1ChunkEvent: Sendable, Equatable {
     case needMoreData
@@ -1116,31 +1126,185 @@ extension WTHTTP1Parser {
             throw WTHTTP1ParseError.badChunkFraming
         }
 
-        // Chunk extensions (after ';') are accepted and ignored, but
-        // must not smuggle control bytes.
-        while cursor < lineEnd {
-            guard let byte: UInt8 = line.getInteger(
-                at: cursor
-            ) else {
-                preconditionFailure(
-                    "chunk extension read out of bounds"
-                )
-            }
-
-            guard
-                byte == 9 || byte == 32 || byte >= 33
-                    && byte != 127 || byte >= 128
-            else {
-                throw WTHTTP1ParseError.badChunkFraming
-            }
-
-            cursor += 1
+        // Chunk extensions mirror llhttp's machine exactly
+        // (verified against the pinned C tables plus the
+        // differential corpus): a permissive gap here is a
+        // request-desync vector.
+        //
+        // - `;`-separated segments; the last segment must be
+        //   non-empty (a trailing `;` is an error, empty middle
+        //   segments are ignored).
+        // - Segment names and values are strict tchar.
+        // - `=` appears at most once per segment and switches to
+        //   the value; `"` is illegal in names.
+        // - `"` anywhere in a value opens a quoted-string: qdtext
+        //   or quoted-pair content, must close, and only `;` or
+        //   end-of-line may follow the close.
+        if cursor < lineEnd {
+            try validateChunkExtensions(
+                line,
+                from: cursor,
+                end: lineEnd
+            )
         }
 
         buffer.moveReaderIndex(
             forwardBy: lineLength + 2
         )
         return size
+    }
+
+    private func validateChunkExtensions(
+        _ line: ByteBuffer,
+        from start: Int,
+        end: Int
+    ) throws {
+        var index = start
+        var state = WTHTTP1ExtensionState
+            .segmentStart
+
+        @inline(__always)
+        func byteAt(_ offset: Int) -> UInt8 {
+            guard let byte: UInt8 = line.getInteger(
+                at: offset
+            ) else {
+                preconditionFailure(
+                    "chunk extension read out of bounds"
+                )
+            }
+
+            return byte
+        }
+
+        // Opens the next `;`-segment. A `;` with nothing after it
+        // ends the line illegally (llhttp `s_chunk_extensions` on
+        // CR is `error_17`).
+        @inline(__always)
+        func openSegment() throws {
+            index += 1
+
+            guard index < end else {
+                throw WTHTTP1ParseError.badChunkFraming
+            }
+
+            state = .segmentStart
+        }
+
+        // The caller guarantees `start` sits on the first `;`.
+        try openSegment()
+
+        while index < end {
+            let byte = byteAt(index)
+
+            switch state {
+            case .segmentStart:
+                if byte == 59 {
+                    try openSegment()
+                } else if byte == 61 {
+                    state = .value
+                    index += 1
+                } else if WTHTTP1Validation
+                    .isValidHeaderNameByte(byte)
+                {
+                    state = .name
+                    index += 1
+                } else {
+                    throw WTHTTP1ParseError
+                        .badChunkFraming
+                }
+
+            case .name:
+                if byte == 59 {
+                    try openSegment()
+                } else if byte == 61 {
+                    state = .value
+                    index += 1
+                } else if WTHTTP1Validation
+                    .isValidHeaderNameByte(byte)
+                {
+                    index += 1
+                } else {
+                    throw WTHTTP1ParseError
+                        .badChunkFraming
+                }
+
+            case .value:
+                if byte == 59 {
+                    try openSegment()
+                } else if byte == 34 {
+                    state = .quoted
+                    index += 1
+                } else if WTHTTP1Validation
+                    .isValidHeaderNameByte(byte)
+                {
+                    index += 1
+                } else {
+                    throw WTHTTP1ParseError
+                        .badChunkFraming
+                }
+
+            case .quoted:
+                if byte == 34 {
+                    state = .quotedDone
+                    index += 1
+                } else if byte == 92 {
+                    state = .pair
+                    index += 1
+                } else if isQuotedText(byte) {
+                    index += 1
+                } else {
+                    throw WTHTTP1ParseError
+                        .badChunkFraming
+                }
+
+            case .pair:
+                guard isPairByte(byte) else {
+                    throw WTHTTP1ParseError
+                        .badChunkFraming
+                }
+
+                state = .quoted
+                index += 1
+
+            case .quotedDone:
+                guard byte == 59 else {
+                    throw WTHTTP1ParseError
+                        .badChunkFraming
+                }
+
+                try openSegment()
+            }
+        }
+
+        // Only a complete name, value, or closed quote may end the
+        // line: unterminated quotes and dangling escapes fail.
+        switch state {
+        case .name, .value, .quotedDone:
+            return
+
+        case .segmentStart, .quoted, .pair:
+            throw WTHTTP1ParseError.badChunkFraming
+        }
+    }
+
+    /// qdtext inside chunk-extension quotes: HTAB/SP/VCHAR except
+    /// DQUOTE, plus obs-text. Controls and DEL fail.
+    @inline(__always)
+    private func isQuotedText(_ byte: UInt8) -> Bool {
+        byte == 9
+            || byte == 32
+            || (byte >= 33 && byte <= 126
+                && byte != 34)
+            || byte >= 128
+    }
+
+    /// Quoted-pair tail: HTAB/SP/VCHAR/obs-text. Controls and DEL
+    /// fail even escaped.
+    @inline(__always)
+    private func isPairByte(_ byte: UInt8) -> Bool {
+        byte == 9
+            || (byte >= 32 && byte <= 126)
+            || byte >= 128
     }
 
     private func validateTrailerLine(
@@ -1179,23 +1343,9 @@ extension WTHTTP1Parser {
             throw WTHTTP1ParseError.badChunkFraming
         }
 
-        // Trailing OWS is rejected exactly like header values.
-        if length - (colon + 1) > 0 {
-            guard
-                let last: UInt8 = buffer.getInteger(
-                    at: base + length - 1
-                )
-            else {
-                preconditionFailure(
-                    "trailer value read out of bounds"
-                )
-            }
-
-            if last == 32 || last == 9 {
-                throw WTHTTP1ParseError.badChunkFraming
-            }
-        }
-
+        // Trailing OWS is accepted exactly like head header values
+        // (llhttp keeps it in the value); values are discarded
+        // anyway, so only accept/reject parity matters.
         for offset in (colon + 1)..<length {
             guard
                 let byte: UInt8 = buffer.getInteger(

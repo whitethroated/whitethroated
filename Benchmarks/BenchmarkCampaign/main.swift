@@ -299,7 +299,8 @@ private final class Campaign {
         // Check host only after *all* clients have exited, including export work.
         try gate(id + "-after")
         print("completed \(id)")
-        fflush(stdout)
+        // Flush progress without accessing Glibc's mutable stdout global.
+        fflush(nil)
     }
 
     func run() throws {

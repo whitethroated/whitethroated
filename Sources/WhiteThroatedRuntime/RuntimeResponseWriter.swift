@@ -560,7 +560,7 @@ public struct RuntimeResponseWriter: @unchecked Sendable {
     }
 
     @inline(__always)
-    private static func declaredStreamContentLength(
+    internal static func declaredStreamContentLength(
         headers: HTTPHeaders
     ) -> Result<Int?, RuntimeStreamError> {
         var firstRawValue: String?

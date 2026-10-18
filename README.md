@@ -38,6 +38,25 @@ app.get("/users/:id") { request in
 try app.run(port: 3000)
 ```
 
+## HTTP/1 transport
+
+The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response
+writer on SwiftNIO event loops and sockets. Applications that register any
+request-body streaming route automatically use SwiftNIO's HTTP/1 pipeline for
+all connections, preserving upload backpressure and middleware behavior.
+Response streaming, SSE, and file-region responses work on either transport.
+
+To select the stock SwiftNIO HTTP/1 pipeline explicitly:
+
+```swift
+let app = Application(configuration: ServerConfiguration(
+    useTier1HTTP1Experimental: false
+))
+```
+
+The configuration property's historical name remains supported; its default
+is now `true`. Transport selection occurs when a connection is initialized.
+
 ## Catch-all routes
 
 A terminal catch-all captures the remaining path without changing static or single-segment parameter precedence.
@@ -571,7 +590,7 @@ app.get("/stream") { _ in
 
 Stream writes must be serialized on the writer's event loop. If a stream producer fails after response headers have started, WhiteThroated closes the connection rather than attempting to send a second HTTP response. Use the optional `onError` closure on `Response.stream` or `Response.sse` to clean up producer-owned resources before the connection is closed.
 
-For HTTP/1.1 responses without a declared `Content-Length`, SwiftNIO's response encoder owns chunked transfer framing. For HTTP/1.0, WhiteThroated closes the connection after an unknown-length stream unless the response explicitly provides a content length.
+For HTTP/1.1 responses without a declared `Content-Length`, the selected transport owns chunked transfer framing. For HTTP/1.0, WhiteThroated closes the connection after an unknown-length stream unless the response explicitly provides a content length.
 
 HEAD requests suppress the stream producer entirely.
 
@@ -767,6 +786,7 @@ WhiteThroated ── Application, Router, middleware, Request/Response
      v
 WhiteThroatedRuntime ── bootstrap, HTTP/1.1 pipeline, dispatch,
      |                  response writer, keep-alive, backpressure
+     +── WhiteThroatedHTTP1 ── byte parser and response serializer
      v
 SwiftNIO
      |

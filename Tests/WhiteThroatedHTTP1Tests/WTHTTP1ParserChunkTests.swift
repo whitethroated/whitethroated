@@ -284,14 +284,13 @@ private func bufferString(
         }
     }
 
-    @Test func trailerTrailingOWSRejected() throws {
-        #expect(
-            throws: WTHTTP1ParseError.badChunkFraming
-        ) {
-            _ = try drainChunks(
-                "3\r\nabc\r\n0\r\nA: v \r\n\r\n"
-            )
-        }
+    @Test func trailerTrailingOWSAcceptedLikeStock() throws {
+        // llhttp keeps trailing OWS in trailer values (differential
+        // corpus); Tier 1 mirrors accept and discards the value.
+        let body = try drainChunks(
+            "3\r\nabc\r\n0\r\nA: v \r\n\r\n"
+        )
+        #expect(bufferString(body) == "abc")
     }
 
     @Test func trailerFloodBounded() throws {
