@@ -729,10 +729,6 @@ public final class CustomHTTP1BenchmarkHandler:
         let targetStart =
             requestBase
             + request.targetOffset
-        let targetEnd =
-            targetStart
-            + request.targetLength
-
         let targetMatches: (UnsafeBufferPointer<UInt8>) -> Void = { bytes in
             switch request.method {
             case .get, .head:
