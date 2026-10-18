@@ -18,9 +18,28 @@ final class CampaignSupportTests: XCTestCase {
             currentDirectory: "/project"
         )
         XCTAssertEqual(customHTTP1.serverProduct, "custom-http1-benchmark-server")
+        let http1Experiment = try CampaignConfiguration(
+            environment: [
+                "WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/http1",
+                "WHITETHROATED_CAMPAIGN_SERVER": "custom-http1-benchmark-server",
+                "WHITETHROATED_CAMPAIGN_HTTP1_EXPERIMENT": "1"
+            ],
+            currentDirectory: "/project"
+        )
+        XCTAssertTrue(http1Experiment.http1Experiment)
+        XCTAssertThrowsError(
+            try CampaignConfiguration(
+                environment: [
+                    "WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/http1-framework",
+                    "WHITETHROATED_CAMPAIGN_SERVER": "whitethroated-benchmark-server",
+                    "WHITETHROATED_CAMPAIGN_HTTP1_EXPERIMENT": "1"
+                ],
+                currentDirectory: "/project"
+            )
+        )
         XCTAssertThrowsError(try CampaignConfiguration(environment: [:], currentDirectory: "/project"))
         XCTAssertThrowsError(try CampaignConfiguration(environment: ["WHITETHROATED_CAMPAIGN_OUTPUT": "relative"], currentDirectory: "/project"))
-        for (key, value) in [("WHITETHROATED_CAMPAIGN_SERVER", "unknown"), ("WHITETHROATED_CAMPAIGN_PORT", "65535"), ("WHITETHROATED_CAMPAIGN_SMOKE", "true")] {
+        for (key, value) in [("WHITETHROATED_CAMPAIGN_SERVER", "unknown"), ("WHITETHROATED_CAMPAIGN_PORT", "65535"), ("WHITETHROATED_CAMPAIGN_SMOKE", "true"), ("WHITETHROATED_CAMPAIGN_HTTP1_EXPERIMENT", "true")] {
             XCTAssertThrowsError(try CampaignConfiguration(environment: ["WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/new", key: value], currentDirectory: "/project"))
         }
     }
