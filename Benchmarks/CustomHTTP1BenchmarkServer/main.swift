@@ -486,7 +486,8 @@ private func parseRequest(
                 literal: connectionHeaderName
             ) {
                 connectionClose =
-                    valueContainsToken(
+                    connectionClose
+                    || valueContainsToken(
                         bytes,
                         start: value.0,
                         end: value.1,
