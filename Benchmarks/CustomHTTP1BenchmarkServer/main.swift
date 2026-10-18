@@ -2,7 +2,7 @@ import Foundation
 import NIOCore
 import NIOPosix
 
-private enum ParsedMethod {
+private enum ParsedMethod: Equatable {
     case get
     case post
     case head
@@ -202,7 +202,7 @@ private func isHeaderNameByte(_ byte: UInt8) -> Bool {
 
 @inline(__always)
 private func validHeaderValueByte(_ byte: UInt8) -> Bool {
-    byte == 9 || byte >= 32
+    byte == 9 || (byte >= 32 && byte != 127)
 }
 
 @inline(__always)
