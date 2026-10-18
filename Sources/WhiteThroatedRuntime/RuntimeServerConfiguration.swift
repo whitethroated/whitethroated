@@ -7,10 +7,16 @@ public struct RuntimeServerConfiguration: Sendable {
     public var backlog: Int32
     public var maxRequestBodyBytes: Int
 
+    /// Experimental Tier 1 HTTP/1 path: installs the single
+    /// `WTHTTP1ConnectionHandler` instead of the NIOHTTP1 pipeline.
+    /// Benchmark-gated experiment; default stays stock.
+    public var useTier1HTTP1: Bool
+
     public init(
         eventLoopThreads: Int? = nil,
         backlog: Int32 = 256,
-        maxRequestBodyBytes: Int = 1_048_576
+        maxRequestBodyBytes: Int = 1_048_576,
+        useTier1HTTP1: Bool = false
     ) {
         precondition(
             maxRequestBodyBytes >= 0,
@@ -31,5 +37,6 @@ public struct RuntimeServerConfiguration: Sendable {
         self.eventLoopThreads = eventLoopThreads
         self.backlog = backlog
         self.maxRequestBodyBytes = maxRequestBodyBytes
+        self.useTier1HTTP1 = useTier1HTTP1
     }
 }

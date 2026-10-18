@@ -59,21 +59,36 @@ public final class RuntimeServer: @unchecked Sendable {
                         .makeSucceededVoidFuture()
                 }
                 .flatMap {
-                    channel.pipeline
+                    if self.configuration
+                        .useTier1HTTP1
+                    {
+                        return channel.pipeline
+                            .addHandler(
+                                WTHTTP1ConnectionHandler(
+                                    dispatcher:
+                                        self.dispatcher,
+                                    configuration: self
+                                        .configuration
+                                )
+                            )
+                    }
+
+                    return channel.pipeline
                         .configureHTTPServerPipeline(
                             withPipeliningAssistance:
                                 true,
                             withErrorHandling: true
                         )
-                }
-                .flatMap {
-                    channel.pipeline.addHandler(
-                        RuntimeConnectionHandler(
-                            dispatcher: self.dispatcher,
-                            configuration: self
-                                .configuration
-                        )
-                    )
+                        .flatMap {
+                            channel.pipeline.addHandler(
+                                RuntimeConnectionHandler(
+                                    dispatcher:
+                                        self.dispatcher,
+                                    configuration: self
+                                        .configuration
+                                )
+                            )
+                        }
                 }
             }
 
