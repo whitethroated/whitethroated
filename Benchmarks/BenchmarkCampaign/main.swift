@@ -284,6 +284,17 @@ private final class Campaign {
                 .filter { $0.0 == "content-type" }
                 .map(\.1)
 
+        let contentTypeMatches: Bool
+        if let expectedContentType {
+            contentTypeMatches =
+                contentTypes == [
+                    expectedContentType
+                ]
+        } else {
+            contentTypeMatches =
+                contentTypes.isEmpty
+        }
+
         guard
             lengths == [
                 String(expected.utf8.count)
@@ -293,11 +304,7 @@ private final class Campaign {
                     $0.0 == "transfer-encoding"
                 }
             ),
-            expectedContentType == nil
-                ? contentTypes.isEmpty
-                : contentTypes == [
-                    expectedContentType!
-                ]
+            contentTypeMatches
         else {
             throw CampaignError.invalid(
                 "Response framing/content-type contract mismatch"
