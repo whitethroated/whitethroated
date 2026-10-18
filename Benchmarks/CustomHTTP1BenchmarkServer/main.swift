@@ -564,7 +564,7 @@ private struct WireResponses {
 
         self.jsonOK = Self.makeBuffer(
             allocator: allocator,
-            #"HTTP/1.1 200 OK\r\ncontent-type: application/json; charset=utf-8\r\ncontent-length: 27\r\n\r\n{"message":"Hello, World!"}"#
+            "HTTP/1.1 200 OK\\r\\ncontent-type: application/json; charset=utf-8\\r\\ncontent-length: 27\\r\\n\\r\\n{\\\"message\\\":\\\"Hello, World!\\\"}"
         )
 
         self.jsonHead = Self.makeBuffer(
