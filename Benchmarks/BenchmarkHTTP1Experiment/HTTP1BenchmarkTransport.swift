@@ -542,7 +542,7 @@ private struct WireResponses {
     let badRequest: ByteBuffer
     let parameterHeads: [ByteBuffer]
 
-    public init(allocator: ByteBufferAllocator) {
+    init(allocator: ByteBufferAllocator) {
         self.allocator = allocator
 
         self.emptyOK = Self.makeBuffer(
@@ -622,7 +622,7 @@ public final class CustomHTTP1BenchmarkHandler:
     private let responses: WireResponses
     private var pending: ByteBuffer?
 
-    init(allocator: ByteBufferAllocator) {
+    public init(allocator: ByteBufferAllocator) {
         self.responses = WireResponses(
             allocator: allocator
         )
