@@ -1,5 +1,10 @@
 # Linux isolated-CPU verdict: WhiteThroated vs Express/Hono on Bun (2026-10-18)
 
+> Superseded by `docs/benchmark-tier1-linux-verdict-2026-10-18.md` for the
+> overall campaign verdict (Tier-1 engine: 54/54 cells, all 8 aspects).
+> This document remains the stock-engine record (52/54 cells, one
+> exception cell) and the methodology reference for the isolated rig.
+
 ## Verdict
 
 Under the fairest setup achieved in this project — Linux, Bun cluster with
