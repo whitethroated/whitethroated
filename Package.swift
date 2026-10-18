@@ -33,6 +33,10 @@ let package = Package(
             targets: ["RawNIOBenchmarkServer"]
         ),
         .executable(
+            name: "custom-http1-benchmark-server",
+            targets: ["CustomHTTP1BenchmarkServer"]
+        ),
+        .executable(
             name: "whitethroated-benchmark-client",
             targets: ["WhiteThroatedBenchmarkClient"]
         ),
@@ -117,6 +121,20 @@ let package = Package(
                 )
             ],
             path: "Benchmarks/RawNIOBenchmarkServer"
+        ),
+        .executableTarget(
+            name: "CustomHTTP1BenchmarkServer",
+            dependencies: [
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                )
+            ],
+            path: "Benchmarks/CustomHTTP1BenchmarkServer"
         ),
         .executableTarget(
             name: "WhiteThroatedBenchmarkClient",
