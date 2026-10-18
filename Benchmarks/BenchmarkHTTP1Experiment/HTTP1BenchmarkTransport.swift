@@ -682,6 +682,7 @@ public final class CustomHTTP1BenchmarkHandler:
                             responses.badRequest
                         )
                     )
+                    .assumeIsolatedUnsafeUnchecked()
                     .whenComplete { _ in
                         context.close(
                             promise: nil
@@ -944,6 +945,7 @@ public final class CustomHTTP1BenchmarkHandler:
             .writeAndFlush(
                 wrapOutboundOut(buffer)
             )
+            .assumeIsolatedUnsafeUnchecked()
             .whenComplete { _ in
                 context.close(
                     promise: nil
