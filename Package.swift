@@ -60,6 +60,14 @@ let package = Package(
             path: "Benchmarks/BenchmarkResultMerge"
         ),
         .testTarget(name: "BenchmarkResultsTests", dependencies: ["BenchmarkResults"]),
+        .testTarget(
+            name: "BenchmarkClientTests",
+            dependencies: [
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+            ]
+        ),
         .target(
             name: "WhiteThroated",
             dependencies: [

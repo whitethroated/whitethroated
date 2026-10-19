@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-19",
+  "baseline_commit": "31f3be69b4e08550d1a3d0a99ceb8a733ebb0c4e",
+  "decision": "retain",
+  "claim_scope": "throughput, server CPU, and p99; p99.999 unresolved",
+  "primary": {
+    "samples": 144,
+    "requests": 72000000,
+    "rounds": 4,
+    "requests_per_sample": 500000,
+    "rps_improved_cells": 9,
+    "rps_total_cells": 9,
+    "p99_improved_cells": 8,
+    "p99_total_cells": 9,
+    "rps_improvement_percent_range": [2.6, 7.6]
+  },
+  "confirmation": {
+    "samples": 24,
+    "requests": 48000000,
+    "rounds": 6,
+    "requests_per_sample": 2000000,
+    "known_c256": {
+      "p99_us_before": 3980.8335,
+      "p99_us_after": 4047.3335,
+      "p99_999_us_before": 25658.7915,
+      "p99_999_us_after": 25789.75,
+      "server_cpu_ticks_before": 3173.5,
+      "server_cpu_ticks_after": 3020.0
+    },
+    "flush_c512": {
+      "p99_us_before": 9145.1875,
+      "p99_us_after": 8647.771,
+      "p99_999_us_before": 27009.4165,
+      "p99_999_us_after": 29444.375,
+      "server_cpu_ticks_before": 4283.5,
+      "server_cpu_ticks_after": 4086.5
+    },
+    "tcp_retransmitted_segments": 63980,
+    "cpu_throttled_events": 0,
+    "tcp_timeouts": 0,
+    "tcp_input_errors": 0,
+    "tcp_output_resets": 0
+  },
+  "raw_stream_control": {
+    "samples": 144,
+    "requests": 72000000,
+    "rounds": 4,
+    "tier1_rps_gap_percent_range": [-35, -15],
+    "tier1_p99_worse_cells": 9,
+    "total_cells": 9
+  },
+  "cpu_profiles": {
+    "profiles": 6,
+    "requests_per_profile": 2000000,
+    "resolved_flat_sample_percent_range": [92.0, 95.1],
+    "interpretation": "mixed costs; no single dominant cost center"
+  },
+  "validation": {
+    "xctest_passed": 447,
+    "xctest_skipped": 8,
+    "swift_testing_passed": 102,
+    "release_products_built": 5,
+    "wire_preflight_equal": true
+  }
+}

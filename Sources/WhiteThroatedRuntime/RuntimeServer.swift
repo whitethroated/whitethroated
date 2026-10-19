@@ -48,23 +48,11 @@ public final class RuntimeServer: @unchecked Sendable {
                 value: 1
             )
             .childChannelInitializer { channel in
-                channel.setOption(
-                    ChannelOptions.socketOption(
-                        .tcp_nodelay
-                    ),
-                    value: 1
+                Self.configureAcceptedChannel(
+                    channel: channel,
+                    dispatcher: self.dispatcher,
+                    configuration: self.configuration
                 )
-                .flatMapError { _ in
-                    channel.eventLoop
-                        .makeSucceededVoidFuture()
-                }
-                .flatMap {
-                    Self.configureHTTPPipeline(
-                        channel: channel,
-                        dispatcher: self.dispatcher,
-                        configuration: self.configuration
-                    )
-                }
             }
 
         do {
@@ -78,6 +66,21 @@ public final class RuntimeServer: @unchecked Sendable {
             try? group.syncShutdownGracefully()
             throw error
         }
+    }
+
+    internal static func configureAcceptedChannel(
+        channel: Channel,
+        dispatcher: RuntimeDispatcher,
+        configuration: RuntimeServerConfiguration
+    ) -> EventLoopFuture<Void> {
+        channel.setOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
+            .flatMap {
+                Self.configureHTTPPipeline(
+                    channel: channel,
+                    dispatcher: dispatcher,
+                    configuration: configuration
+                )
+            }
     }
 
     /// Application configuration is frozen before child channels are

@@ -1,12 +1,62 @@
 import NIOCore
 import NIOEmbedded
 import NIOHTTP1
+import NIOPosix
 import XCTest
 
 @testable import WhiteThroatedRuntime
 
 /// Exercise the same pipeline installer as accepted production connections.
 final class RuntimeServerPipelineTests: XCTestCase {
+    func testAcceptedSocketEnablesTCPNoDelayFromDisabledState() throws {
+        let empty = RuntimePreparedResponse(status: .ok, headers: HTTPHeaders(), bodyBuffer: nil)
+        let dispatcher = RuntimeDispatcher(
+            hasMiddleware: false,
+            hasStreamingRoutes: false,
+            hasStreamingRoute: { _ in false },
+            lookup: { _ in .prepared(empty) },
+            dispatchPipeline: { _, _ in .response(empty.response) },
+            mapError: { _, _, _ in .response(empty.response) },
+            notFound: empty,
+            payloadTooLarge: empty,
+            expectationFailed: empty,
+            internalServerError: empty
+        )
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { try? group.syncShutdownGracefully() }
+        let observed = group.next().makePromise(
+            of: ChannelOptions.Types.SocketOption.Value.self
+        )
+        let server = try ServerBootstrap(group: group)
+            .childChannelOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 0)
+            .childChannelInitializer { channel in
+                RuntimeServer.configureAcceptedChannel(
+                    channel: channel,
+                    dispatcher: dispatcher,
+                    configuration: RuntimeServerConfiguration()
+                ).flatMap {
+                    channel.getOption(
+                        ChannelOptions.tcpOption(.tcp_nodelay)
+                    )
+                }.map { value in
+                    observed.succeed(value)
+                }.flatMapError { error in
+                    observed.fail(error)
+                    return channel.eventLoop.makeFailedFuture(error)
+                }
+            }
+            .bind(host: "127.0.0.1", port: 0).wait()
+        defer { try? server.close().wait() }
+        let port = try XCTUnwrap(server.localAddress?.port)
+        let client = try ClientBootstrap(group: group)
+            .connect(host: "127.0.0.1", port: port).wait()
+        defer { try? client.close().wait() }
+        XCTAssertEqual(
+            Int(try observed.futureResult.wait()),
+            1
+        )
+    }
+
     func testHTTP1PipelineBenchmark() throws {
         let environment = ProcessInfo.processInfo.environment
         try XCTSkipUnless(
@@ -15,14 +65,26 @@ final class RuntimeServerPipelineTests: XCTestCase {
         )
         let iterations = Int(environment["WHITETHROATED_HTTP1_ITERATIONS"] ?? "20000") ?? 20_000
         precondition(iterations > 0)
-        let request = ByteBuffer(string: "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
-        for streamingResponse in [false, true] {
+        let extraHeaders = Int(environment["WHITETHROATED_HTTP1_EXTRA_HEADERS"] ?? "0") ?? 0
+        precondition((0...32).contains(extraHeaders))
+        var requestText = "GET / HTTP/1.1\r\nHost: x\r\n"
+        for index in 0..<extraHeaders {
+            requestText += "X-Diagnostic-\(index): value-\(index)-café\r\n"
+        }
+        requestText += "\r\n"
+        let request = ByteBuffer(string: requestText)
+        for mode in ["prepared", "sync", "canonical", "stream"] {
             let fixtures = try [false, true].map {
-                try PipelineFixture(useTier1: $0, streamingResponse: streamingResponse)
+                try PipelineFixture(
+                    useTier1: $0,
+                    streamingResponse: mode == "stream",
+                    canonicalResponse: mode == "canonical",
+                    preparedResponse: mode == "prepared"
+                )
             }
             defer { for fixture in fixtures { _ = try? fixture.channel.finish() } }
             for fixture in fixtures {
-                try fixture.write("GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+                try fixture.write(requestText)
             }
             XCTAssertEqual(try fixtures[0].read(), try fixtures[1].read())
             var samples = [[Double](), [Double]()]
@@ -49,7 +111,7 @@ final class RuntimeServerPipelineTests: XCTestCase {
                 let sorted = samples[index].sorted()
                 let median = (sorted[2] + sorted[3]) / 2
                 print(
-                    "http1-pipeline mode=\(streamingResponse ? "stream" : "sync") transport=\(index == 0 ? "stock" : "tier1") median_ns=\(median) rounds_ns=\(samples[index]) checksum=\(checksum)"
+                    "http1-pipeline mode=\(mode) transport=\(index == 0 ? "stock" : "tier1") median_ns=\(median) rounds_ns=\(samples[index]) checksum=\(checksum) extra_headers=\(extraHeaders)"
                 )
             }
         }
@@ -200,10 +262,29 @@ private final class PipelineFixture {
         streaming: Bool = false,
         middleware: Bool = false,
         maxBodyBytes: Int = 1024,
-        streamingResponse: Bool = false
+        streamingResponse: Bool = false,
+        canonicalResponse: Bool = false,
+        preparedResponse: Bool = false
     ) throws {
         channel = EmbeddedChannel(loop: loop)
         let state = state
+        let canonicalHeaders = HTTPHeaders([
+            ("content-type", "text/plain; charset=utf-8"),
+            ("content-length", "2"),
+        ])
+        let canonicalReply = RuntimeResponse(
+            status: .ok,
+            headers: canonicalHeaders,
+            body: .text("ok"),
+            contentLengthIsNormalized: true,
+            canonicalHead: HTTPResponseHead(version: .http1_1, status: .ok, headers: canonicalHeaders),
+            canonicalBodyLength: 2
+        )
+        let preparedReply = RuntimePreparedResponse(
+            status: .ok,
+            headers: canonicalHeaders,
+            bodyBuffer: ByteBuffer(string: "ok")
+        )
         let stream = RuntimeStreamingAction(
             begin: { _, eventLoop in
                 let registration = RuntimeStreamRegistration(eventLoop: eventLoop)
@@ -248,6 +329,9 @@ private final class PipelineFixture {
             hasStreamingRoutes: streaming,
             hasStreamingRoute: { streaming && $0 == .POST },
             lookup: { head in
+                if preparedResponse {
+                    return .prepared(preparedReply)
+                }
                 if streaming, head.method == .POST, head.uri == "/upload" {
                     return .streaming(stream)
                 }
@@ -265,6 +349,9 @@ private final class PipelineFixture {
                                     })
                                 )
                             )
+                        }
+                        if canonicalResponse {
+                            return canonicalReply
                         }
                         return Self.text("ok")
                     }

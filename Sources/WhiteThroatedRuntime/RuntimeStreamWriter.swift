@@ -135,6 +135,8 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
     private let sink: RuntimeStreamChunkSink
     private let lengthTracker:
         RuntimeStreamLengthTracker?
+    private let errorMapper:
+        (@Sendable (RuntimeStreamError) -> Error)?
 
     public init(
         context: ChannelHandlerContext,
@@ -164,6 +166,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
             }
         )
         self.lengthTracker = lengthTracker
+        self.errorMapper = nil
     }
 
     /// Creates a writer over an explicit chunk sink.
@@ -171,10 +174,27 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
     /// Used by transports that frame chunks themselves (Tier 1).
     internal init(
         sink: RuntimeStreamChunkSink,
-        lengthTracker: RuntimeStreamLengthTracker? = nil
+        lengthTracker: RuntimeStreamLengthTracker? = nil,
+        errorMapper:
+            (@Sendable (RuntimeStreamError) -> Error)? = nil
     ) {
         self.sink = sink
         self.lengthTracker = lengthTracker
+        self.errorMapper = errorMapper
+    }
+
+    /// Returns a writer that creates failed futures with the caller's
+    /// public error identity. Successful writes keep the transport's
+    /// original future and avoid a per-write error-mapping future.
+    package func mappingErrors(
+        _ mapper:
+            @escaping @Sendable (RuntimeStreamError) -> Error
+    ) -> RuntimeStreamWriter {
+        RuntimeStreamWriter(
+            sink: sink,
+            lengthTracker: lengthTracker,
+            errorMapper: mapper
+        )
     }
 
     private static func part(_ data: IOData) -> NIOAny {
@@ -235,7 +255,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
             region.readableBytes
         ) {
             return sink.eventLoop.makeFailedFuture(
-                failure
+                mapped(failure)
             )
         }
 
@@ -278,7 +298,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
             region.readableBytes
         ) {
             return sink.eventLoop.makeFailedFuture(
-                failure
+                mapped(failure)
             )
         }
 
@@ -315,7 +335,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
             buffer.readableBytes
         ) {
             return sink.eventLoop.makeFailedFuture(
-                failure
+                mapped(failure)
             )
         }
 
@@ -333,7 +353,7 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
             buffer.readableBytes
         ) {
             return sink.eventLoop.makeFailedFuture(
-                failure
+                mapped(failure)
             )
         }
 
@@ -347,6 +367,13 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
         _ bytes: Int
     ) -> RuntimeStreamError? {
         lengthTracker?.record(bytes)
+    }
+
+    @inline(__always)
+    private func mapped(
+        _ error: RuntimeStreamError
+    ) -> Error {
+        errorMapper?(error) ?? error
     }
 
     @inline(__always)

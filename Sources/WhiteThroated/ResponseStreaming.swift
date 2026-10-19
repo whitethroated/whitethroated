@@ -50,7 +50,10 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     internal init(
         runtimeWriter: RuntimeStreamWriter
     ) {
-        self.runtimeWriter = runtimeWriter
+        self.runtimeWriter =
+            runtimeWriter.mappingErrors(
+                mapRuntimeStreamError
+            )
     }
 
     public var eventLoop: EventLoop {
@@ -73,19 +76,15 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     public func write(
         _ buffer: ByteBuffer
     ) -> EventLoopFuture<Void> {
-        mapFailure(
-            runtimeWriter.write(buffer)
-        )
+        runtimeWriter.write(buffer)
     }
 
     @discardableResult
     public func writeFileRegion(
         _ region: FileRegion
     ) -> EventLoopFuture<Void> {
-        mapFailure(
-            runtimeWriter.writeFileRegion(
-                region
-            )
+        runtimeWriter.writeFileRegion(
+            region
         )
     }
 
@@ -93,19 +92,15 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     public func writeString(
         _ value: String
     ) -> EventLoopFuture<Void> {
-        mapFailure(
-            runtimeWriter.writeString(value)
-        )
+        runtimeWriter.writeString(value)
     }
 
     @discardableResult
     public func writeAndFlush(
         _ buffer: ByteBuffer
     ) -> EventLoopFuture<Void> {
-        mapFailure(
-            runtimeWriter.writeAndFlush(
-                buffer
-            )
+        runtimeWriter.writeAndFlush(
+            buffer
         )
     }
 
@@ -113,40 +108,22 @@ public struct ResponseStreamWriter: @unchecked Sendable {
     public func writeFileRegionAndFlush(
         _ region: FileRegion
     ) -> EventLoopFuture<Void> {
-        mapFailure(
-            runtimeWriter
-                .writeFileRegionAndFlush(
-                    region
-                )
-        )
+        runtimeWriter
+            .writeFileRegionAndFlush(
+                region
+            )
     }
 
     @discardableResult
     public func writeStringAndFlush(
         _ value: String
     ) -> EventLoopFuture<Void> {
-        mapFailure(
-            runtimeWriter.writeStringAndFlush(
-                value
-            )
+        runtimeWriter.writeStringAndFlush(
+            value
         )
     }
 
     public func flush() {
         runtimeWriter.flush()
-    }
-
-    @inline(__always)
-    private func mapFailure(
-        _ future: EventLoopFuture<Void>
-    ) -> EventLoopFuture<Void> {
-        // Only length-tracker violations fail here; map them onto
-        // framework error identity. Stream writes are cold relative
-        // to the sync fast path, so one mapped future is acceptable.
-        future.flatMapError { error in
-            future.eventLoop.makeFailedFuture(
-                mapRuntimeStreamError(error)
-            )
-        }
     }
 }

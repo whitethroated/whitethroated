@@ -1,5 +1,8 @@
 # Linux isolated-CPU verdict: WhiteThroated vs Express/Hono on Bun (2026-10-18)
 
+> Socket-option erratum: historical `tcp_nodelay=off` / override `0` labels did not prove TCP_NODELAY was disabled. The old client skipped its override while NIO enabled TCP_NODELAY by default; its explicit `1` used the wrong option level. See [the correction and validation](benchmark-socket-options-2026-10-18.md). Raw measurements are preserved; rebaseline with verified socket values.
+
+
 > Superseded by `docs/benchmark-tier1-linux-verdict-2026-10-18.md` for the
 > overall campaign verdict (Tier-1 engine: 54/54 cells, all 8 aspects).
 > This document remains the stock-engine record (52/54 cells, one
@@ -139,7 +142,9 @@ user-get-c512 stays Hono on p99 (3.8ms vs 5.0ms) and consistency (1.11 vs
 - Docker Desktop VM adds a virtualization layer; absolute numbers are
   VM-specific, but all servers share it equally and round-to-round stability
   was excellent (typically +-2-5%).
-- Client `TCP_NODELAY=0` (VM denies the sockopt) — equal for all servers.
+- Client override flag `TCP_NODELAY=0` skipped the old override; actual values
+  were unqueried. The claim that the VM denies TCP_NODELAY was incorrect; see
+  the socket-option erratum above. The flag was equal for all servers.
 - `/tmp/js-bench` node_modules were refreshed with a Linux `bun install`
   (pure-JS deps; harmless outside the repo).
 - Bare-metal Linux with a separate load-generator machine remains the gold

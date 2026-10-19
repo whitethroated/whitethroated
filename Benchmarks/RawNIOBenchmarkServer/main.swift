@@ -31,8 +31,13 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
 
     private let allocator: ByteBufferAllocator
     private let body: ByteBuffer
+    private let streamFirstBody: ByteBuffer
+    private let streamSecondBody: ByteBuffer
+    private let responseStreamBenchmarks: Bool
     private let baseHeaders: HTTPHeaders
     private let http11Head: HTTPResponseHead
+    private let streamHTTP11Head: HTTPResponseHead
+    private let streamChunkedHTTP11Head: HTTPResponseHead
     private let emptyHeaders: HTTPHeaders
     private let emptyHTTP11Head: HTTPResponseHead
     private let jsonBody: ByteBuffer
@@ -45,12 +50,25 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
         )
     private var requestHead: HTTPRequestHead?
 
-    init(allocator: ByteBufferAllocator) {
+    init(
+        allocator: ByteBufferAllocator,
+        responseStreamBenchmarks: Bool
+    ) {
         self.allocator = allocator
+        self.responseStreamBenchmarks =
+            responseStreamBenchmarks
 
         var body = allocator.buffer(capacity: 13)
         body.writeString("Hello, World!")
         self.body = body
+
+        var streamFirstBody = allocator.buffer(capacity: 7)
+        streamFirstBody.writeString("Hello, ")
+        self.streamFirstBody = streamFirstBody
+
+        var streamSecondBody = allocator.buffer(capacity: 6)
+        streamSecondBody.writeString("World!")
+        self.streamSecondBody = streamSecondBody
 
         var headers = HTTPHeaders()
         headers.add(
@@ -70,6 +88,27 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             version: .http1_1,
             status: .ok,
             headers: headers
+        )
+
+        self.streamHTTP11Head = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: headers
+        )
+
+        var streamChunkedHeaders = HTTPHeaders()
+        streamChunkedHeaders.add(
+            name: "content-type",
+            value: "text/plain; charset=utf-8"
+        )
+        streamChunkedHeaders.add(
+            name: "date",
+            value: "Thu, 01 Jan 1970 00:00:00 GMT"
+        )
+        self.streamChunkedHTTP11Head = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: streamChunkedHeaders
         )
 
         var emptyHeaders = HTTPHeaders()
@@ -157,6 +196,40 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
     ) {
         switch requestHead.method {
         case .GET:
+            if responseStreamBenchmarks {
+                switch requestHead.uri {
+                case "/response-stream-known":
+                    writeResponseStream(
+                        requestHead: requestHead,
+                        head: streamHTTP11Head,
+                        flushFirstChunk: false,
+                        context: context
+                    )
+                    return
+
+                case "/response-stream":
+                    writeResponseStream(
+                        requestHead: requestHead,
+                        head: streamChunkedHTTP11Head,
+                        flushFirstChunk: false,
+                        context: context
+                    )
+                    return
+
+                case "/response-stream-flush":
+                    writeResponseStream(
+                        requestHead: requestHead,
+                        head: streamChunkedHTTP11Head,
+                        flushFirstChunk: true,
+                        context: context
+                    )
+                    return
+
+                default:
+                    break
+                }
+            }
+
             if requestHead.uri == "/prepared" {
                 writePlaintext(
                     requestHead: requestHead,
@@ -216,6 +289,56 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
             requestHead: requestHead,
             minimalHTTP11:
                 minimalHTTP11,
+            context: context
+        )
+    }
+
+    @inline(__always)
+    private func writeResponseStream(
+        requestHead: HTTPRequestHead,
+        head: HTTPResponseHead,
+        flushFirstChunk: Bool,
+        context: ChannelHandlerContext
+    ) {
+        let keepAlive = requestIsKeepAlive(
+            requestHead
+        )
+
+        context.write(
+            wrapOutboundOut(.head(head)),
+            promise: nil
+        )
+
+        if flushFirstChunk {
+            context.writeAndFlush(
+                wrapOutboundOut(
+                    .body(
+                        .byteBuffer(streamFirstBody)
+                    )
+                ),
+                promise: nil
+            )
+        } else {
+            context.write(
+                wrapOutboundOut(
+                    .body(
+                        .byteBuffer(streamFirstBody)
+                    )
+                ),
+                promise: nil
+            )
+        }
+
+        context.write(
+            wrapOutboundOut(
+                .body(
+                    .byteBuffer(streamSecondBody)
+                )
+            ),
+            promise: nil
+        )
+        finish(
+            keepAlive: keepAlive,
             context: context
         )
     }
@@ -752,6 +875,10 @@ let port = Int(
 let eventLoopThreads = Int(
     environment["WHITETHROATED_THREADS"] ?? ""
 ) ?? System.coreCount
+let responseStreamBenchmarks =
+    environment[
+        "WHITETHROATED_RESPONSE_STREAM_BENCHMARKS"
+    ] == "1"
 
 let group = MultiThreadedEventLoopGroup(
     numberOfThreads: eventLoopThreads
@@ -772,13 +899,9 @@ let bootstrap = ServerBootstrap(group: group)
     )
     .childChannelInitializer { channel in
         channel.setOption(
-            ChannelOptions.socketOption(.tcp_nodelay),
+            ChannelOptions.tcpOption(.tcp_nodelay),
             value: 1
         )
-        .flatMapError { _ in
-            channel.eventLoop
-                .makeSucceededVoidFuture()
-        }
         .flatMap {
             channel.pipeline
                 .configureHTTPServerPipeline(
@@ -789,7 +912,9 @@ let bootstrap = ServerBootstrap(group: group)
         .flatMap {
             channel.pipeline.addHandler(
                 RawBenchmarkHandler(
-                    allocator: channel.allocator
+                    allocator: channel.allocator,
+                    responseStreamBenchmarks:
+                        responseStreamBenchmarks
                 )
             )
         }

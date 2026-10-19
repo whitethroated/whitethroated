@@ -157,6 +157,7 @@ private enum BenchmarkClientError:
 {
     case connectionClosed(completed: Int, target: Int)
     case unexpectedStatus(UInt)
+    case unexpectedTCPNoDelay(expected: Int, actual: Int)
 
     var description: String {
         switch self {
@@ -165,6 +166,8 @@ private enum BenchmarkClientError:
 
         case .unexpectedStatus(let status):
             return "unexpected HTTP status \(status)"
+        case .unexpectedTCPNoDelay(let expected, let actual):
+            return "TCP_NODELAY mismatch: expected \(expected), observed \(actual)"
         }
     }
 }
@@ -398,6 +401,7 @@ connections.reserveCapacity(
 private var loopIndexByID:
     [ObjectIdentifier: Int] = [:]
 private var connectionLoopIndices: [Int] = []
+private var observedTCPNoDelayValues: Set<Int> = []
 connectionLoopIndices.reserveCapacity(
     configuration.connections
 )
@@ -407,8 +411,11 @@ for index in 0..<configuration.connections {
         baseRequests
         + (index < extraRequests ? 1 : 0)
 
+    // Select once: advancing the group for both a promise and bootstrap
+    // skips half the channel loops when the configured count is even.
+    let eventLoop = group.next()
     let donePromise =
-        group.next().makePromise(
+        eventLoop.makePromise(
             of: BenchmarkConnectionResult.self
         )
 
@@ -421,17 +428,12 @@ for index in 0..<configuration.connections {
     )
 
     var bootstrap = ClientBootstrap(
-        group: group
+        group: eventLoop
     )
-
-    if configuration.tcpNoDelay {
-        bootstrap = bootstrap.channelOption(
-            ChannelOptions.socketOption(
-                .tcp_nodelay
-            ),
-            value: 1
-        )
-    }
+    .channelOption(
+        ChannelOptions.tcpOption(.tcp_nodelay),
+        value: configuration.tcpNoDelay ? 1 : 0
+    )
 
     bootstrap = bootstrap.channelInitializer { channel in
         channel.eventLoop
@@ -454,6 +456,19 @@ for index in 0..<configuration.connections {
             port: configuration.port
         )
         .wait()
+
+    // Verify every socket before starting the timer. Skipping an override
+    // does not disable NIO's default TCP_NODELAY setting.
+    let actualNoDelay = Int(
+        try channel.getOption(
+            ChannelOptions.tcpOption(.tcp_nodelay)
+        ).wait()
+    )
+    let expectedNoDelay = configuration.tcpNoDelay ? 1 : 0
+    guard actualNoDelay == expectedNoDelay else {
+        throw BenchmarkClientError.unexpectedTCPNoDelay(expected: expectedNoDelay, actual: actualNoDelay)
+    }
+    observedTCPNoDelayValues.insert(actualNoDelay)
 
     connections.append(
         BenchmarkConnection(
@@ -596,6 +611,11 @@ print(
         : "off"
     )
 )
+print(
+    "channel_event_loops="
+    + String(loopIndexByID.count)
+)
+print("tcp_nodelay_observed=" + observedTCPNoDelayValues.sorted().map(String.init).joined(separator: ","))
 print(
     "requests="
     + String(completedRequests)

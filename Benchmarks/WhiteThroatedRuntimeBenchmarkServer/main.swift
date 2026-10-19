@@ -13,6 +13,7 @@ import WhiteThroatedRuntime
 //   GET /user/:id  -> echo :id as text/plain
 //   POST /user     -> empty 200
 //   GET /json      -> small JSON as application/json
+//   GET /response-stream-* -> opt-in response-stream controls
 
 let environment = ProcessInfo.processInfo.environment
 let host = environment["WHITETHROATED_HOST"] ?? "127.0.0.1"
@@ -22,6 +23,10 @@ let port = Int(
 let eventLoopThreads = Int(
     environment["WHITETHROATED_THREADS"] ?? ""
 )
+let responseStreamBenchmarks =
+    environment[
+        "WHITETHROATED_RESPONSE_STREAM_BENCHMARKS"
+    ] == "1"
 
 private func fixedPrepared(
     status: HTTPResponseStatus,
@@ -96,6 +101,72 @@ private let notFoundStorage = fixedPrepared(
     body: "Not Found"
 )
 
+private let streamKnownHeaders: HTTPHeaders = {
+    var headers = HTTPHeaders()
+    headers.add(
+        name: "content-type",
+        value: "text/plain; charset=utf-8"
+    )
+    headers.add(name: "content-length", value: "13")
+    headers.add(
+        name: "date",
+        value: "Thu, 01 Jan 1970 00:00:00 GMT"
+    )
+    return headers
+}()
+
+private let streamChunkedHeaders: HTTPHeaders = {
+    var headers = HTTPHeaders()
+    headers.add(
+        name: "content-type",
+        value: "text/plain; charset=utf-8"
+    )
+    headers.add(
+        name: "date",
+        value: "Thu, 01 Jan 1970 00:00:00 GMT"
+    )
+    return headers
+}()
+
+private func streamResponse(
+    knownLength: Bool,
+    flushFirstChunk: Bool
+) -> RuntimeResponse {
+    RuntimeResponse(
+        status: .ok,
+        headers: knownLength
+            ? streamKnownHeaders
+            : streamChunkedHeaders,
+        body: .stream(
+            RuntimeResponseStream(
+                produce: { writer in
+                    if flushFirstChunk {
+                        return writer
+                            .writeStringAndFlush(
+                                "Hello, "
+                            ).flatMap {
+                                writer.writeString(
+                                    "World!"
+                                )
+                            }
+                    }
+
+                    return writer
+                        .writeString("Hello, ")
+                        .flatMap {
+                            writer.writeString(
+                                "World!"
+                            )
+                        }
+                },
+                expectedContentLength:
+                    knownLength ? 13 : nil
+            )
+        ),
+        contentLengthIsNormalized: knownLength
+    )
+}
+
 private let userPrefix = "/user/"
 private let userPrefixLength = 6
 
@@ -130,6 +201,43 @@ private let dispatcher = RuntimeDispatcher(
     lookup: { head in
         switch head.method {
         case .GET:
+            if responseStreamBenchmarks {
+                switch head.uri {
+                case "/response-stream-known":
+                    return .sync(
+                        RuntimeSyncAction { _ in
+                            streamResponse(
+                                knownLength: true,
+                                flushFirstChunk: false
+                            )
+                        }
+                    )
+
+                case "/response-stream":
+                    return .sync(
+                        RuntimeSyncAction { _ in
+                            streamResponse(
+                                knownLength: false,
+                                flushFirstChunk: false
+                            )
+                        }
+                    )
+
+                case "/response-stream-flush":
+                    return .sync(
+                        RuntimeSyncAction { _ in
+                            streamResponse(
+                                knownLength: false,
+                                flushFirstChunk: true
+                            )
+                        }
+                    )
+
+                default:
+                    break
+                }
+            }
+
             if head.uri == "/" {
                 return .prepared(emptyOK)
             }
