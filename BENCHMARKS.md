@@ -210,11 +210,24 @@ WHITETHROATED_BENCH_REQUESTS=1000000 \
 swift run -c release whitethroated-benchmark-client
 ```
 
-The client opens all connections before starting the timer and keeps exactly one request in flight per connection. Connection establishment is therefore excluded from measured throughput, and raw-NIO/WhiteThroated comparisons use the same HTTP client implementation. `WHITETHROATED_BENCH_METHOD` selects the request method and defaults to `GET`, which allows the same client to exercise the external `GET /`, `GET /user/:id`, and `POST /user` contract without changing source. `WHITETHROATED_BENCH_THREADS` can override the client event-loop thread count. `WHITETHROATED_BENCH_TCP_NODELAY=0` disables the client-side TCP_NODELAY socket option for restricted or diagnostic environments; keep the same setting across compared servers. Connection-close errors report completed versus target requests for the failed connection. The client always reports completed requests, requests per second, response-body bytes, and response-body MiB/s. Body throughput intentionally excludes HTTP framing/header bytes; use the same response payload and headers when comparing servers.
+The client opens all connections before starting the timer and keeps exactly one request in flight per connection. Connection establishment is therefore excluded from measured throughput, and raw-NIO/WhiteThroated comparisons use the same HTTP client implementation. `WHITETHROATED_BENCH_METHOD` selects the request method and defaults to `GET`, which allows the same client to exercise the external `GET /`, `GET /user/:id`, and `POST /user` contract without changing source. `WHITETHROATED_BENCH_THREADS` can override the client event-loop thread count. `WHITETHROATED_BENCH_TCP_NODELAY=0` explicitly disables client-side TCP_NODELAY; the default enables it. The client applies the TCP-level option and verifies every socket before the timer starts, then prints `tcp_nodelay_observed` after measurement; an unexpected value fails the run. Keep requested and observed settings identical across compared servers. Connection-close errors report completed versus target requests for the failed connection. The client always reports completed requests, requests per second, response-body bytes, and response-body MiB/s. Body throughput intentionally excludes HTTP framing/header bytes; use the same response payload and headers when comparing servers.
 
 Set `WHITETHROATED_BENCH_LATENCY=1` to collect per-request cycle latency after the first request on each connection. The client reports minimum, average, p50, p75, p90, p99, p99.999, and maximum microseconds. Latency samples are sorted only after the throughput timer stops; timestamp collection itself remains part of the measured client workload, so use the same latency setting on every server being compared.
 
 For the external concurrency matrix, run separate throughput-only and latency-enabled samples at 64, 256, and 512 concurrent connections. The throughput-only sample is the primary RPS result; the latency-enabled sample is the paired distribution result.
+
+The client selects one event loop per connection and creates its completion
+promise on that same loop. It always reports `channel_event_loops` after the
+timed phase; with at least as many connections as configured threads, every
+configured loop must be used. `BenchmarkClientLoopTests` checks real channel
+distribution at 1/2/3/4/8 threads without timing thresholds.
+
+Historical client versions through `31f3be6` advanced the event-loop group
+once for the promise and again for bootstrap. Four requested threads therefore
+used only two channel loops. The corrected client changes generator capacity
+and completion scheduling. **Rebaseline every framework and raw control with
+the corrected client before comparing results.** Do not merge historical and
+corrected-client samples or attribute that difference to server optimization.
 
 For a raw lower-bound comparison, run `raw-nio-benchmark-server` with the same server thread count, port, client connection count, and total request count. The raw server implements `GET /prepared` plus the external `GET /`, `GET /user/:id`, and `POST /user` contract, so each framework route can be compared against a minimal SwiftNIO control with matching response semantics. Its dynamic parameter route uses the same short-response header-cache strategy and reusable HTTP/1.1 response-head template as WhiteThroated, preventing the raw control from being artificially penalized by repeated header-array and response-head storage construction. The client is intended for comparative loopback or separate-host diagnostics; use an independent load generator as an additional validation before publishing benchmark claims.
 
@@ -268,6 +281,22 @@ WHITETHROATED_RESPONSE_STREAM_BENCHMARKS=1 \
 swift run -c release whitethroated-benchmark-server
 ```
 
+The raw SwiftNIO server exposes matching HTTP/1.1 response-stream controls
+under the same opt-in flag. It recognizes `/response-stream-known`,
+`/response-stream`, and `/response-stream-flush`, emits the same 13-byte body
+in two writes, and flushes after the first write only for the flush route. Use
+these routes as a strict transport lower bound; the raw control uses cached
+heads and chunks and intentionally performs no framework routing. Verify exact
+wire headers and body before every campaign.
+
+The `whitethroated-runtime-benchmark-server` exposes the same three routes
+under the same flag. Use the three-way raw/runtime/framework matrix to locate
+the gap: runtime minus raw covers the Tier 1 transport and runtime response
+orchestration; framework minus runtime covers Application routing, public
+Request/Response construction, and the framework-to-runtime stream bridge.
+Keep headers, body, write count, flush placement, threads, and client settings
+identical across all three servers.
+
 Enable router stress routes:
 
 ```bash
@@ -302,6 +331,10 @@ WHITETHROATED_THREADS=4 \
 swift run -c release raw-nio-benchmark-server
 ```
 
+For the opt-in raw response-stream controls, add
+`WHITETHROATED_RESPONSE_STREAM_BENCHMARKS=1` and use HTTP/1.1 with the same
+keep-alive request shape as the framework campaign.
+
 The control is intentionally a transport lower bound rather than a router benchmark: every GET path returns the same fixed `Hello, World!` response. Its payload, content type, content length, fixed Date header, HTTP/1.1 pipeline, socket options, and pipelining assistance match WhiteThroated's prepared baseline.
 
 Always send the exact same request target to both processes. For example, compare raw SwiftNIO `/prepared` against WhiteThroated `/prepared`, then raw SwiftNIO `/plaintext` against WhiteThroated `/plaintext`. This keeps URI bytes identical while making the raw control a strict lower bound that does no framework routing.
@@ -320,6 +353,10 @@ swift run -c release whitethroated-runtime-benchmark-server
 ```
 
 This server drives `WhiteThroatedRuntime` through a hand-built dispatcher with no `Application`, no framework router, no middleware, and no Request/Response types. It implements the same external `GET /`, `GET /user/:id`, `POST /user` contract, so the three-way comparison raw-vs-runtime-vs-framework separates transport overhead (runtime minus raw) from framework overhead (framework minus runtime). When framework throughput regresses against raw, check the runtime level first: a runtime-vs-raw gap points at the transport port, while a framework-vs-runtime gap points at routing, Request/Response construction, or the dispatcher bridge.
+
+With `WHITETHROATED_RESPONSE_STREAM_BENCHMARKS=1`, it also implements the
+known-length, chunked, and explicit-first-chunk-flush response-stream contract.
+These routes remain absent from the default dispatcher.
 
 ## Multi-process topology
 
@@ -614,3 +651,69 @@ WHITETHROATED_CAMPAIGN_INTEGRATION=1 swift test -c release --filter CampaignLife
 They require loopback access and unused test ports 3470/3480/3490. Normal test runs
 skip these three subprocess tests; an explicitly enabled full release run executes
 them along with the suite. They verify correctness and cleanup, never timing wins.
+
+
+The opt-in `RuntimeServerPipelineTests` HTTP/1 diagnostic also includes
+`mode=prepared` and `mode=canonical`, returning immutable prepared storage
+and a text response with canonical metadata, respectively,
+constructed at fixture setup, beside generic sync and streaming modes.
+This keeps metadata construction outside its timed request loop. It reports
+six alternating stock/Tier 1 rounds without timing assertions. The
+[2026-10-18 canonical-response experiment](docs/benchmark-canonical-response-2026-10-18.md)
+was rejected for extreme-tail regressions; its corrected-client baseline and
+per-round metrics are retained for further work. The two-round fresh baseline
+is not an external-framework comparison or evidence of a universal win.
+
+
+The [prepared-head conversion experiment](docs/benchmark-prepared-head-2026-10-18.md)
+was also rejected after a separate six-round long confirmation retained a
+root c256 extreme-tail regression. Its runtime diff is archived in the report,
+not applied. Keep the prepared diagnostic and equivalence tests as cost and
+semantic controls; the local throughput improvement does not establish the
+full performance goal.
+
+
+## TCP socket-option correction
+
+The [2026-10-18 socket-option report](docs/benchmark-socket-options-2026-10-18.md)
+corrects a second historical harness issue, separate from loop distribution.
+Old client `TCP_NODELAY=0` skipped its override; pinned NIO's bootstrap enabled
+TCP_NODELAY by default. The old `tcp_nodelay=off` output described the flag,
+not a queried socket value. Explicit `1` used `socketOption(.tcp_nodelay)` at
+SOL_SOCKET and could fail with Permission denied, rather than setting the TCP
+option. This failure is not evidence that the VM prohibits TCP_NODELAY.
+Runtime/raw server setup had the same wrong-level call and swallowed errors.
+
+Both servers now require `tcpOption(.tcp_nodelay)=1` during accepted-channel
+setup. Client 0/1/default values are explicitly set and read back before load.
+No per-request instrumentation is added. Preserve historical raw logs and
+interpret their socket labels through the erratum; do not compare a corrected
+flag-0 run as though it used the historical effective setting. Rebaseline every
+control with the corrected binaries and observed values before new claims.
+
+
+The [identical-executable placement diagnostic](docs/benchmark-executable-placement-2026-10-18.md)
+removed client process major faults on container-local storage without a
+consistent tail-latency improvement. Keep process-envelope counters separate
+from timed-request attribution. Its subsequent signal-based CPU captures are
+diagnostic/instrumented runs, not throughput evidence; symbolization validation
+is pending. Never pool their timings with the native baseline or infer a
+framework win from moving a benchmark executable.
+
+
+## Header-decoding experiment and retained pipeline diagnostic
+
+The [2026-10-19 header-view experiment](docs/benchmark-header-views-2026-10-19.md)
+was rejected after 576 primary samples and 36 longer selected-tail samples.
+Local codec/pipeline and native throughput gains did not establish a safe tail
+latency gate. The package API/runtime change and its candidate-only tests were
+withdrawn; exact candidate diffs and test sources remain in the experiment JSON.
+There is no active `WHITETHROATED_HEADER_VIEW_BENCHMARK` test command.
+
+The retained pipeline diagnostic accepts `WHITETHROATED_HTTP1_EXTRA_HEADERS=8`
+(default 0, allowed 0...32) to exercise additional input headers in prepared,
+sync, canonical and response-stream cases. Header generation is fixture-setup
+work. It has no timing pass/fail threshold. Native experiment measurements used
+one frozen external Swift diagnostic client for 0/8 extra-header workloads;
+that setup-only selector is not an option in the repository's normal client.
+Do not treat a codec ns/op reduction as end-to-end evidence.

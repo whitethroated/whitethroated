@@ -91,6 +91,16 @@ event-loop groups and server bootstrap live in the runtime.
 dispatcher concepts. The runtime converts parsed heads to NIOHTTP1 types
 at the dispatcher boundary; this conversion remains request-time work.
 
+## Accepted socket setup
+
+Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`
+sets TCP_NODELAY through NIO's TCP-level `tcpOption` API. Failure propagates to
+channel initialization; it is not silently ignored. This work runs once per
+accepted connection on its event loop and adds no request-path work. Real-socket
+coverage starts the child with TCP_NODELAY disabled and checks that production
+setup enables it, so listener inheritance cannot hide an ineffective override.
+The raw NIO control uses the same TCP option and failure policy.
+
 ## Transport selection
 
 `RuntimeServer` installs `WTHTTP1ConnectionHandler` by default. It combines
@@ -525,6 +535,13 @@ Unknown-length streams do not allocate or update a length tracker.
 `Content-Length` detection scans response headers directly and parses decimal digits from UTF-8 bytes. The success path does not materialize SwiftNIO's canonical header-value array or create an intermediate numeric `String`; duplicate/comma-combined and invalid values allocate diagnostics only on the error path.
 
 `ResponseStreamWriter.write(...)` is a buffered enqueue operation. It writes into the NIO pipeline without installing a per-write completion promise and returns the event loop's cached succeeded `Void` future. This lets producers compose buffered writes with `flatMap` without waiting for a flush that only occurs when the producer completes. `writeAndFlush(...)` remains the explicit API for callers that need a future tied to a flushed transport write.
+
+The framework installs its runtime-stream error mapper once when it creates a
+`ResponseStreamWriter`. Declared-length violations are therefore converted to
+the public `ResponseStreamError` before their failed future is created. A
+successful chunk write returns the transport's original future without adding
+an error-mapping future, while foreign producer or channel errors retain their
+original identity.
 
 A `Response.fileRegion` body is written as `IOData.fileRegion` directly. WhiteThroated derives content length from the region and does not copy file bytes into a `ByteBuffer`. The caller retains ownership of the underlying file handle and must keep it valid until the write completes.
 

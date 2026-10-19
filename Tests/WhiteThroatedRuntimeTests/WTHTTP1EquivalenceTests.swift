@@ -100,6 +100,14 @@ final class WTHTTP1EquivalenceTests: XCTestCase {
         )
     }
 
+    func testDecodedHeadersKeepOrderCaseEmptyValuesAndRefreshOnCacheHit() throws {
+        try assertEquivalent(writes: [
+            "GET /inspect-headers HTTP/1.1\r\nHost: x\r\nX-Case: café\r\nX-Empty:\r\nX-Case: second\r\n\r\n",
+            "GET /inspect-headers HTTP/1.1\r\nHost: y\r\nx-case: changed\r\nX-Empty: now set\r\n\r\n",
+            "GET /inspect-headers HTTP/1.1\r\nHost: z\r\n\r\n",
+        ])
+    }
+
     func testPreparedTwice() throws {
         try assertEquivalent(
             writes: [
@@ -107,6 +115,36 @@ final class WTHTTP1EquivalenceTests: XCTestCase {
                 "GET /prep HTTP/1.1\r\nHost: x\r\n\r\n",
             ]
         )
+    }
+
+    func testPreparedCacheHitRetainsFallbackAndIdentitySemantics() throws {
+        try assertEquivalent(writes: [
+            "GET /prep HTTP/1.1\r\nHost: x\r\n\r\n",
+            "GET /prep HTTP/1.1\r\n\r\n",
+            "GET /prep HTTP/1.1\r\nHoSt: other\r\n\r\n",
+            "HEAD /prep HTTP/1.1\r\nHost: x\r\n\r\n",
+            "HEAD /prep HTTP/1.1\r\nHost: x\r\n\r\n",
+            "GET / HTTP/1.1\r\nHost: x\r\n\r\n",
+            "GET /prep HTTP/1.1\r\nHost: x\r\n\r\n",
+            "GET /prep?query=1 HTTP/1.1\r\nHost: x\r\n\r\n",
+            "GET /prep HTTP/1.1\r\nHost: x\r\nContent-Length: 3\r\n\r\nabc",
+            "GET /prep HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+            "GET /prep HTTP/1.0\r\nConnection: keep-alive\r\n\r\n",
+            "GET /prep HTTP/1.1\r\nHost: x\r\nX-Extra: value\r\n\r\n",
+            "GET /prep HTTP/1.1\r\nHost: x\r\n\r\n",
+        ])
+    }
+
+    func testPreparedCacheHitDoesNotIgnoreConnectionClose() throws {
+        let fixture = EquivalenceFixture()
+        try fixture.writeBoth("GET /prep HTTP/1.1\r\nHost: x\r\n\r\n")
+        try fixture.assertEqual()
+        try fixture.writeBoth("GET /prep HTTP/1.1\r\nHost: x\r\n\r\n")
+        try fixture.assertEqual()
+        try fixture.writeBoth("GET /prep HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        try fixture.assertEqual()
+        XCTAssertFalse(fixture.stockChannel.isActive)
+        XCTAssertFalse(fixture.tier1Channel.isActive)
     }
 
     func testHeadPrepared() throws {
@@ -1379,6 +1417,11 @@ private final class EquivalenceFixture {
             "GET /ws": .sync(
                 RuntimeSyncAction { _ in
                     Self.text("ws")
+                }
+            ),
+            "GET /inspect-headers": .sync(
+                RuntimeSyncAction { request in
+                    Self.text(request.head.headers.map { "\($0.name)=\($0.value)" }.joined(separator: "|"))
                 }
             ),
             "POST /echo": .sync(

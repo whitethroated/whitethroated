@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-19",
+  "decision": "reject-and-withdraw",
+  "samples": 108,
+  "requests": 54000000,
+  "rounds": 3,
+  "requests_per_sample": 500000,
+  "connections": [64, 512],
+  "modes": ["known", "chunked", "flush"],
+  "rps_median_cells_buffer_worse": 6,
+  "rps_total_cells": 6,
+  "rps_paired_rounds_buffer_worse": 17,
+  "rps_total_paired_rounds": 18,
+  "p99_median_cells_buffer_worse": 6,
+  "resource_totals": {
+    "cpu_throttled_events": 0,
+    "oom_events": 0,
+    "oom_kills": 0,
+    "server_major_page_faults": 0,
+    "tcp_retransmitted_segments": 10407,
+    "tcp_timeouts": 0,
+    "tcp_input_errors": 0,
+    "tcp_output_resets": 0
+  },
+  "medians": [
+    {"mode":"known","connections":64,"string_rps":130394,"buffer_rps":125891,"raw_rps":157047,"string_p99_us":1033,"buffer_p99_us":1097,"raw_p99_us":857},
+    {"mode":"known","connections":512,"string_rps":131040,"buffer_rps":128710,"raw_rps":165037,"string_p99_us":6222,"buffer_p99_us":6747,"raw_p99_us":5626},
+    {"mode":"chunked","connections":64,"string_rps":117641,"buffer_rps":113299,"raw_rps":126880,"string_p99_us":1147,"buffer_p99_us":1182,"raw_p99_us":1084},
+    {"mode":"chunked","connections":512,"string_rps":120617,"buffer_rps":116629,"raw_rps":133657,"string_p99_us":6434,"buffer_p99_us":6722,"raw_p99_us":6126},
+    {"mode":"flush","connections":64,"string_rps":96671,"buffer_rps":94611,"raw_rps":108988,"string_p99_us":1358,"buffer_p99_us":1375,"raw_p99_us":1217},
+    {"mode":"flush","connections":512,"string_rps":95533,"buffer_rps":92588,"raw_rps":111638,"string_p99_us":7889,"buffer_p99_us":7969,"raw_p99_us":7727}
+  ],
+  "wire_preflight_equal": true,
+  "candidate_routes_retained": false
+}

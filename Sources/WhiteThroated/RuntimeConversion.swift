@@ -128,6 +128,15 @@ internal func mapRuntimeStreamError(
         return error
     }
 
+    return mapRuntimeStreamError(streamError)
+}
+
+/// Maps a synchronous runtime length violation before its failed
+/// future is created, avoiding a successful-write mapping future.
+internal func mapRuntimeStreamError(
+    _ streamError: RuntimeStreamError
+) -> ResponseStreamError {
+
     switch streamError {
     case .invalidContentLength(let value):
         return ResponseStreamError

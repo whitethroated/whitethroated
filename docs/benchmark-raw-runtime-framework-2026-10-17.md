@@ -1,5 +1,8 @@
 # Raw SwiftNIO vs WhiteThroatedRuntime vs WhiteThroated — benchmark report
 
+> Socket-option erratum: historical `tcp_nodelay=off` / override `0` labels did not prove TCP_NODELAY was disabled. The old client skipped its override while NIO enabled TCP_NODELAY by default; its explicit `1` used the wrong option level. See [the correction and validation](benchmark-socket-options-2026-10-18.md). Raw measurements are preserved; rebaseline with verified socket values.
+
+
 Date: 2026-10-17. Machine: Apple M1 Pro (8 cores), 16 GB, macOS
 26.6.2. Toolchain: Swift 6.2.4, SwiftNIO exactly 2.104.0, release
 builds. Commit: refactor introducing the internal

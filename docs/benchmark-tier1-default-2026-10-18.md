@@ -1,5 +1,8 @@
 # Tier 1 default-transport validation (2026-10-18)
 
+> Socket-option erratum: historical `tcp_nodelay=off` / override `0` labels did not prove TCP_NODELAY was disabled. The old client skipped its override while NIO enabled TCP_NODELAY by default; its explicit `1` used the wrong option level. See [the correction and validation](benchmark-socket-options-2026-10-18.md). Raw measurements are preserved; rebaseline with verified socket values.
+
+
 Tier 1 is now the preferred HTTP/1 transport. Applications registering any
 request-body streaming route use the stock SwiftNIO pipeline for the entire
 application. Explicit `useTier1HTTP1Experimental: false` also selects stock.
@@ -94,7 +97,7 @@ SwiftBuild backend. Server processes have two event-loop threads and CPU
 affinity 0–3; the same current benchmark client is pinned to CPUs 4–7.
 The client requests four threads but uses two loops because of the existing
 double `group.next()` behavior; this harness limitation is held constant.
-HTTP/1.1, persistent connections, no TLS/compression, client TCP_NODELAY off.
+HTTP/1.1, persistent connections, no TLS/compression, client override flag `TCP_NODELAY=0` (effective value unverified).
 
 Each cell has a 20,000-request warm-up followed by separate throughput and
 latency samples of 250,000 requests. Four rounds alternate server order.

@@ -1,5 +1,8 @@
 # WhiteThroated vs actix-web vs rama — benchmark report
 
+> Socket-option erratum: historical `tcp_nodelay=off` / override `0` labels did not prove TCP_NODELAY was disabled. The old client skipped its override while NIO enabled TCP_NODELAY by default; its explicit `1` used the wrong option level. See [the correction and validation](benchmark-socket-options-2026-10-18.md). Raw measurements are preserved; rebaseline with verified socket values.
+
+
 Date: 2026-10-16/17. Machine: Apple M1 Pro (8 cores), macOS 26.6.2.
 Toolchain: Swift 6.2.4, SwiftNIO exactly 2.104.0, Rust 1.99.0,
 actix-web =4.8.0, rama =0.4.0 (`http-full`).

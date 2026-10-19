@@ -1,5 +1,8 @@
 # Pooled topology baseline — diagnostic, not a Pareto win
 
+> Socket-option erratum: historical `tcp_nodelay=off` / override `0` labels did not prove TCP_NODELAY was disabled. The old client skipped its override while NIO enabled TCP_NODELAY by default; its explicit `1` used the wrong option level. See [the correction and validation](benchmark-socket-options-2026-10-18.md). Raw measurements are preserved; rebaseline with verified socket values.
+
+
 Date: 2026-10-17. Verdict **C: variance prevents accepting a topology
 optimization from this campaign**. No production optimization was made.
 The broader competitor objective remains unmet: existing macOS comparisons show

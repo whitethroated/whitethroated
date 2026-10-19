@@ -1,5 +1,8 @@
 # Tier-1 Linux verdict: WhiteThroated leads all 8 aspects (2026-10-18)
 
+> Socket-option erratum: historical `tcp_nodelay=off` / override `0` labels did not prove TCP_NODELAY was disabled. The old client skipped its override while NIO enabled TCP_NODELAY by default; its explicit `1` used the wrong option level. See [the correction and validation](benchmark-socket-options-2026-10-18.md). Raw measurements are preserved; rebaseline with verified socket values.
+
+
 Transport-status update: this is the historical campaign at `4acc77c`.
 Tier 1 is now the preferred default, with application-wide stock fallback
 for request streaming. The original rankings are not new-default measurements;
@@ -57,8 +60,10 @@ verified byte-exact (500k x "42" = 1,000,000 bytes) on every run.
 Same isolated-Linux rig as the previous verdict: Docker `swift:6.4.0-noble`
 (CI image) on Apple M1 Pro 8-core, Bun 1.4.3+c6da4a4d3 (Rust line),
 Express 5.3.0, Hono 4.13.13, release builds, 500k req/cell, servers on
-CPUs 0-3, client (4 threads) on CPUs 4-7, `TCP_NODELAY=0` (VM denies the
-sockopt; equal for all).
+CPUs 0-3, client (4 threads) on CPUs 4-7, legacy override flag
+`TCP_NODELAY=0` (equal for all, but not an effective off value). The old
+wrong-level setsockopt failure was not a VM TCP_NODELAY restriction; see the
+socket-option erratum above.
 
 Servers: express-8 (:3010), hono-8 (:3011), wt2-stock (:3012),
 tier1-2 (:3020), tier1-4 (:3021), tier1-8 (:3022), hono-2 (:3031),
