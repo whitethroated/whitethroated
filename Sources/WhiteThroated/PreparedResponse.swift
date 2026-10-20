@@ -230,29 +230,40 @@ public struct PreparedResponse: Sendable {
         _ value: String
     ) -> PreparedResponse {
         var headers = response.headers
-        let normalizedValue: String
 
         if
-            name.compare(
-                "content-length",
-                options: .caseInsensitive
-            ) == .orderedSame
+            HTTPContentLength
+                .isTransferEncodingName(name)
         {
-            normalizedValue =
+            // Prepared bodies always have an exact setup-time
+            // Content-Length. Transfer-Encoding would make that
+            // framing ambiguous, so it cannot be attached to this
+            // representation.
+            headers.remove(
+                name: "transfer-encoding"
+            )
+        } else {
+            let normalizedValue: String
+
+            if HTTPContentLength
+                .isContentLengthName(name)
+            {
+                normalizedValue =
                 response.headers.first(
                     name: "content-length"
                 )
                 ?? String(
                     bodyBuffer?.readableBytes ?? 0
                 )
-        } else {
-            normalizedValue = value
-        }
+            } else {
+                normalizedValue = value
+            }
 
-        headers.replaceOrAdd(
-            name: name,
-            value: normalizedValue
-        )
+            headers.replaceOrAdd(
+                name: name,
+                value: normalizedValue
+            )
+        }
 
         var response = response
         response.headers = headers

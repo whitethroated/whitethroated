@@ -147,6 +147,12 @@ final class WTHTTP1EquivalenceTests: XCTestCase {
         XCTAssertFalse(fixture.tier1Channel.isActive)
     }
 
+    func testResponseFallbackRepairsConflictingTransferEncoding() throws {
+        try assertEquivalent(writes: [
+            "GET /framing-conflict HTTP/1.1\r\nHost: x\r\n\r\n"
+        ])
+    }
+
     func testHeadPrepared() throws {
         try assertEquivalent(
             writes: [
@@ -1422,6 +1428,18 @@ private final class EquivalenceFixture {
             "GET /inspect-headers": .sync(
                 RuntimeSyncAction { request in
                     Self.text(request.head.headers.map { "\($0.name)=\($0.value)" }.joined(separator: "|"))
+                }
+            ),
+            "GET /framing-conflict": .sync(
+                RuntimeSyncAction { _ in
+                    RuntimeResponse(
+                        status: .ok,
+                        headers: HTTPHeaders([
+                            ("content-length", "5"),
+                            ("transfer-encoding", "chunked"),
+                        ]),
+                        body: .text("hello")
+                    )
                 }
             ),
             "POST /echo": .sync(

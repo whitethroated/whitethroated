@@ -8,7 +8,7 @@ extension Response {
         let preserveContentLength =
             contentLengthIsNormalized
             && !HTTPContentLength
-                .isContentLengthName(name)
+                .isFramingName(name)
 
         headers.replaceOrAdd(
             name: name,
@@ -27,7 +27,7 @@ extension Response {
         let preserveContentLength =
             contentLengthIsNormalized
             && !HTTPContentLength
-                .isContentLengthName(name)
+                .isFramingName(name)
 
         headers.add(
             name: name,
