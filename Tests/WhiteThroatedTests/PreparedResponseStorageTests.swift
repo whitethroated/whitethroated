@@ -62,6 +62,27 @@ final class PreparedResponseStorageTests: XCTestCase {
         )
     }
 
+    func testPreparedBodyRejectsTransferEncodingHeader() {
+        let prepared = PreparedResponse
+            .text("payload")
+            .header(
+                "Transfer-Encoding",
+                "chunked"
+            )
+
+        XCTAssertEqual(
+            prepared.http11Head.headers.first(
+                name: "content-length"
+            ),
+            "7"
+        )
+        XCTAssertNil(
+            prepared.http11Head.headers.first(
+                name: "transfer-encoding"
+            )
+        )
+    }
+
     func testBodylessPreparedStorageDropsCachedWriterBody() {
         let noContent = PreparedResponse.text(
             "payload",

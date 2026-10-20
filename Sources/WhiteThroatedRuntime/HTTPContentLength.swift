@@ -6,6 +6,11 @@ public enum HTTPContentLength {
         45, 108, 101, 110, 103, 116, 104
     ]
 
+    private static let transferEncodingNameBytes: [UInt8] = [
+        116, 114, 97, 110, 115, 102, 101, 114,
+        45, 101, 110, 99, 111, 100, 105, 110, 103
+    ]
+
     @inline(__always)
     public static func declaredExceedsLimit(
         _ headers: HTTPHeaders,
@@ -52,18 +57,47 @@ public enum HTTPContentLength {
     public static func isContentLengthName(
         _ name: String
     ) -> Bool {
+        isName(
+            name,
+            equalTo: contentLengthNameBytes
+        )
+    }
+
+    @inline(__always)
+    public static func isTransferEncodingName(
+        _ name: String
+    ) -> Bool {
+        isName(
+            name,
+            equalTo: transferEncodingNameBytes
+        )
+    }
+
+    @inline(__always)
+    public static func isFramingName(
+        _ name: String
+    ) -> Bool {
+        isContentLengthName(name)
+            || isTransferEncodingName(name)
+    }
+
+    @inline(__always)
+    private static func isName(
+        _ name: String,
+        equalTo expectedBytes: [UInt8]
+    ) -> Bool {
         let bytes = name.utf8
 
         guard
             bytes.count
-                == contentLengthNameBytes.count
+                == expectedBytes.count
         else {
             return false
         }
 
         var index = bytes.startIndex
 
-        for expectedByte in contentLengthNameBytes {
+        for expectedByte in expectedBytes {
             let byte = bytes[index]
             let folded =
                 byte >= 65 && byte <= 90

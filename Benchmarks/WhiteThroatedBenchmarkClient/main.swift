@@ -465,10 +465,13 @@ for index in 0..<configuration.connections {
         ).wait()
     )
     let expectedNoDelay = configuration.tcpNoDelay ? 1 : 0
-    guard actualNoDelay == expectedNoDelay else {
-        throw BenchmarkClientError.unexpectedTCPNoDelay(expected: expectedNoDelay, actual: actualNoDelay)
+    // POSIX defines a zero/nonzero boolean contract for this option;
+    // Darwin may return a nonzero representation other than exactly 1.
+    let normalizedNoDelay = actualNoDelay == 0 ? 0 : 1
+    guard normalizedNoDelay == expectedNoDelay else {
+        throw BenchmarkClientError.unexpectedTCPNoDelay(expected: expectedNoDelay, actual: normalizedNoDelay)
     }
-    observedTCPNoDelayValues.insert(actualNoDelay)
+    observedTCPNoDelayValues.insert(normalizedNoDelay)
 
     connections.append(
         BenchmarkConnection(

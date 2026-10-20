@@ -320,6 +320,39 @@ private func bufferString(
         }
     }
 
+    @Test func splitTrailerFloodRemainsBounded() throws {
+        let parser = WTHTTP1Parser(maxTrailerBytes: 12)
+        var buffer = chunkBuffer(
+            "0\r\nA: 1\r\n"
+        )
+        var state = WTHTTP1ChunkState()
+
+        #expect(
+            try parser.parseChunk(
+                from: &buffer,
+                state: &state
+            ) == .needMoreData
+        )
+
+        buffer.writeString("B: 2\r\n")
+        #expect(
+            try parser.parseChunk(
+                from: &buffer,
+                state: &state
+            ) == .needMoreData
+        )
+
+        buffer.writeString("\r\n")
+        #expect(
+            throws: WTHTTP1ParseError.badChunkFraming
+        ) {
+            _ = try parser.parseChunk(
+                from: &buffer,
+                state: &state
+            )
+        }
+    }
+
     @Test func sizeOverflow() throws {
         #expect(
             throws: WTHTTP1ParseError.badChunkFraming

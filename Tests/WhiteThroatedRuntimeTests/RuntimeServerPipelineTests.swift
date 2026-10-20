@@ -51,9 +51,9 @@ final class RuntimeServerPipelineTests: XCTestCase {
         let client = try ClientBootstrap(group: group)
             .connect(host: "127.0.0.1", port: port).wait()
         defer { try? client.close().wait() }
-        XCTAssertEqual(
+        XCTAssertNotEqual(
             Int(try observed.futureResult.wait()),
-            1
+            0
         )
     }
 

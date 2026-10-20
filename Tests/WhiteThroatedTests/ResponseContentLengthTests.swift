@@ -133,6 +133,27 @@ final class ResponseContentLengthTests: XCTestCase {
         )
     }
 
+    func testTransferEncodingHeaderInvalidatesNormalizedFraming() {
+        var response = Response.text("hello")
+
+        XCTAssertTrue(response.contentLengthIsNormalized)
+
+        response.setHeader(
+            "transfer-encoding",
+            "chunked"
+        )
+
+        XCTAssertFalse(response.contentLengthIsNormalized)
+
+        response = Response.text("hello")
+        response.appendHeader(
+            "Transfer-Encoding",
+            "chunked"
+        )
+
+        XCTAssertFalse(response.contentLengthIsNormalized)
+    }
+
     func testCanonicalTextBodyLengthUsesUTF8ByteCount() {
         let response = Response.text("é")
 

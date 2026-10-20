@@ -901,6 +901,7 @@ public struct WTHTTP1ChunkState: Sendable {
     }
 
     fileprivate var position: Position = .sizeLine
+    fileprivate var trailerBytes = 0
 
     public init() {}
 }
@@ -1006,14 +1007,20 @@ extension WTHTTP1Parser {
                 // trailer flood cannot grow the cumulation without
                 // end, mirroring stock acceptance without keeping
                 // values no Tier 1 consumer reads.
-                var trailerBytes = 0
-
                 while true {
                     guard
                         let lineLength = try findCRLF(
                             in: buffer
                         )
                     else {
+                        if buffer.readableBytes
+                            > maxTrailerBytes
+                                - state.trailerBytes
+                        {
+                            throw WTHTTP1ParseError
+                                .badChunkFraming
+                        }
+
                         if buffer.readableBytes
                             > maxChunkLineBytes
                         {
@@ -1024,11 +1031,15 @@ extension WTHTTP1Parser {
                         return .needMoreData
                     }
 
-                    trailerBytes += lineLength + 2
-                    guard trailerBytes <= maxTrailerBytes else {
+                    let consumedBytes = lineLength + 2
+                    guard consumedBytes
+                        <= maxTrailerBytes
+                            - state.trailerBytes
+                    else {
                         throw WTHTTP1ParseError
                             .badChunkFraming
                     }
+                    state.trailerBytes += consumedBytes
 
                     if lineLength == 0 {
                         buffer.moveReaderIndex(
