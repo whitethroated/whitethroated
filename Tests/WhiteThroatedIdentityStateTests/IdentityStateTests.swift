@@ -7,6 +7,7 @@ import XCTest
 @testable import WhiteThroatedAuth
 @testable import WhiteThroatedAuthRateLimit
 @testable import WhiteThroatedCSRF
+@testable import WhiteThroatedRateLimit
 @testable import WhiteThroatedSessions
 
 final class IdentityStateTests:
