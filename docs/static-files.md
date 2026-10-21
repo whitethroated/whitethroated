@@ -56,7 +56,10 @@ The experimental implementation currently provides:
 
 Malformed ranges, unsupported range units, and multiple ranges are ignored and
 the complete representation is served. A syntactically valid but
-unsatisfiable byte range receives 416.
+unsatisfiable byte range receives 416. `If-Range` validation is not implemented
+yet; when that header is present, the module conservatively ignores the Range
+request and serves the complete representation instead of risking a stale
+partial response.
 
 Directory listing, SPA fallback, precompressed assets, download disposition,
 and multiple ranges are not part of this experimental slice yet.
@@ -132,7 +135,7 @@ This first vertical slice intentionally does not yet include:
 - SPA fallback,
 - precompressed Brotli/gzip selection,
 - `If-Modified-Since` / `Last-Modified`,
-- `If-Range`,
+- full `If-Range` validator semantics,
 - multipart byte ranges,
 - content-disposition helpers at the mount layer,
 - a lifecycle hook that closes the root automatically.
