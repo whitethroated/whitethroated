@@ -176,6 +176,10 @@ let package = Package(
                     name: "NIOConcurrencyHelpers",
                     package: "swift-nio"
                 ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
             ]
         ),
         .target(
