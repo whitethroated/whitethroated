@@ -26,11 +26,19 @@ public struct StaticFileOptions: Sendable {
         self.indexFile = indexFile
         self.cacheControl = cacheControl
         self.generateETag = generateETag
-        self.mimeTypes = Dictionary(
-            uniqueKeysWithValues: mimeTypes.map {
-                ($0.key.lowercased(), $0.value)
-            }
+
+        var normalizedMIMETypes: [String: String] = [:]
+        normalizedMIMETypes.reserveCapacity(
+            mimeTypes.count
         )
+
+        for (fileExtension, contentType) in mimeTypes {
+            normalizedMIMETypes[
+                fileExtension.lowercased()
+            ] = contentType
+        }
+
+        self.mimeTypes = normalizedMIMETypes
     }
 
     public static var production: StaticFileOptions {
@@ -126,6 +134,31 @@ public final class StaticFiles: @unchecked Sendable {
                     for: components.last!
                 ),
                 contentLength: totalLength,
+                status: .ok
+            ) { writer in
+                writer.eventLoop.makeSucceededVoidFuture()
+            }
+
+            response.setHeader(
+                "accept-ranges",
+                "bytes"
+            )
+
+            if let entityTag {
+                response.setETag(entityTag)
+            }
+
+            return decorate(response)
+        }
+
+        if totalLength == 0 {
+            opened.close()
+
+            var response = Response.stream(
+                contentType: contentType(
+                    for: components.last!
+                ),
+                contentLength: 0,
                 status: .ok
             ) { writer in
                 writer.eventLoop.makeSucceededVoidFuture()
