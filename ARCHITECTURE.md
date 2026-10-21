@@ -115,6 +115,23 @@ Core targets must never import optional application modules. Importing an option
 
 `WhiteThroatedRateLimit` is the fourth vertical slice. It installs only through explicit fast middleware, keeps its bounded in-process fixed-window state behind a SwiftNIO lock, and requires the application to provide the key resolver. The module does not infer client identity from forwarded headers. Missing/oversized keys are handled by explicit policy, and `maxKeys`/`maxKeyBytes` bound retained state. When accepted-request quota headers are disabled, prepared downstream responses remain prepared; enabling per-request quota headers intentionally materializes a mutable response.
 
+
+Phase 2 observability remains entirely opt-in. Logging and tracing use fast
+middleware and inspect completion without mutating prepared responses. Metrics
+requires an allowlisted route-label set and collapses unknown/custom values to
+fixed labels so user input cannot create unbounded cardinality. Sampling is
+decided before route classification and span identifier generation.
+
+`WhiteThroatedLifecycle` is process-local operational coordination. Its
+middleware tracks active requests and rejects new requests after drain begins;
+the controller changes readiness before waiting for in-flight work, runs cleanup
+callbacks in reverse order, then delegates final server teardown to the existing
+`Application.shutdown()`. It adds no runtime-owned application concepts.
+
+The core exposes only read-only `PreparedResponse` status/header/content-length
+metadata for observers. This is a value-access surface, not an optional-module
+dependency or request-time registry lookup.
+
 ## Accepted socket setup
 
 Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`
