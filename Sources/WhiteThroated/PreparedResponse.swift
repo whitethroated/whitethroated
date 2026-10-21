@@ -92,6 +92,18 @@ public struct PreparedResponse: Sendable {
         storage.response
     }
 
+    public var status: HTTPResponseStatus {
+        storage.response.status
+    }
+
+    public var headers: HTTPHeaders {
+        storage.response.headers
+    }
+
+    public var contentLength: Int {
+        storage.bodyBuffer?.readableBytes ?? 0
+    }
+
     @inline(__always)
     internal var http11Head: HTTPResponseHead {
         storage.http11Head
