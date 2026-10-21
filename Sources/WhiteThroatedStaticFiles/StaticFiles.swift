@@ -74,7 +74,7 @@ public final class StaticFiles: @unchecked Sendable {
         try await root.close()
     }
 
-    fileprivate func response(
+    func response(
         for request: Request,
         mountPath: String
     ) async -> Response {
@@ -572,7 +572,7 @@ enum StaticFilePath {
 
             rawRelative =
                 requestPath.dropFirst(
-                    prefix.utf8.count
+                    prefix.count
                 )
         }
 
