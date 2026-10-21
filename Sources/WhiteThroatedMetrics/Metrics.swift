@@ -1,5 +1,6 @@
 import Dispatch
 import NIOConcurrencyHelpers
+import NIOHTTP1
 import WhiteThroated
 
 public struct HTTPMetricKey:
