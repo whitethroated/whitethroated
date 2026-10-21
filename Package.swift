@@ -256,6 +256,10 @@ let package = Package(
             dependencies: [
                 "WhiteThroatedSessions",
                 .product(
+                    name: "NIOConcurrencyHelpers",
+                    package: "swift-nio"
+                ),
+                .product(
                     name: "RediStack",
                     package: "RediStack"
                 ),

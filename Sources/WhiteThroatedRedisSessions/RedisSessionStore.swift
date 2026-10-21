@@ -1,4 +1,5 @@
 import Foundation
+import NIOConcurrencyHelpers
 import NIOCore
 import RediStack
 import WhiteThroatedSessions
@@ -7,11 +8,20 @@ public final class RedisSessionStore:
     SessionStore,
     @unchecked Sendable
 {
+    // JSONEncoder and JSONDecoder are reference types with mutable state.
+    // `codecs` serializes every access, so sharing them across event loops is
+    // safe; the unchecked conformance is justified by that single lock.
+    private struct Codecs:
+        @unchecked Sendable
+    {
+        let encoder: JSONEncoder
+        let decoder: JSONDecoder
+    }
+
     public let client: any RedisClient
     public let keyPrefix: String
 
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
+    private let codecs: NIOLockedValueBox<Codecs>
 
     public init(
         client: any RedisClient,
@@ -29,8 +39,13 @@ public final class RedisSessionStore:
 
         self.client = client
         self.keyPrefix = keyPrefix
-        self.encoder = encoder
-        self.decoder = decoder
+        self.codecs =
+            NIOLockedValueBox(
+                Codecs(
+                    encoder: encoder,
+                    decoder: decoder
+                )
+            )
     }
 
     public func load(
@@ -54,11 +69,16 @@ public final class RedisSessionStore:
                     return nil
                 }
 
-                return try self.decoder.decode(
-                    Session.self,
-                    from:
-                        Data(encoded.utf8)
-                )
+                return try self.codecs
+                    .withLockedValue {
+                        try $0.decoder.decode(
+                            Session.self,
+                            from:
+                                Data(
+                                    encoded.utf8
+                                )
+                        )
+                    }
             }
     }
 
@@ -77,9 +97,12 @@ public final class RedisSessionStore:
 
         do {
             let data =
-                try encoder.encode(
-                    session
-                )
+                try codecs
+                    .withLockedValue {
+                        try $0.encoder.encode(
+                            session
+                        )
+                    }
             let encoded =
                 String(
                     decoding: data,
