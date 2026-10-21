@@ -38,6 +38,41 @@ app.get("/users/:id") { request in
 try app.run(port: 3000)
 ```
 
+## Optional modules
+
+WhiteThroated keeps application features outside the core request path. Optional capabilities are separate SwiftPM products and do nothing unless the application imports and configures them.
+
+The first experimental module is `WhiteThroatedCORS`:
+
+```swift
+import WhiteThroated
+import WhiteThroatedCORS
+
+let app = Application()
+
+app.use(cors: CORSConfiguration(
+    allowedOrigins: .exact([
+        "https://app.example.com"
+    ]),
+    allowedMethods: [
+        .get,
+        .post,
+    ],
+    allowedHeaders: [
+        "authorization",
+        "content-type",
+    ],
+    allowCredentials: true,
+    maxAge: 600
+))
+
+app.get("/api/profile") { _ in
+    .json(#"{"ok":true}"#)
+}
+```
+
+Requests without an `Origin` header pass through without CORS response mutation. Cross-origin requests are denied by default unless their origin is allowed. Preflight requests are validated against the configured method and header allowlists. See `docs/cors.md` for the security and caching behavior.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response

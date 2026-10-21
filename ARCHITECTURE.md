@@ -91,6 +91,24 @@ event-loop groups and server bootstrap live in the runtime.
 dispatcher concepts. The runtime converts parsed heads to NIOHTTP1 types
 at the dispatcher boundary; this conversion remains request-time work.
 
+## Optional application modules
+
+Application capabilities may be shipped as separate SwiftPM products in the same repository while they are experimental. Their dependency direction is one-way:
+
+```text
+Optional application module
+        |
+        v
+WhiteThroated
+        |
+        v
+WhiteThroatedRuntime -> WhiteThroatedHTTP1 -> SwiftNIO
+```
+
+Core targets must never import optional application modules. Importing an optional product must not register middleware, allocate request state, or change transport configuration. Activation is explicit during application setup.
+
+`WhiteThroatedCORS` is the first vertical slice of this boundary. It depends on `WhiteThroated`, installs only through explicit `app.use(cors:)`, and does not add a runtime hook. A request without an `Origin` header immediately delegates to the existing fast-middleware next responder. When CORS response headers are required, prepared responses intentionally become mutable responses because origin-specific headers are request-dependent.
+
 ## Accepted socket setup
 
 Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`
