@@ -464,6 +464,7 @@ let package = Package(
                 "WhiteThroatedRedisSessions",
                 "WhiteThroatedCSRF",
                 "WhiteThroatedAuthRateLimit",
+                "WhiteThroatedRateLimit",
                 "WhiteThroated",
                 .product(
                     name: "NIOCore",
