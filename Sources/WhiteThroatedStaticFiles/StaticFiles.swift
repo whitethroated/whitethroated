@@ -155,9 +155,21 @@ public final class StaticFiles: @unchecked Sendable {
         let status: HTTPResponseStatus
         var contentRange: String?
 
-        switch request.byteRange(
-            totalLength: totalLength
-        ) {
+        let byteRange: ByteRangeResult
+
+        if request.header("if-range") == nil {
+            byteRange = request.byteRange(
+                totalLength: totalLength
+            )
+        } else {
+            // If-Range is not implemented in this experimental
+            // slice. Serving the complete representation is the
+            // conservative fallback; never send a potentially stale
+            // partial body while ignoring its validator.
+            byteRange = .none
+        }
+
+        switch byteRange {
         case .satisfiable(let range):
             selectedRange = range
             status = .partialContent
