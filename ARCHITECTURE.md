@@ -113,6 +113,8 @@ Core targets must never import optional application modules. Importing an option
 
 `WhiteThroatedValidation` is the third vertical slice. It is handler-scoped rather than middleware-scoped and adds no core or runtime hook. Immutable field schemas are built during setup, while path/query/header/cookie lookup and rule evaluation occur only when a handler explicitly requests validation. JSON validation remains lazy: the module checks its configured byte and nesting-depth bounds directly against the existing request `ByteBuffer` before delegating to WhiteThroated's normal `Codable` decoder. Routes that do not call Validation have no Validation dispatch layer or request state.
 
+`WhiteThroatedRateLimit` is the fourth vertical slice. It installs only through explicit fast middleware, keeps its bounded in-process fixed-window state behind a SwiftNIO lock, and requires the application to provide the key resolver. The module does not infer client identity from forwarded headers. Missing/oversized keys are handled by explicit policy, and `maxKeys`/`maxKeyBytes` bound retained state. When accepted-request quota headers are disabled, prepared downstream responses remain prepared; enabling per-request quota headers intentionally materializes a mutable response.
+
 ## Accepted socket setup
 
 Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`
