@@ -163,6 +163,59 @@ app.use(rateLimiter: limiter)
 
 The initial RateLimit slice is a bounded in-process fixed-window limiter with explicit key resolution, deterministic-clock injection, LRU-style eviction, `Retry-After`, and opt-in response quota fields. It intentionally has no implicit client-IP/`X-Forwarded-For` behavior. See `docs/rate-limit.md` for the trust boundary, state bounds, concurrency model, and benchmark status.
 
+
+Phase 2 adds four independent experimental operational products:
+
+- `WhiteThroatedLogging` — structured request completion events and bounded request IDs.
+- `WhiteThroatedMetrics` — bounded-cardinality HTTP counters and latency histograms.
+- `WhiteThroatedTracing` — W3C `traceparent` parsing and sampled server spans.
+- `WhiteThroatedLifecycle` — readiness, drain rejection, active-request tracking, and ordered cleanup.
+
+```swift
+import WhiteThroated
+import WhiteThroatedLifecycle
+import WhiteThroatedLogging
+import WhiteThroatedMetrics
+import WhiteThroatedTracing
+
+let lifecycle = LifecycleController()
+
+app.use(
+    structuredLogger: StructuredRequestLogger(
+        sink: { event in
+            print(event)
+        }
+    )
+)
+
+let metrics = HTTPMetrics(
+    configuration: HTTPMetricsConfiguration(
+        allowedRoutes: ["/health"],
+        routeClassifier: { request in
+            request.path == "/health"
+                ? "/health"
+                : nil
+        }
+    )
+)
+app.use(metrics: metrics)
+
+app.use(
+    tracer: ServerTracer(
+        sink: { span in
+            print(span)
+        }
+    )
+)
+
+app.use(
+    lifecycle: lifecycle,
+    readinessPath: "/ready"
+)
+```
+
+Observability remains opt-in and never logs bodies, credentials, cookies, or arbitrary headers by default. Metrics reject unbounded route labels, tracing samples before building route attributes, and observer middleware preserves prepared responses. See `docs/observability.md` and `docs/lifecycle.md`.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response

@@ -36,6 +36,22 @@ let package = Package(
             name: "WhiteThroatedRateLimit",
             targets: ["WhiteThroatedRateLimit"]
         ),
+        .library(
+            name: "WhiteThroatedLogging",
+            targets: ["WhiteThroatedLogging"]
+        ),
+        .library(
+            name: "WhiteThroatedMetrics",
+            targets: ["WhiteThroatedMetrics"]
+        ),
+        .library(
+            name: "WhiteThroatedTracing",
+            targets: ["WhiteThroatedTracing"]
+        ),
+        .library(
+            name: "WhiteThroatedLifecycle",
+            targets: ["WhiteThroatedLifecycle"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
@@ -138,6 +154,42 @@ let package = Package(
         ),
         .target(
             name: "WhiteThroatedRateLimit",
+            dependencies: [
+                "WhiteThroated",
+                .product(
+                    name: "NIOConcurrencyHelpers",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedLogging",
+            dependencies: [
+                "WhiteThroated",
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedMetrics",
+            dependencies: [
+                "WhiteThroated",
+                .product(
+                    name: "NIOConcurrencyHelpers",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedTracing",
+            dependencies: [
+                "WhiteThroated",
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedLifecycle",
             dependencies: [
                 "WhiteThroated",
                 .product(
@@ -281,6 +333,28 @@ let package = Package(
             name: "WhiteThroatedRateLimitTests",
             dependencies: [
                 "WhiteThroatedRateLimit",
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedObservabilityTests",
+            dependencies: [
+                "WhiteThroatedLogging",
+                "WhiteThroatedMetrics",
+                "WhiteThroatedTracing",
+                "WhiteThroatedLifecycle",
                 "WhiteThroated",
                 .product(
                     name: "NIOCore",

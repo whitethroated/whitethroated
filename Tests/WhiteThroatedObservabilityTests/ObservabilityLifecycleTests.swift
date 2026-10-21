@@ -1,0 +1,670 @@
+import NIOCore
+import NIOHTTP1
+import NIOPosix
+import XCTest
+@testable import WhiteThroated
+@testable import WhiteThroatedLifecycle
+@testable import WhiteThroatedLogging
+@testable import WhiteThroatedMetrics
+@testable import WhiteThroatedTracing
+
+final class ObservabilityLifecycleTests:
+    XCTestCase
+{
+    private final class EventBox<T>:
+        @unchecked Sendable
+    {
+        var values: [T] = []
+
+        func append(_ value: T) {
+            values.append(value)
+        }
+    }
+
+    private final class ClockBox:
+        @unchecked Sendable
+    {
+        var now: UInt64
+
+        init(_ now: UInt64 = 0) {
+            self.now = now
+        }
+    }
+
+    private final class CounterBox:
+        @unchecked Sendable
+    {
+        var value = 0
+    }
+
+    func testStructuredLoggerPreservesPreparedResponse() throws {
+        let events =
+            EventBox<HTTPRequestLogEvent>()
+        let clock = ClockBox(100)
+        let logger =
+            StructuredRequestLogger(
+                requestIDPolicy:
+                    RequestIDPolicy(
+                        generator: {
+                            "generated-id"
+                        }
+                    ),
+                routeResolver: { _ in
+                    "/users/:id"
+                },
+                clock: {
+                    defer {
+                        clock.now += 25
+                    }
+                    return clock.now
+                },
+                sink: {
+                    events.append($0)
+                }
+            )
+
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "x-request-id",
+            value: "incoming-id"
+        )
+        let request = makeRequest(
+            path: "/users/42",
+            headers: headers
+        )
+
+        try withEventLoop { loop in
+            let result =
+                logger.middleware()(
+                    request,
+                    Context(
+                        eventLoop: loop
+                    )
+                ) { _ in
+                    .prepared(
+                        .text("ok")
+                    )
+                }
+
+            guard case .prepared =
+                result
+            else {
+                XCTFail(
+                    "Logging should preserve prepared responses"
+                )
+                return
+            }
+        }
+
+        XCTAssertEqual(
+            events.values.count,
+            1
+        )
+        XCTAssertEqual(
+            events.values.first,
+            HTTPRequestLogEvent(
+                requestID: "incoming-id",
+                method: "GET",
+                route: "/users/:id",
+                statusCode: 200,
+                durationNanoseconds: 25,
+                remoteAddress: nil
+            )
+        )
+    }
+
+    func testUnsafeIncomingRequestIDIsReplaced() throws {
+        let events =
+            EventBox<HTTPRequestLogEvent>()
+        let logger =
+            StructuredRequestLogger(
+                requestIDPolicy:
+                    RequestIDPolicy(
+                        generator: {
+                            "safe-generated"
+                        }
+                    ),
+                clock: { 1 },
+                sink: {
+                    events.append($0)
+                }
+            )
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "x-request-id",
+            value: "bad value"
+        )
+
+        try withEventLoop { loop in
+            _ = logger.middleware()(
+                makeRequest(
+                    headers: headers
+                ),
+                Context(eventLoop: loop)
+            ) { _ in
+                .response(.text("ok"))
+            }
+        }
+
+        XCTAssertEqual(
+            events.values.first?.requestID,
+            "safe-generated"
+        )
+    }
+
+    func testMetricsBoundRouteCardinalityAndPreservePrepared() throws {
+        let clock = ClockBox(1_000)
+        let metrics = HTTPMetrics(
+            configuration:
+                HTTPMetricsConfiguration(
+                    allowedRoutes: [
+                        "/users/:id",
+                    ],
+                    durationUpperBoundsNanoseconds:
+                        [
+                            50,
+                            100,
+                        ],
+                    clock: {
+                        defer {
+                            clock.now += 75
+                        }
+                        return clock.now
+                    },
+                    routeClassifier: {
+                        request in
+
+                        if request.path
+                            .hasPrefix(
+                                "/users/"
+                            )
+                        {
+                            return "/users/:id"
+                        }
+
+                        return request.path
+                    }
+                )
+        )
+
+        try withEventLoop { loop in
+            let context =
+                Context(eventLoop: loop)
+
+            let prepared =
+                metrics.middleware()(
+                    makeRequest(
+                        path: "/users/42"
+                    ),
+                    context
+                ) { _ in
+                    .prepared(
+                        .text("ok")
+                    )
+                }
+
+            guard case .prepared =
+                prepared
+            else {
+                XCTFail(
+                    "Metrics should preserve prepared responses"
+                )
+                return
+            }
+
+            _ = metrics.middleware()(
+                makeRequest(
+                    path:
+                        "/unbounded/user-specific-value"
+                ),
+                context
+            ) { _ in
+                .response(
+                    .text(
+                        "missing",
+                        status: .notFound
+                    )
+                )
+            }
+        }
+
+        let snapshot =
+            metrics.snapshot()
+
+        XCTAssertEqual(
+            snapshot.values.count,
+            2
+        )
+
+        let knownKey = HTTPMetricKey(
+            method: "GET",
+            route: "/users/:id",
+            statusClass: 2
+        )
+        let unknownKey =
+            HTTPMetricKey(
+                method: "GET",
+                route: "__other__",
+                statusClass: 4
+            )
+
+        XCTAssertEqual(
+            snapshot.values[
+                knownKey
+            ]?.requests,
+            1
+        )
+        XCTAssertEqual(
+            snapshot.values[
+                knownKey
+            ]?.knownResponseBytes,
+            2
+        )
+        XCTAssertEqual(
+            snapshot.values[
+                knownKey
+            ]?.durationBuckets,
+            [
+                0,
+                1,
+                0,
+            ]
+        )
+        XCTAssertEqual(
+            snapshot.values[
+                unknownKey
+            ]?.requests,
+            1
+        )
+
+        XCTAssertFalse(
+            snapshot.values.keys
+                .contains {
+                    $0.route.contains(
+                        "user-specific-value"
+                    )
+                }
+        )
+    }
+
+    func testMetricsClampUnknownHTTPMethods() throws {
+        let metrics = HTTPMetrics(
+            configuration:
+                HTTPMetricsConfiguration(
+                    allowedRoutes: ["/"],
+                    clock: { 0 },
+                    routeClassifier: {
+                        _ in "/"
+                    }
+                )
+        )
+
+        try withEventLoop { loop in
+            _ = metrics.middleware()(
+                makeRequest(
+                    method:
+                        .RAW(
+                            value:
+                                "CUSTOM-USER-VALUE"
+                        )
+                ),
+                Context(eventLoop: loop)
+            ) { _ in
+                .response(.text("ok"))
+            }
+        }
+
+        XCTAssertEqual(
+            metrics.snapshot()
+                .values.keys.first?
+                .method,
+            "OTHER"
+        )
+    }
+
+    func testTraceparentParsingRejectsMalformedAndZeroIdentifiers() {
+        XCTAssertEqual(
+            TraceContext.parse(
+                traceparent:
+                    "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+            ),
+            TraceContext(
+                traceID:
+                    "4bf92f3577b34da6a3ce929d0e0e4736",
+                parentSpanID:
+                    "00f067aa0ba902b7",
+                traceFlags: 1
+            )
+        )
+
+        XCTAssertNil(
+            TraceContext.parse(
+                traceparent:
+                    "00-00000000000000000000000000000000-00f067aa0ba902b7-01"
+            )
+        )
+        XCTAssertNil(
+            TraceContext.parse(
+                traceparent:
+                    "ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+            )
+        )
+        XCTAssertNil(
+            TraceContext.parse(
+                traceparent:
+                    "not-a-traceparent"
+            )
+        )
+    }
+
+    func testUnsampledTraceSkipsRouteAndIdentifierWork() throws {
+        let events =
+            EventBox<TraceSpanEvent>()
+        let routeCalls =
+            CounterBox()
+        let identifierCalls =
+            CounterBox()
+        let tracer = ServerTracer(
+            sampler: { _ in false },
+            routeResolver: { _ in
+                routeCalls.value += 1
+                return "/"
+            },
+            identifiers:
+                TraceIdentifierGenerator(
+                    traceID: {
+                        identifierCalls.value += 1
+                        return String(
+                            repeating: "1",
+                            count: 32
+                        )
+                    },
+                    spanID: {
+                        identifierCalls.value += 1
+                        return String(
+                            repeating: "2",
+                            count: 16
+                        )
+                    }
+                ),
+            sink: {
+                events.append($0)
+            }
+        )
+
+        try withEventLoop { loop in
+            let result =
+                tracer.middleware()(
+                    makeRequest(),
+                    Context(eventLoop: loop)
+                ) { _ in
+                    .prepared(
+                        .text("ok")
+                    )
+                }
+
+            guard case .prepared =
+                result
+            else {
+                XCTFail(
+                    "Unsampled tracing should preserve prepared response"
+                )
+                return
+            }
+        }
+
+        XCTAssertEqual(
+            routeCalls.value,
+            0
+        )
+        XCTAssertEqual(
+            identifierCalls.value,
+            0
+        )
+        XCTAssertTrue(
+            events.values.isEmpty
+        )
+    }
+
+    func testSampledTraceUsesParentTraceAndPreservesPrepared() throws {
+        let events =
+            EventBox<TraceSpanEvent>()
+        let clock = ClockBox(10)
+        let tracer = ServerTracer(
+            sampler: { _ in true },
+            routeResolver: { _ in
+                "/users/:id"
+            },
+            identifiers:
+                TraceIdentifierGenerator(
+                    traceID: {
+                        String(
+                            repeating: "a",
+                            count: 32
+                        )
+                    },
+                    spanID: {
+                        String(
+                            repeating: "b",
+                            count: 16
+                        )
+                    }
+                ),
+            clock: {
+                defer {
+                    clock.now += 20
+                }
+                return clock.now
+            },
+            sink: {
+                events.append($0)
+            }
+        )
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "traceparent",
+            value:
+                "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+        )
+
+        try withEventLoop { loop in
+            let result =
+                tracer.middleware()(
+                    makeRequest(
+                        path: "/users/42",
+                        headers: headers
+                    ),
+                    Context(eventLoop: loop)
+                ) { _ in
+                    .prepared(
+                        .text("ok")
+                    )
+                }
+
+            guard case .prepared =
+                result
+            else {
+                XCTFail(
+                    "Tracing should preserve prepared response"
+                )
+                return
+            }
+        }
+
+        XCTAssertEqual(
+            events.values,
+            [
+                TraceSpanEvent(
+                    traceID:
+                        "4bf92f3577b34da6a3ce929d0e0e4736",
+                    spanID:
+                        String(
+                            repeating: "b",
+                            count: 16
+                        ),
+                    parentSpanID:
+                        "00f067aa0ba902b7",
+                    method: "GET",
+                    route: "/users/:id",
+                    statusCode: 200,
+                    durationNanoseconds: 20
+                ),
+            ]
+        )
+    }
+
+    func testLifecycleTracksFutureAndRejectsNewRequestsDuringDrain() throws {
+        let controller =
+            LifecycleController()
+
+        try withEventLoop { loop in
+            let promise =
+                loop.makePromise(
+                    of: Response.self
+                )
+
+            let result =
+                controller.middleware()(
+                    makeRequest(),
+                    Context(eventLoop: loop)
+                ) { _ in
+                    .future(
+                        promise.futureResult
+                    )
+                }
+
+            XCTAssertEqual(
+                controller
+                    .snapshot()
+                    .activeRequests,
+                1
+            )
+
+            controller.beginDrain()
+
+            let rejected =
+                controller.middleware()(
+                    makeRequest(),
+                    Context(eventLoop: loop)
+                ) { _ in
+                    .response(
+                        .text(
+                            "unexpected"
+                        )
+                    )
+                }
+
+            guard case .response(
+                let rejectedResponse
+            ) = rejected
+            else {
+                XCTFail(
+                    "Draining request should be rejected immediately"
+                )
+                return
+            }
+
+            XCTAssertEqual(
+                rejectedResponse.status,
+                .serviceUnavailable
+            )
+            XCTAssertEqual(
+                controller
+                    .readinessResponse()
+                    .status,
+                .serviceUnavailable
+            )
+
+            promise.succeed(
+                .text("done")
+            )
+
+            guard case .future(
+                let future
+            ) = result
+            else {
+                XCTFail(
+                    "Expected future result"
+                )
+                return
+            }
+
+            _ = try future.wait()
+
+            XCTAssertEqual(
+                controller
+                    .snapshot()
+                    .activeRequests,
+                0
+            )
+        }
+    }
+
+    func testLifecycleCleanupRunsInReverseOrderAndStops() async throws {
+        let order = EventBox<Int>()
+        let controller =
+            LifecycleController()
+        let application =
+            Application()
+
+        controller.registerCleanup {
+            order.append(1)
+        }
+        controller.registerCleanup {
+            order.append(2)
+        }
+
+        try await controller.shutdown(
+            application: application,
+            drainTimeoutNanoseconds: 0
+        )
+
+        XCTAssertEqual(
+            order.values,
+            [2, 1]
+        )
+        XCTAssertEqual(
+            controller
+                .snapshot()
+                .phase,
+            .stopped
+        )
+    }
+
+    private func makeRequest(
+        method:
+            NIOHTTP1.HTTPMethod = .GET,
+        path: String = "/",
+        headers:
+            HTTPHeaders = HTTPHeaders()
+    ) -> Request {
+        Request(
+            head: HTTPRequestHead(
+                version: .http1_1,
+                method: method,
+                uri: path,
+                headers: headers
+            ),
+            body:
+                ByteBufferAllocator()
+                    .buffer(capacity: 0)
+        )
+    }
+
+    private func withEventLoop(
+        _ body:
+            (EventLoop) throws -> Void
+    ) throws {
+        let group =
+            MultiThreadedEventLoopGroup(
+                numberOfThreads: 1
+            )
+
+        defer {
+            try? group
+                .syncShutdownGracefully()
+        }
+
+        try body(group.next())
+    }
+}
