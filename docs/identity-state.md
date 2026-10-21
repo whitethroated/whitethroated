@@ -68,7 +68,30 @@ let sessions = SessionManager(
     codec: codec,
     ttlSeconds: 86_400
 )
+
+let accountAuth = sessions.authenticator { session in
+    session.values["role"].map {
+        AuthPrincipal(
+            id: session.id,
+            roles: [$0]
+        )
+    }
+}
+
+app.get(
+    "/account",
+    authenticatedBy: accountAuth,
+    authorization: .role("owner")
+) { _, principal in
+    .text(principal.id)
+}
 ```
+
+The event-loop authenticator resolves the principal on the channel event loop,
+applies the same authorization policy, and only then invokes the synchronous
+typed handler. It does not create a Swift `Task`; it stays on the future tier.
+Async handlers that need the principal can call
+`EventLoopAuthenticator.authenticate(_:context:)` explicitly.
 
 Session access is explicit and lazy. A route that never calls `load`,
 `persist`, `rotate`, or `destroy` does not decode a session cookie or query

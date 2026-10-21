@@ -433,10 +433,116 @@ public extension Application {
         )
     }
 
+    func on(
+        _ method: HTTPMethod,
+        _ path: String,
+        authenticatedBy:
+            EventLoopAuthenticator,
+        authorization:
+            AuthorizationPolicy? = nil,
+        use handler:
+            @escaping @Sendable (
+                Request,
+                AuthPrincipal
+            ) -> Response
+    ) {
+        on(
+            method,
+            path
+        ) { request, context in
+            authenticatedBy
+                .authenticate(
+                    request,
+                    context: context
+                )
+                .flatMap { principal in
+                    guard
+                        let principal
+                    else {
+                        return context.eventLoop
+                            .makeSucceededFuture(
+                                Authenticator
+                                    .unauthorized()
+                            )
+                    }
+
+                    if
+                        let authorization,
+                        !authorization.allows(
+                            principal:
+                                principal,
+                            request:
+                                request
+                        )
+                    {
+                        return context.eventLoop
+                            .makeSucceededFuture(
+                                AuthorizationPolicy
+                                    .forbidden()
+                            )
+                    }
+
+                    return context.eventLoop
+                        .makeSucceededFuture(
+                            handler(
+                                request,
+                                principal
+                            )
+                        )
+                }
+        }
+    }
+
+    func get(
+        _ path: String,
+        authenticatedBy:
+            EventLoopAuthenticator,
+        authorization:
+            AuthorizationPolicy? = nil,
+        use handler:
+            @escaping @Sendable (
+                Request,
+                AuthPrincipal
+            ) -> Response
+    ) {
+        on(
+            .get,
+            path,
+            authenticatedBy:
+                authenticatedBy,
+            authorization:
+                authorization,
+            use: handler
+        )
+    }
+
     func post(
         _ path: String,
         authenticatedBy:
             Authenticator,
+        authorization:
+            AuthorizationPolicy? = nil,
+        use handler:
+            @escaping @Sendable (
+                Request,
+                AuthPrincipal
+            ) -> Response
+    ) {
+        on(
+            .post,
+            path,
+            authenticatedBy:
+                authenticatedBy,
+            authorization:
+                authorization,
+            use: handler
+        )
+    }
+
+    func post(
+        _ path: String,
+        authenticatedBy:
+            EventLoopAuthenticator,
         authorization:
             AuthorizationPolicy? = nil,
         use handler:

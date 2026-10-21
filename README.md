@@ -249,9 +249,10 @@ app.get(
 
 Sessions are loaded explicitly only on routes that need them. The default session
 cookie policy is `HttpOnly`, `Secure`, and `SameSite=Lax`; signed cookie
-verification supports key rotation. A bounded memory store is included for
-development/tests, while Redis is isolated in a separate adapter product. See
-`docs/identity-state.md`.
+verification supports key rotation. Identity backed by event-loop I/O uses
+`EventLoopAuthenticator` with the same authorization route helpers. A bounded
+memory store is included for development/tests, while Redis is isolated in a
+separate adapter product. See `docs/identity-state.md`.
 
 ## HTTP/1 transport
 
