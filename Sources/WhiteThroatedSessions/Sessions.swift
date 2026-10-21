@@ -221,7 +221,8 @@ public final class MemorySessionStore:
         on eventLoop: EventLoop
     ) -> EventLoopFuture<Void> {
         state.withLockedValue {
-            $0.sessions
+            state in
+            _ = state.sessions
                 .removeValue(
                     forKey: id
                 )
@@ -335,7 +336,9 @@ public struct SessionCookieCodec:
 
         return message
             + "."
-            + Self.hex(signature)
+            + Self.hex(
+                Array(signature)
+            )
     }
 
     public func decode(
@@ -374,16 +377,18 @@ public struct SessionCookieCodec:
 
         let message =
             keyID + "." + sessionID
+        let expectedCode =
+            HMAC<SHA256>
+                .authenticationCode(
+                    for:
+                        Data(
+                            message.utf8
+                        ),
+                    using: key.key
+                )
         let expected =
             Self.hex(
-                HMAC<SHA256>
-                    .authenticationCode(
-                        for:
-                            Data(
-                                message.utf8
-                            ),
-                        using: key.key
-                    )
+                Array(expectedCode)
             )
 
         guard
@@ -583,9 +588,15 @@ public struct SessionManager:
         _ session: Session,
         on eventLoop: EventLoop
     ) -> EventLoopFuture<String> {
-        var updated = session
-        updated.lastAccessAtSeconds =
-            clock.nowSeconds()
+        let updated =
+            Session(
+                id: session.id,
+                values: session.values,
+                createdAtSeconds:
+                    session.createdAtSeconds,
+                lastAccessAtSeconds:
+                    clock.nowSeconds()
+            )
 
         return store.save(
             updated,
@@ -605,7 +616,7 @@ public struct SessionManager:
         on eventLoop: EventLoop
     ) -> EventLoopFuture<Session> {
         let now = clock.nowSeconds()
-        var rotated =
+        let rotated =
             Session(
                 id: idGenerator(),
                 values:
@@ -628,9 +639,7 @@ public struct SessionManager:
             )
         }
         .map {
-            rotated.lastAccessAtSeconds =
-                now
-            return rotated
+            rotated
         }
     }
 
