@@ -151,31 +151,6 @@ public final class StaticFiles: @unchecked Sendable {
             return decorate(response)
         }
 
-        if totalLength == 0 {
-            opened.close()
-
-            var response = Response.stream(
-                contentType: contentType(
-                    for: components.last!
-                ),
-                contentLength: 0,
-                status: .ok
-            ) { writer in
-                writer.eventLoop.makeSucceededVoidFuture()
-            }
-
-            response.setHeader(
-                "accept-ranges",
-                "bytes"
-            )
-
-            if let entityTag {
-                response.setETag(entityTag)
-            }
-
-            return decorate(response)
-        }
-
         let selectedRange: Range<Int>
         let status: HTTPResponseStatus
         var contentRange: String?
@@ -209,6 +184,31 @@ public final class StaticFiles: @unchecked Sendable {
              .unsupportedUnit:
             selectedRange = 0..<totalLength
             status = .ok
+        }
+
+        if totalLength == 0 {
+            opened.close()
+
+            var response = Response.stream(
+                contentType: contentType(
+                    for: components.last!
+                ),
+                contentLength: 0,
+                status: .ok
+            ) { writer in
+                writer.eventLoop.makeSucceededVoidFuture()
+            }
+
+            response.setHeader(
+                "accept-ranges",
+                "bytes"
+            )
+
+            if let entityTag {
+                response.setETag(entityTag)
+            }
+
+            return decorate(response)
         }
 
         let response = makeFileResponse(
@@ -668,9 +668,9 @@ enum StaticFilePath {
 
         for byte in component.utf8 {
             if
-                byte == 0,
-                byte == 47,
-                byte == 92
+                byte == 0
+                || byte == 47
+                || byte == 92
             {
                 return false
             }
@@ -718,9 +718,9 @@ enum StaticFilePath {
             // Encoded path separators and NUL are rejected instead
             // of being normalized into a different path structure.
             if
-                decoded == 0,
-                decoded == 47,
-                decoded == 92
+                decoded == 0
+                || decoded == 47
+                || decoded == 92
             {
                 return nil
             }
