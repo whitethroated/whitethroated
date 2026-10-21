@@ -43,11 +43,13 @@ final class RepositoryLanguagePolicyTests: XCTestCase {
             "Makefile"
         ]
 
-        // SwiftPM system-library targets require a declaration header. This is
-        // not an implementation source file: it only includes the system
-        // libpq interface and defines a diagnostic-field constant.
+        // SwiftPM system-library targets require a declaration header. These
+        // are not implementation source files: they include only the system
+        // libpq or zlib interface (and, for libpq, one diagnostic-field
+        // constant).
         let allowedSystemLibraryHeaders: Set<String> = [
-            "Sources/CPostgres/shim.h"
+            "Sources/CPostgres/shim.h",
+            "Sources/CZlib/shim.h"
         ]
 
         guard let enumerator = FileManager.default.enumerator(
