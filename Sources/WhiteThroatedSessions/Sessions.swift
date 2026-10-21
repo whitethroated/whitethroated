@@ -3,6 +3,7 @@ import Foundation
 import NIOConcurrencyHelpers
 import NIOCore
 import WhiteThroated
+import WhiteThroatedAuth
 
 public struct Session:
     Sendable,
@@ -664,5 +665,34 @@ public struct SessionManager:
             cookie.name,
             path: cookie.path
         )
+    }
+}
+
+
+public extension SessionManager {
+    func authenticator(
+        principal:
+            @escaping @Sendable (
+                Session
+            ) -> AuthPrincipal?
+    ) -> EventLoopAuthenticator {
+        EventLoopAuthenticator {
+            request,
+            context in
+
+            self.load(
+                from: request,
+                on: context.eventLoop
+            )
+            .map {
+                session in
+
+                guard let session else {
+                    return nil
+                }
+
+                return principal(session)
+            }
+        }
     }
 }
