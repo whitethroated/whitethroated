@@ -32,6 +32,10 @@ let package = Package(
             name: "WhiteThroatedValidation",
             targets: ["WhiteThroatedValidation"]
         ),
+        .library(
+            name: "WhiteThroatedRateLimit",
+            targets: ["WhiteThroatedRateLimit"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
@@ -128,6 +132,16 @@ let package = Package(
                 "WhiteThroated",
                 .product(
                     name: "NIOCore",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedRateLimit",
+            dependencies: [
+                "WhiteThroated",
+                .product(
+                    name: "NIOConcurrencyHelpers",
                     package: "swift-nio"
                 ),
             ]
@@ -248,6 +262,25 @@ let package = Package(
             name: "WhiteThroatedValidationTests",
             dependencies: [
                 "WhiteThroatedValidation",
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedRateLimitTests",
+            dependencies: [
+                "WhiteThroatedRateLimit",
                 "WhiteThroated",
                 .product(
                     name: "NIOCore",
