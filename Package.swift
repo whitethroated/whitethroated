@@ -24,6 +24,10 @@ let package = Package(
             name: "WhiteThroatedCORS",
             targets: ["WhiteThroatedCORS"]
         ),
+        .library(
+            name: "WhiteThroatedStaticFiles",
+            targets: ["WhiteThroatedStaticFiles"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
@@ -92,6 +96,24 @@ let package = Package(
                 "WhiteThroated",
                 .product(
                     name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedStaticFiles",
+            dependencies: [
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "_NIOFileSystem",
                     package: "swift-nio"
                 ),
             ]
@@ -185,6 +207,25 @@ let package = Package(
                 ),
                 .product(
                     name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedStaticFilesTests",
+            dependencies: [
+                "WhiteThroatedStaticFiles",
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
                     package: "swift-nio"
                 ),
             ]
