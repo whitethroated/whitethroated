@@ -230,6 +230,51 @@ final class StaticFilesTests: XCTestCase {
         }
     }
 
+    func testIfRangeFallsBackToCompleteRepresentation() async throws {
+        let fixture = try makeFixture()
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.root
+            )
+        }
+
+        try await withStaticFiles(
+            directory: fixture.root.path
+        ) { files in
+            var headers = HTTPHeaders()
+            headers.add(
+                name: "range",
+                value: "bytes=1-4"
+            )
+            headers.add(
+                name: "if-range",
+                value: ""stale""
+            )
+
+            let response = await files.response(
+                for: makeRequest(
+                    method: .GET,
+                    path: "/assets/hello.txt",
+                    headers: headers
+                ),
+                mountPath: "/assets"
+            )
+
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertEqual(
+                response.headers.first(
+                    name: "content-length"
+                ),
+                "11"
+            )
+            XCTAssertNil(
+                response.headers.first(
+                    name: "content-range"
+                )
+            )
+        }
+    }
+
     func testUnsatisfiableRangeReturns416() async throws {
         let fixture = try makeFixture()
         defer {
