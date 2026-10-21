@@ -52,6 +52,26 @@ let package = Package(
             name: "WhiteThroatedLifecycle",
             targets: ["WhiteThroatedLifecycle"]
         ),
+        .library(
+            name: "WhiteThroatedAuth",
+            targets: ["WhiteThroatedAuth"]
+        ),
+        .library(
+            name: "WhiteThroatedSessions",
+            targets: ["WhiteThroatedSessions"]
+        ),
+        .library(
+            name: "WhiteThroatedRedisSessions",
+            targets: ["WhiteThroatedRedisSessions"]
+        ),
+        .library(
+            name: "WhiteThroatedCSRF",
+            targets: ["WhiteThroatedCSRF"]
+        ),
+        .library(
+            name: "WhiteThroatedAuthRateLimit",
+            targets: ["WhiteThroatedAuthRateLimit"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
@@ -77,6 +97,14 @@ let package = Package(
         .package(
             url: "https://github.com/apple/swift-nio.git",
             exact: "2.104.0"
+        ),
+        .package(
+            url: "https://github.com/apple/swift-crypto.git",
+            exact: "4.5.2"
+        ),
+        .package(
+            url: "https://github.com/swift-server/RediStack.git",
+            exact: "1.6.3"
         )
     ],
     targets: [
@@ -195,6 +223,68 @@ let package = Package(
                 .product(
                     name: "NIOConcurrencyHelpers",
                     package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedAuth",
+            dependencies: [
+                "WhiteThroated",
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedSessions",
+            dependencies: [
+                "WhiteThroated",
+                "WhiteThroatedAuth",
+                .product(
+                    name: "Crypto",
+                    package: "swift-crypto"
+                ),
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOConcurrencyHelpers",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedRedisSessions",
+            dependencies: [
+                "WhiteThroatedSessions",
+                .product(
+                    name: "NIOConcurrencyHelpers",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "RediStack",
+                    package: "RediStack"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedCSRF",
+            dependencies: [
+                "WhiteThroated",
+                "WhiteThroatedSessions",
+                .product(
+                    name: "Crypto",
+                    package: "swift-crypto"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedAuthRateLimit",
+            dependencies: [
+                "WhiteThroated",
+                "WhiteThroatedAuth",
+                "WhiteThroatedRateLimit",
+                .product(
+                    name: "Crypto",
+                    package: "swift-crypto"
                 ),
             ]
         ),
@@ -355,6 +445,30 @@ let package = Package(
                 "WhiteThroatedMetrics",
                 "WhiteThroatedTracing",
                 "WhiteThroatedLifecycle",
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedIdentityStateTests",
+            dependencies: [
+                "WhiteThroatedAuth",
+                "WhiteThroatedSessions",
+                "WhiteThroatedRedisSessions",
+                "WhiteThroatedCSRF",
+                "WhiteThroatedAuthRateLimit",
+                "WhiteThroatedRateLimit",
                 "WhiteThroated",
                 .product(
                     name: "NIOCore",
