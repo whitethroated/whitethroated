@@ -148,6 +148,50 @@ sesuai.
 - Proxy headers tidak dipercaya tanpa `TrustedProxy` eksplisit.
 - TLS tidak memiliki mode trust-all atau validation-off sebagai default.
 
+### 3.6 Dependency Tier 1 / fundamental
+
+Dependency baru wajib berasal dari Tier 1 atau fundamental. Aturan ini berlaku
+untuk dependency langsung maupun transitif.
+
+Yang dianggap Tier 1 / fundamental:
+
+- Swift standard library dan Foundation;
+- SwiftNIO dan modul resmi SwiftNIO;
+- paket resmi Swift project yang bersifat low-level dan tidak dimiliki oleh
+  framework web lain, seperti Swift Crypto, Swift Log, Swift Metrics, Swift
+  Collections, Swift Atomics, Swift System, dan Swift Service Lifecycle;
+- system library/fundamental OS interface seperti SQLite, libpq, POSIX, atau
+  OpenSSL, yang diakses melalui system-library target dan tanpa menambahkan
+  source implementasi non-Swift ke repository.
+
+Yang dilarang:
+
+- paket milik framework/ecosystem lain, termasuk seluruh paket `vapor/*`;
+- paket yang secara transitif menarik framework web atau application framework
+  lain;
+- membungkus driver framework lain sebagai dependency adapter resmi;
+- memilih paket framework hanya karena API-nya nyaman bila ada jalur
+  Tier 1/fundamental yang memadai.
+
+Jika capability membutuhkan backend yang tidak memiliki driver Tier 1 /
+fundamental, pilihan yang diizinkan adalah:
+
+1. membangun adapter Swift tipis di atas system library/fundamental interface;
+2. menunda capability tersebut; atau
+3. mengajukan pengecualian dependency secara eksplisit dengan review terpisah.
+
+Menulis ulang protokol database, TLS stack, atau codec dari nol tetap bukan
+default. Pengecualian tidak boleh disamarkan sebagai "adapter tipis".
+
+Setiap dependency baru harus mencatat:
+
+- alasan fungsional dan mengapa Tier 1/fundamental tidak cukup;
+- lisensi dan ownership;
+- transitive dependency graph;
+- allocation, concurrency, dan lifecycle cost;
+- exact pin di `Package.resolved`;
+- dampak benchmark bila menyentuh hot path.
+
 ## 4. Katalog modul
 
 ### 4.1 Authentication, sessions, validation
@@ -272,6 +316,30 @@ Tanggung jawab:
 
 Database work harus non-blocking atau dijalankan pada executor khusus. Pool
 tidak boleh dibuat per request.
+
+Adapter database resmi wajib mengikuti aturan dependency Tier 1/fundamental pada
+bagian 3.6. Paket driver milik framework lain seperti `vapor/*` tidak boleh
+dipakai. Jika driver Tier 1/fundamental belum tersedia, adapter harus dibangun
+di atas system library/fundamental interface atau capability ditunda sampai ada
+keputusan dependency yang terpisah.
+
+#### `WhiteThroatedPostgres` (proof adapter Fase 4)
+
+Adapter produksi awal untuk PostgreSQL dibangun langsung di atas system library
+`libpq` melalui target SwiftPM `CPostgres`:
+
+- system library dan header deklarasi, bukan implementasi protokol non-Swift;
+- actor pool dengan lease, pembuatan koneksi lazy, penggantian koneksi rusak,
+  dan drain saat shutdown;
+- satu serial `DispatchQueue` per koneksi fisik agar panggilan libpq yang
+  blocking tidak pernah berjalan di event loop;
+- cancellation melalui `PQcancel`, rollback transaksi, pemetaan SQLSTATE, dan
+  pemetaan tipe PostgreSQL ke `DatabaseValue`;
+- session-level advisory lock untuk migration runner.
+
+Adapter tidak menambahkan dependency pada modul framework lain. `numeric`,
+date/time, JSON, array, dan tipe extension dipertahankan sebagai teks agar
+presisi tidak hilang diam-diam.
 
 #### `WhiteThroatedORM`
 
@@ -464,8 +532,10 @@ WhiteThroated
   +-- Auth <-- Sessions <-- CSRF
   |      \------ Authorization policies
   +-- RateLimit <-- optional distributed-store adapter
-  +-- Services <-- Database <-- ORM
-  |                    \---- Migrations CLI
+  +-- Services
+  +-- Database <-- ORM
+  |            <-- Migrations CLI
+  |            \-- Postgres adapter (system libpq)
   +-- Observability
   |      +-- Logging adapter
   |      +-- Metrics adapter
@@ -478,6 +548,8 @@ WhiteThroated
 
 Dependency antarmodul harus sesedikit mungkin. Secara khusus:
 
+- semua dependency eksternal wajib mengikuti aturan Tier 1/fundamental pada
+  bagian 3.6;
 - Auth tidak bergantung wajib pada Sessions.
 - Validation tidak bergantung pada OpenAPI.
 - Observability tidak menjadi dependency wajib modul lain; modul lain hanya
@@ -556,6 +628,12 @@ Implementasikan:
 
 Jangan mendesain ORM terlebih dahulu lalu memaksa database contract mengikuti
 ORM.
+
+Status implementasi Fase 4 saat ini experimental: kontrak database, adapter
+system libpq, migrations CLI, dan ORM minimum tersedia dengan coverage unit dan
+integration test. Migrations masih forward-only; ORM belum memiliki relationship
+atau lazy loading. Bukti dan batasan operasional dicatat di
+`docs/data-services.md`.
 
 ### Fase 5 — Production HTTP
 
@@ -690,7 +768,9 @@ Dokumentasi root WhiteThroated harus membedakan:
 
 1. Versi platform minimum selain macOS dan target Linux CI untuk modul baru.
 2. Dependency eksternal yang diizinkan untuk crypto, TLS, compression,
-   observability, dan database.
+   observability, dan database. Keputusan: hanya Tier 1/fundamental sesuai
+   bagian 3.6; paket framework/ecosystem seperti `vapor/*` dilarang. Adapter
+   proof Fase 4 memakai system `libpq`, bukan paket driver framework lain.
 3. Bentuk extension surface core: middleware saja, typed application storage,
    lifecycle hooks, atau kombinasi minimalnya.
 4. Model konfigurasi environment/secrets dan ownership shutdown.
