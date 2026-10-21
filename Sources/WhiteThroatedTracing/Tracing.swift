@@ -254,11 +254,11 @@ public struct ServerTracer: Sendable {
             let parent =
                 request
                     .header("traceparent")
-                    .flatMap(
+                    .flatMap {
                         TraceContext.parse(
-                            traceparent:
+                            traceparent: $0
                         )
-                    )
+                    }
 
             guard self.sampler(parent) else {
                 return next(request)
