@@ -1,6 +1,7 @@
 import Foundation
 import NIOCore
 import NIOHTTP1
+import NIOPosix
 import XCTest
 
 @testable import WhiteThroated
@@ -96,6 +97,105 @@ final class StaticFilesTests: XCTestCase {
                 indexFile: nil
             )
         )
+    }
+
+    func testMountIsPrefixScopedAndSpecificRoutesWin() async throws {
+        let fixture = try makeFixture()
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.root
+            )
+        }
+
+        try await withStaticFiles(
+            directory: fixture.root.path
+        ) { files in
+            try await MultiThreadedEventLoopGroup
+                .withEventLoopGroup(
+                    numberOfThreads: 1
+                ) { group in
+                    let app = Application()
+
+                    app.mountStatic(
+                        "/assets",
+                        files: files
+                    )
+
+                    app.get("/api/health") { _ in
+                        .text("healthy")
+                    }
+
+                    app.get("/assets/override") { _ in
+                        .text("dynamic")
+                    }
+
+                    let loop = group.next()
+
+                    let unrelated = try await app.respond(
+                        to: makeRequest(
+                            method: .GET,
+                            path: "/api/health"
+                        ),
+                        on: loop
+                    ).get()
+
+                    guard case .text(let healthBody) =
+                        unrelated.body
+                    else {
+                        XCTFail(
+                            "Unrelated route should keep its normal responder"
+                        )
+                        return
+                    }
+
+                    XCTAssertEqual(
+                        healthBody,
+                        "healthy"
+                    )
+
+                    let specific = try await app.respond(
+                        to: makeRequest(
+                            method: .GET,
+                            path: "/assets/override"
+                        ),
+                        on: loop
+                    ).get()
+
+                    guard case .text(let specificBody) =
+                        specific.body
+                    else {
+                        XCTFail(
+                            "Specific route should beat the static catch-all"
+                        )
+                        return
+                    }
+
+                    XCTAssertEqual(
+                        specificBody,
+                        "dynamic"
+                    )
+
+                    let mounted = try await app.respond(
+                        to: makeRequest(
+                            method: .GET,
+                            path: "/assets/hello.txt"
+                        ),
+                        on: loop
+                    ).get()
+
+                    XCTAssertEqual(
+                        mounted.status,
+                        .ok
+                    )
+
+                    guard case .stream = mounted.body else {
+                        XCTFail(
+                            "Mounted static file should resolve through the static route"
+                        )
+                        return
+                    }
+                }
+        }
     }
 
     func testFileResponseUsesKnownLengthMIMEAndETag() async throws {
