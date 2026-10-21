@@ -139,7 +139,9 @@ public struct StructuredRequestLogger: Sendable {
                 route: route,
                 remoteAddress:
                     context.remoteAddress
-                        .map(String.init(describing:)),
+                        .map {
+                            String(describing: $0)
+                        },
                 start: start
             )
         }
