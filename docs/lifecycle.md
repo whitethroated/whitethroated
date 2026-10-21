@@ -20,6 +20,10 @@ app.use(
 lifecycle.registerCleanup {
     // Close application-owned resources here.
 }
+
+lifecycle.registerAsyncCleanup {
+    try await database.shutdown()
+}
 ```
 
 While the controller is accepting traffic, the readiness endpoint returns
@@ -39,10 +43,11 @@ The drain wait is shutdown-only work and does not create per-request
 ## Operational boundary
 
 The experimental controller is process-local. Readiness should be removed from
-load-balancer traffic before shutdown is initiated. Cleanup callbacks are
-synchronous in this slice; network-backed services should expose a synchronous
-shutdown barrier or receive a dedicated asynchronous lifecycle adapter in a
-later revision.
+load-balancer traffic before shutdown is initiated. Cleanup callbacks may be
+synchronous or asynchronous; both kinds run in reverse registration order.
+Asynchronous cleanups are awaited and may perform resource I/O, such as draining
+a database pool or flushing an exporter. They have no separate timeout, so a
+hook must use its own bounded operation and complete promptly.
 
 Signal handling is intentionally not installed automatically. Embedders and test
 hosts retain ownership of process signals.

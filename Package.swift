@@ -72,9 +72,33 @@ let package = Package(
             name: "WhiteThroatedAuthRateLimit",
             targets: ["WhiteThroatedAuthRateLimit"]
         ),
+        .library(
+            name: "WhiteThroatedServices",
+            targets: ["WhiteThroatedServices"]
+        ),
+        .library(
+            name: "WhiteThroatedDatabase",
+            targets: ["WhiteThroatedDatabase"]
+        ),
+        .library(
+            name: "WhiteThroatedPostgres",
+            targets: ["WhiteThroatedPostgres"]
+        ),
+        .library(
+            name: "WhiteThroatedMigrations",
+            targets: ["WhiteThroatedMigrations"]
+        ),
+        .library(
+            name: "WhiteThroatedORM",
+            targets: ["WhiteThroatedORM"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
+        ),
+        .executable(
+            name: "whitethroated-migrate",
+            targets: ["WhiteThroatedMigrationCLI"]
         ),
         .executable(
             name: "whitethroated-benchmark-server",
@@ -289,6 +313,73 @@ let package = Package(
             ]
         ),
         .target(
+            name: "WhiteThroatedServices",
+            dependencies: [
+                .product(
+                    name: "NIOConcurrencyHelpers",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedDatabase"
+        ),
+        .systemLibrary(
+            name: "CPostgres",
+            path: "Sources/CPostgres",
+            pkgConfig: "libpq",
+            providers: [
+                .brew(["libpq"]),
+                .apt(["libpq-dev"]),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedPostgres",
+            dependencies: [
+                "WhiteThroatedDatabase",
+                "CPostgres",
+                .product(
+                    name: "NIOConcurrencyHelpers",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedMigrations",
+            dependencies: [
+                "WhiteThroatedDatabase",
+                .product(
+                    name: "Crypto",
+                    package: "swift-crypto"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedORM",
+            dependencies: [
+                "WhiteThroatedDatabase",
+            ]
+        ),
+        .executableTarget(
+            name: "WhiteThroatedMigrationCLI",
+            dependencies: [
+                "WhiteThroatedDatabase",
+                "WhiteThroatedMigrations",
+                "WhiteThroatedPostgres",
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedDatabaseTestSupport",
+            dependencies: [
+                "WhiteThroatedDatabase",
+                .product(
+                    name: "NIOConcurrencyHelpers",
+                    package: "swift-nio"
+                ),
+            ],
+            path: "Tests/Support/DatabaseTestSupport"
+        ),
+        .target(
             name: "WhiteThroatedHTTP1",
             dependencies: [
                 .product(
@@ -482,6 +573,49 @@ let package = Package(
                     name: "NIOPosix",
                     package: "swift-nio"
                 ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedDataServicesTests",
+            dependencies: [
+                "WhiteThroatedServices",
+                "WhiteThroatedLifecycle",
+                "WhiteThroated",
+                .product(
+                    name: "NIOConcurrencyHelpers",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedDatabaseTests",
+            dependencies: [
+                "WhiteThroatedDatabase",
+                "WhiteThroatedDatabaseTestSupport",
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedMigrationsTests",
+            dependencies: [
+                "WhiteThroatedMigrations",
+                "WhiteThroatedDatabase",
+                "WhiteThroatedDatabaseTestSupport",
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedORMTests",
+            dependencies: [
+                "WhiteThroatedORM",
+                "WhiteThroatedDatabase",
+                "WhiteThroatedDatabaseTestSupport",
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedPostgresTests",
+            dependencies: [
+                "WhiteThroatedPostgres",
+                "WhiteThroatedDatabase",
+                "WhiteThroatedMigrations",
             ]
         ),
         .testTarget(

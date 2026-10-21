@@ -43,6 +43,13 @@ final class RepositoryLanguagePolicyTests: XCTestCase {
             "Makefile"
         ]
 
+        // SwiftPM system-library targets require a declaration header. This is
+        // not an implementation source file: it only includes the system
+        // libpq interface and defines a diagnostic-field constant.
+        let allowedSystemLibraryHeaders: Set<String> = [
+            "Sources/CPostgres/shim.h"
+        ]
+
         guard let enumerator = FileManager.default.enumerator(
             at: repositoryRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -78,16 +85,20 @@ final class RepositoryLanguagePolicyTests: XCTestCase {
 
             let name = fileURL.lastPathComponent
             let ext = fileURL.pathExtension.lowercased()
+            let relativePath = fileURL.path
+                .replacingOccurrences(
+                    of: repositoryRoot.path + "/",
+                    with: ""
+                )
+
+            if allowedSystemLibraryHeaders.contains(relativePath) {
+                continue
+            }
 
             if
                 forbiddenNames.contains(name)
                 || forbiddenExtensions.contains(ext)
             {
-                let relativePath = fileURL.path
-                    .replacingOccurrences(
-                        of: repositoryRoot.path + "/",
-                        with: ""
-                    )
                 violations.append(relativePath)
             }
         }
