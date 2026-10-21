@@ -167,6 +167,7 @@ final class IdentityStateTests:
             let response =
                 try await app.respond(
                     to: makeRequest(
+                        path: "/owner",
                         headers: headers
                     ),
                     on: loop
@@ -175,6 +176,226 @@ final class IdentityStateTests:
             XCTAssertEqual(
                 response.status,
                 .forbidden
+            )
+        }
+    }
+
+    func testEventLoopAuthenticatorRouteAppliesAuthorizationAndPassesPrincipal() async throws {
+        let store =
+            MemorySessionStore()
+        let codec =
+            SessionCookieCodec(
+                keys: [
+                    SessionSigningKey(
+                        id: "session",
+                        secret: secretA
+                    ),
+                ]
+            )
+        let manager =
+            SessionManager(
+                store: store,
+                codec: codec
+            )
+        let app = Application()
+
+        app.get(
+            "/account",
+            authenticatedBy:
+                manager.authenticator {
+                    session in
+
+                    guard
+                        let role =
+                            session.values["role"]
+                    else {
+                        return nil
+                    }
+
+                    return AuthPrincipal(
+                        id: session.id,
+                        roles: [role]
+                    )
+                },
+            authorization:
+                .role("owner")
+        ) { _, principal in
+            .text(principal.id)
+        }
+
+        try await withEventLoop {
+            loop in
+
+            var owner =
+                manager.create()
+            owner.values["role"] =
+                "owner"
+            let ownerCookie =
+                try await manager.persist(
+                    owner,
+                    on: loop
+                ).get()
+
+            var ownerHeaders =
+                HTTPHeaders()
+            ownerHeaders.add(
+                name: "cookie",
+                value:
+                    "wt_session=\(ownerCookie)"
+            )
+
+            let allowed =
+                try await app.respond(
+                    to: makeRequest(
+                        path: "/account",
+                        headers:
+                            ownerHeaders
+                    ),
+                    on: loop
+                ).get()
+
+            XCTAssertEqual(
+                allowed.status,
+                .ok
+            )
+            XCTAssertEqual(
+                bodyText(allowed),
+                owner.id
+            )
+
+            var member =
+                manager.create()
+            member.values["role"] =
+                "member"
+            let memberCookie =
+                try await manager.persist(
+                    member,
+                    on: loop
+                ).get()
+
+            var memberHeaders =
+                HTTPHeaders()
+            memberHeaders.add(
+                name: "cookie",
+                value:
+                    "wt_session=\(memberCookie)"
+            )
+
+            let denied =
+                try await app.respond(
+                    to: makeRequest(
+                        path: "/account",
+                        headers:
+                            memberHeaders
+                    ),
+                    on: loop
+                ).get()
+
+            XCTAssertEqual(
+                denied.status,
+                .forbidden
+            )
+
+            let missing =
+                try await app.respond(
+                    to: makeRequest(
+                        path: "/account"
+                    ),
+                    on: loop
+                ).get()
+
+            XCTAssertEqual(
+                missing.status,
+                .unauthorized
+            )
+        }
+    }
+
+    func testAuthenticationMiddlewareGatesRegisteredRoutes() async throws {
+        let auth =
+            Authenticator.bearer {
+                token,
+                _ in
+
+                token == "valid"
+                    ? AuthPrincipal(
+                        id: "middleware-user"
+                    )
+                    : nil
+            }
+        let app = Application()
+
+        app.use(
+            authentication: auth
+        )
+        app.get("/private") { _ in
+            .text("ok")
+        }
+
+        try await withEventLoop {
+            loop in
+
+            let missing =
+                try await app.respond(
+                    to: makeRequest(
+                        path: "/private"
+                    ),
+                    on: loop
+                ).get()
+
+            XCTAssertEqual(
+                missing.status,
+                .unauthorized
+            )
+
+            var invalidHeaders =
+                HTTPHeaders()
+            invalidHeaders.add(
+                name: "authorization",
+                value:
+                    "Bearer invalid"
+            )
+
+            let invalid =
+                try await app.respond(
+                    to: makeRequest(
+                        path: "/private",
+                        headers:
+                            invalidHeaders
+                    ),
+                    on: loop
+                ).get()
+
+            XCTAssertEqual(
+                invalid.status,
+                .unauthorized
+            )
+
+            var validHeaders =
+                HTTPHeaders()
+            validHeaders.add(
+                name: "authorization",
+                value:
+                    "Bearer valid"
+            )
+
+            let valid =
+                try await app.respond(
+                    to: makeRequest(
+                        path: "/private",
+                        headers:
+                            validHeaders
+                    ),
+                    on: loop
+                ).get()
+
+            XCTAssertEqual(
+                valid.status,
+                .ok
+            )
+            XCTAssertEqual(
+                bodyText(valid),
+                "ok"
             )
         }
     }
@@ -278,22 +499,141 @@ final class IdentityStateTests:
                 store.count,
                 2
             )
-            XCTAssertNil(
+            let expiredA =
                 try await store.load(
                     id: "a",
                     on: loop
                 ).get()
-            )
+            XCTAssertNil(expiredA)
 
             clock.now = 111
 
-            XCTAssertNil(
+            let expiredB =
                 try await store.load(
                     id: "b",
                     on: loop
                 ).get()
+            XCTAssertNil(expiredB)
+        }
+    }
+
+    func testSessionDestroyRemovesStoreEntryAndCookieLookupMisses() async throws {
+        let store =
+            MemorySessionStore()
+        let codec =
+            SessionCookieCodec(
+                keys: [
+                    SessionSigningKey(
+                        id: "k",
+                        secret: secretA
+                    ),
+                ]
+            )
+        let manager =
+            SessionManager(
+                store: store,
+                codec: codec
+            )
+
+        try await withEventLoop {
+            loop in
+
+            let session =
+                manager.create()
+            let cookie =
+                try await manager.persist(
+                    session,
+                    on: loop
+                ).get()
+
+            var headers =
+                HTTPHeaders()
+            headers.add(
+                name: "cookie",
+                value:
+                    "wt_session=\(cookie)"
+            )
+
+            let loaded =
+                try await manager.load(
+                    from: makeRequest(
+                        headers: headers
+                    ),
+                    on: loop
+                ).get()
+
+            XCTAssertEqual(
+                loaded?.id,
+                session.id
+            )
+
+            try await manager.destroy(
+                session,
+                on: loop
+            ).get()
+
+            let destroyed =
+                try await manager.load(
+                    from: makeRequest(
+                        headers: headers
+                    ),
+                    on: loop
+                ).get()
+
+            XCTAssertNil(destroyed)
+            XCTAssertEqual(
+                store.count,
+                0
             )
         }
+    }
+
+    func testSessionCookieRejectsMalformedValuesAndUnknownKeys() {
+        let codec =
+            SessionCookieCodec(
+                keys: [
+                    SessionSigningKey(
+                        id: "k",
+                        secret: secretA
+                    ),
+                ]
+            )
+        let encoded =
+            codec.encode(
+                sessionID: "session-1"
+            )
+
+        XCTAssertNil(
+            codec.decode("")
+        )
+        XCTAssertNil(
+            codec.decode("k.session-1")
+        )
+        XCTAssertNil(
+            codec.decode("k.session-1.extra.0")
+        )
+        XCTAssertNil(
+            codec.decode(
+                "unknown.session-1."
+                    + String(
+                        encoded.suffix(64)
+                    )
+            )
+        )
+
+        var signature =
+            String(
+                encoded.suffix(64)
+            )
+        signature.removeLast()
+        signature.append("g")
+
+        XCTAssertNil(
+            codec.decode(
+                "k.session-1."
+                    + signature
+            )
+        )
     }
 
     func testSessionManagerPersistsLoadsRotatesAndSetsSecureCookie() async throws {
@@ -380,12 +720,12 @@ final class IdentityStateTests:
                 rotated.id,
                 "two"
             )
-            XCTAssertNil(
+            let rotatedStoreEntry =
                 try await store.load(
                     id: "one",
                     on: loop
                 ).get()
-            )
+            XCTAssertNil(rotatedStoreEntry)
 
             var response =
                 Response.text("ok")
@@ -584,6 +924,118 @@ final class IdentityStateTests:
         )
     }
 
+    func testCSRFOriginPolicySupportsRefererAndExplicitRequirement() {
+        let csrf = CSRFProtection(
+            originPolicy:
+                .allowed(
+                    [
+                        "https://app.example.com",
+                    ],
+                    requireOriginOrReferer:
+                        true
+                )
+        )
+        var session = Session(
+            id: "s",
+            createdAtSeconds: 1,
+            lastAccessAtSeconds: 1
+        )
+        let token =
+            csrf.ensureToken(
+                in: &session
+            )
+
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "x-csrf-token",
+            value: token
+        )
+
+        XCTAssertFalse(
+            csrf.validate(
+                request:
+                    makeRequest(
+                        method: .POST,
+                        headers: headers
+                    ),
+                session: session
+            )
+        )
+
+        headers.add(
+            name: "referer",
+            value:
+                "https://app.example.com/account"
+        )
+
+        XCTAssertTrue(
+            csrf.validate(
+                request:
+                    makeRequest(
+                        method: .POST,
+                        headers: headers
+                    ),
+                session: session
+            )
+        )
+
+        headers.replaceOrAdd(
+            name: "referer",
+            value:
+                "https://evil.example/account"
+        )
+
+        XCTAssertFalse(
+            csrf.validate(
+                request:
+                    makeRequest(
+                        method: .POST,
+                        headers: headers
+                    ),
+                session: session
+            )
+        )
+
+        let optionalOrigin = CSRFProtection(
+            originPolicy:
+                .allowed(
+                    [
+                        "https://app.example.com",
+                    ],
+                    requireOriginOrReferer:
+                        false
+                )
+        )
+        var tokenOnlyHeaders =
+            HTTPHeaders()
+        tokenOnlyHeaders.add(
+            name: "x-csrf-token",
+            value: token
+        )
+
+        XCTAssertTrue(
+            optionalOrigin.validate(
+                request:
+                    makeRequest(
+                        method: .POST,
+                        headers:
+                            tokenOnlyHeaders
+                    ),
+                session: session
+            )
+        )
+
+        XCTAssertTrue(
+            csrf.validate(
+                request:
+                    makeRequest(
+                        method: .GET
+                    ),
+                session: session
+            )
+        )
+    }
+
     func testAuthRateLimitUsesDerivedPrincipalKey() {
         let auth =
             Authenticator.bearer {
@@ -710,13 +1162,17 @@ final class IdentityStateTests:
                 numberOfThreads: 1
             )
 
-        defer {
-            try? group
-                .syncShutdownGracefully()
+        do {
+            try await body(
+                group.next()
+            )
+        } catch {
+            try? await group
+                .shutdownGracefully()
+            throw error
         }
 
-        try await body(
-            group.next()
-        )
+        try await group
+            .shutdownGracefully()
     }
 }
