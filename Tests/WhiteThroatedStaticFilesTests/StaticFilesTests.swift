@@ -248,7 +248,7 @@ final class StaticFilesTests: XCTestCase {
             )
             headers.add(
                 name: "if-range",
-                value: ""stale""
+                value: "\"stale\""
             )
 
             let response = await files.response(
