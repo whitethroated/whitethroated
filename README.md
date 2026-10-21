@@ -73,6 +73,34 @@ app.get("/api/profile") { _ in
 
 Requests without an `Origin` header pass through without CORS response mutation. Cross-origin requests are denied by default unless their origin is allowed. Preflight requests are validated against the configured method and header allowlists. See `docs/cors.md` for the security and caching behavior.
 
+The second experimental module is `WhiteThroatedStaticFiles`:
+
+```swift
+import WhiteThroated
+import WhiteThroatedStaticFiles
+
+let files = try await StaticFiles.open(
+    directory: "./Public",
+    options: .production
+)
+
+let app = Application()
+app.mountStatic(
+    "/assets",
+    files: files
+)
+
+do {
+    try app.run(port: 3000)
+    try await files.close()
+} catch {
+    try? await files.close()
+    throw error
+}
+```
+
+Static files are mounted as prefix-scoped routes rather than global middleware, so unrelated routes do not perform filesystem lookup. The experimental slice supports GET/HEAD, MIME types, weak ETag/304, single byte ranges, and strict no-follow path traversal. The application explicitly owns the opened root-directory lifecycle. See `docs/static-files.md` for security, lifecycle, limitations, and benchmark status.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response

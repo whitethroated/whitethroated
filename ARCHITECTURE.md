@@ -109,6 +109,8 @@ Core targets must never import optional application modules. Importing an option
 
 `WhiteThroatedCORS` is the first vertical slice of this boundary. It depends on `WhiteThroated`, installs only through explicit `app.use(cors:)`, and does not add a runtime hook. A request without an `Origin` header immediately delegates to the existing fast-middleware next responder. When CORS response headers are required, prepared responses intentionally become mutable responses because origin-specific headers are request-dependent.
 
+`WhiteThroatedStaticFiles` is the second vertical slice. It also requires no core or runtime hook. A mount compiles an exact GET route plus a terminal catch-all route for its prefix, so requests outside that prefix do not perform static-file policy or filesystem work. Root-directory opening is explicit setup/lifecycle work. Request-time file metadata and open operations run through SwiftNIO's filesystem executor. Path containment is enforced by opening each directory component relative to the previously opened directory handle with symbolic-link following disabled, then opening the final regular file with the same policy. The final descriptor is transferred to a known-length response stream as a `FileRegion` and closed after its flushed write completes.
+
 ## Accepted socket setup
 
 Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`
