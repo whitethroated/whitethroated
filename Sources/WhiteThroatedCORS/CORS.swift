@@ -414,7 +414,7 @@ public struct CORS: Sendable {
             separator: ",",
             omittingEmptySubsequences: false
         ) {
-            let name = part
+            let name = String(part)
                 .trimmingCharacters(
                     in: .whitespacesAndNewlines
                 )
@@ -472,7 +472,7 @@ public struct CORS: Sendable {
             existing
                 .split(separator: ",")
                 .map {
-                    $0
+                    String($0)
                         .trimmingCharacters(
                             in:
                                 .whitespacesAndNewlines
