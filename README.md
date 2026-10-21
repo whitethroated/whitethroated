@@ -333,6 +333,42 @@ explicitly. There is no active-record magic, hidden global connection, or
 implicit relationship query. See `docs/data-services.md` for the contract,
 install requirements, type mapping, security boundaries, and current limits.
 
+Phase 5 adds production HTTP capabilities as opt-in products. The first is
+`WhiteThroatedCompression`:
+
+```swift
+import WhiteThroated
+import WhiteThroatedCompression
+
+let app = Application()
+
+app.use(compression: Compression(
+    configuration: Compression.Configuration(
+        minimumBytes: 1024,
+        contentTypes: .default
+    )
+))
+
+app.get("/report") { _ in
+    .json(report)
+}
+```
+
+Compression is explicit: nothing is compressed until the application installs
+`app.use(compression:)`, calls `Compression.encode(_:for:)`, prepares a
+`Compression.precompressed(_:)` handler, or streams through
+`Compression.stream(for:...)`. Buffered `text`, JSON, XML, and SVG
+responses at or above `minimumBytes` are negotiated from `Accept-Encoding`
+(with quality values), fall back to identity, and carry
+`Vary: Accept-Encoding` whenever the response is statically compressible.
+Already encoded, file-region, partial-content, and strong-ETag responses are
+left untouched, and streaming responses pass through the middleware
+untouched; compressed streaming is an explicit per-response API that
+preserves writer futures and flushes decodable chunk boundaries. The module
+links the system zlib library through a SwiftPM system-library target and adds
+no third-party package dependency. See `docs/compression.md` for the
+negotiation, validator, and eligibility rules.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response
