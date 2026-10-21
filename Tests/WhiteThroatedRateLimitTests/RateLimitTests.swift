@@ -274,7 +274,7 @@ final class RateLimitTests: XCTestCase {
     }
 
     func testMissingKeyCanExplicitlyPassThrough() {
-        var nextCalls = 0
+        let nextCalls = Counter()
 
         let limiter =
             FixedWindowRateLimiter(
@@ -291,7 +291,7 @@ final class RateLimitTests: XCTestCase {
         let result = limiter.respond(
             to: makeRequest()
         ) { _ in
-            nextCalls += 1
+            nextCalls.value += 1
             return .response(.text("ok"))
         }
 
