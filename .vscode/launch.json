@@ -139,6 +139,26 @@
             "target": "whitethroated-benchmark-campaign",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release whitethroated-benchmark-campaign"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-migrate",
+            "target": "whitethroated-migrate",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-migrate"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-migrate",
+            "target": "whitethroated-migrate",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-migrate"
         }
     ]
 }
