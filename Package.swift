@@ -92,6 +92,10 @@ let package = Package(
             name: "WhiteThroatedORM",
             targets: ["WhiteThroatedORM"]
         ),
+        .library(
+            name: "WhiteThroatedCompression",
+            targets: ["WhiteThroatedCompression"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
@@ -360,6 +364,30 @@ let package = Package(
                 "WhiteThroatedDatabase",
             ]
         ),
+        .systemLibrary(
+            name: "CZlib",
+            path: "Sources/CZlib",
+            pkgConfig: "zlib",
+            providers: [
+                .brew(["zlib"]),
+                .apt(["zlib1g-dev"]),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedCompression",
+            dependencies: [
+                "WhiteThroated",
+                "CZlib",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
         .executableTarget(
             name: "WhiteThroatedMigrationCLI",
             dependencies: [
@@ -608,6 +636,30 @@ let package = Package(
                 "WhiteThroatedORM",
                 "WhiteThroatedDatabase",
                 "WhiteThroatedDatabaseTestSupport",
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedCompressionTests",
+            dependencies: [
+                "WhiteThroatedCompression",
+                "WhiteThroated",
+                "CZlib",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOEmbedded",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                ),
             ]
         ),
         .testTarget(

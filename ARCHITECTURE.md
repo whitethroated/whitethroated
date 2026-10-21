@@ -197,6 +197,31 @@ build quoted SQL during setup and perform no database access when a property is
 read. Callers supply the connection or transaction, so there is no hidden global
 connection and no implicit relationship query.
 
+Phase 5 production HTTP capability remains opt-in and adds no runtime hook.
+`WhiteThroatedCompression` is a buffered gzip capability built on the system
+zlib library declared by the `CZlib` system-library target; it adds no
+third-party package dependency and no core request-path change. The fast
+middleware introduced by `app.use(compression:)` inspects the responder result
+only when installed: immediate and future responses are analyzed and, when
+statically eligible, negotiated and encoded, while prepared responses and
+response streams pass through untouched, preserving the prepared writer path
+and stream backpressure. `precompressed(_:)` encodes once during setup and
+returns a synchronous negotiator, so those routes keep setup-time preparation.
+Negotiation is byte-oriented over the request's `accept-encoding` headers and
+allocates no request state. Statically eligible responses always carry
+`Vary: Accept-Encoding`, including identity responses. A response carrying a
+strong or ambiguous entity tag is never compressed because strong validators
+must not be shared between representations, and `precompressed(_:)` rejects
+such responses during setup. Streamed bodies are never compressed implicitly;
+`stream(for:...)` is an explicit per-response API that deflates on the
+connection event loop, ends every flush boundary with `Z_SYNC_FLUSH` so
+incremental decoders keep working, appends the gzip trailer when the producer
+completes, and forwards the underlying writer futures unchanged so stream
+backpressure is preserved. The module uses no locks and performs no I/O on
+the event loop; buffered compression is synchronous CPU work on the connection
+event loop, and each active compressed stream owns one zlib state until its
+producer completes.
+
 ## Accepted socket setup
 
 Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`
