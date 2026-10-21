@@ -54,7 +54,7 @@ public final class RedisSessionStore:
                     return nil
                 }
 
-                return try decoder.decode(
+                return try self.decoder.decode(
                     Session.self,
                     from:
                         Data(encoded.utf8)
