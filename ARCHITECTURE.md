@@ -111,6 +111,8 @@ Core targets must never import optional application modules. Importing an option
 
 `WhiteThroatedStaticFiles` is the second vertical slice. It also requires no core or runtime hook. A mount compiles an exact GET route plus a terminal catch-all route for its prefix, so requests outside that prefix do not perform static-file policy or filesystem work. Root-directory opening is explicit setup/lifecycle work. Request-time file metadata and open operations run through SwiftNIO's filesystem executor. Path containment is enforced by opening each directory component relative to the previously opened directory handle with symbolic-link following disabled, then opening the final regular file with the same policy. The final descriptor is transferred to a known-length response stream as a `FileRegion` and closed after its flushed write completes.
 
+`WhiteThroatedValidation` is the third vertical slice. It is handler-scoped rather than middleware-scoped and adds no core or runtime hook. Immutable field schemas are built during setup, while path/query/header/cookie lookup and rule evaluation occur only when a handler explicitly requests validation. JSON validation remains lazy: the module checks its configured byte and nesting-depth bounds directly against the existing request `ByteBuffer` before delegating to WhiteThroated's normal `Codable` decoder. Routes that do not call Validation have no Validation dispatch layer or request state.
+
 ## Accepted socket setup
 
 Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`
