@@ -101,6 +101,44 @@ do {
 
 Static files are mounted as prefix-scoped routes rather than global middleware, so unrelated routes do not perform filesystem lookup. The experimental slice supports GET/HEAD, MIME types, weak ETag/304, single byte ranges, and strict no-follow path traversal. The application explicitly owns the opened root-directory lifecycle. See `docs/static-files.md` for security, lifecycle, limitations, and benchmark status.
 
+
+The third experimental module is `WhiteThroatedValidation`:
+
+```swift
+import WhiteThroated
+import WhiteThroatedValidation
+
+let schema = ValidationSchema(
+    fields: [
+        .path("id", rules: [.nonEmpty]),
+        .query(
+            "mode",
+            required: false,
+            rules: [.oneOf(["safe", "fast"])]
+        ),
+    ]
+)
+
+app.get("/users/:id") { request in
+    guard
+        let values = try? request
+            .validate(schema)
+            .get()
+    else {
+        return .text(
+            "Invalid request",
+            status: .badRequest
+        )
+    }
+
+    return .text(
+        values[.path, "id"] ?? ""
+    )
+}
+```
+
+Validation is handler-scoped rather than global middleware: routes that do not call it do not perform Validation work. The first experimental slice supports structured path/query/header/cookie string validation plus bounded, lazy Codable JSON decoding with byte and nesting-depth limits. See `docs/validation.md` for the error model, cost model, and current boundaries.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response

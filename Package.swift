@@ -28,6 +28,10 @@ let package = Package(
             name: "WhiteThroatedStaticFiles",
             targets: ["WhiteThroatedStaticFiles"]
         ),
+        .library(
+            name: "WhiteThroatedValidation",
+            targets: ["WhiteThroatedValidation"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
@@ -114,6 +118,16 @@ let package = Package(
                 ),
                 .product(
                     name: "_NIOFileSystem",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedValidation",
+            dependencies: [
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
                     package: "swift-nio"
                 ),
             ]
@@ -215,6 +229,25 @@ let package = Package(
             name: "WhiteThroatedStaticFilesTests",
             dependencies: [
                 "WhiteThroatedStaticFiles",
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedValidationTests",
+            dependencies: [
+                "WhiteThroatedValidation",
                 "WhiteThroated",
                 .product(
                     name: "NIOCore",
