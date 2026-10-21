@@ -14,6 +14,8 @@ WhiteThroated is pre-alpha. API compatibility is intentionally secondary to esta
 - Swift 6.4 is the development and benchmark toolchain.
 - Swift Package Manager tools version 6.1 or newer.
 - SwiftNIO 2.104.0, pinned exactly for reproducible builds.
+- The optional PostgreSQL adapter requires the system `libpq` development
+  library and `pkg-config`; the core framework does not.
 
 ## Quick start
 
@@ -253,6 +255,83 @@ verification supports key rotation. Identity backed by event-loop I/O uses
 `EventLoopAuthenticator` with the same authorization route helpers. A bounded
 memory store is included for development/tests, while Redis is isolated in a
 separate adapter product. See `docs/identity-state.md`.
+
+Phase 4 adds experimental data products that stay outside the core request path:
+
+- `WhiteThroatedServices` — setup-time typed service registry and ordered async
+  shutdown.
+- `WhiteThroatedDatabase` — async query, row, transaction, and connection-pool
+  contract.
+- `WhiteThroatedPostgres` — PostgreSQL adapter implemented directly on the
+  system `libpq` library, with no third-party driver package.
+- `WhiteThroatedMigrations` — checksummed SQL migrations and the
+  `whitethroated-migrate` executable.
+- `WhiteThroatedORM` — explicit row models and CRUD repositories.
+
+```swift
+import WhiteThroatedDatabase
+import WhiteThroatedPostgres
+import WhiteThroatedServices
+
+// databaseURL comes from the environment or a secret manager.
+let database = try await PostgresDatabase.connect(
+    configuration: PostgresConfiguration(
+        connectionString: databaseURL,
+        poolSize: 4
+    )
+)
+
+let databaseKey = ServiceKey<any Database>("database")
+let services = ServiceRegistry()
+try services.register(database, for: databaseKey)
+try services.onShutdown {
+    try await database.shutdown()
+}
+let container = try services.start()
+let db = try container.require(databaseKey)
+
+app.get("/users/:id") { request async throws in
+    guard let id = Int64(request.parameter("id") ?? "") else {
+        return .text("Invalid id", status: .badRequest)
+    }
+
+    let result = try await db.execute(
+        DatabaseQuery(
+            """
+            SELECT "name" FROM "users" WHERE "id" = $1
+            """,
+            bindings: [.int(id)]
+        )
+    )
+
+    guard let name = try result.rows.first?
+        .decode("name", as: String.self)
+    else {
+        return .text("Not found", status: .notFound)
+    }
+
+    return .text(name)
+}
+```
+
+`PostgresDatabase` confines blocking libpq calls to per-connection serial queues,
+so SwiftNIO event loops never block. It supports cancellation, explicit
+connection leases, automatic transaction rollback, and idempotent pool shutdown.
+Migration locking holds its advisory lock on a dedicated connection outside the
+pool, so concurrent migration runners do not consume pool capacity.
+
+```text
+DATABASE_URL='postgresql://user:password@host/db?sslmode=verify-full' \
+  .build/release/whitethroated-migrate --status
+```
+
+Migration files are applied in lexicographic order, each in its own transaction,
+with SHA-256 checksums and an advisory lock. The minimum ORM is deliberately
+explicit: `DatabaseModel` declares columns and row decoding, while
+`DatabaseRepository` precomputes quoted SQL and receives its connection
+explicitly. There is no active-record magic, hidden global connection, or
+implicit relationship query. See `docs/data-services.md` for the contract,
+install requirements, type mapping, security boundaries, and current limits.
 
 ## HTTP/1 transport
 

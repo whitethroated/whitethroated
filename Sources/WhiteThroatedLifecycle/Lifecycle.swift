@@ -38,14 +38,21 @@ public final class LifecycleController:
 {
     public typealias Cleanup =
         @Sendable () throws -> Void
+    public typealias AsyncCleanup =
+        @Sendable () async throws -> Void
     public typealias Clock =
         @Sendable () -> UInt64
+
+    private enum CleanupEntry: Sendable {
+        case synchronous(Cleanup)
+        case asynchronous(AsyncCleanup)
+    }
 
     private struct State: Sendable {
         var phase:
             LifecyclePhase = .accepting
         var activeRequests = 0
-        var cleanups: [Cleanup] = []
+        var cleanups: [CleanupEntry] = []
     }
 
     private let state =
@@ -73,7 +80,26 @@ public final class LifecycleController:
             )
 
             state.cleanups.append(
-                cleanup
+                .synchronous(cleanup)
+            )
+        }
+    }
+
+    /// Register cleanup that performs asynchronous I/O, such as closing a
+    /// database pool or flushing an exporter.
+    public func registerAsyncCleanup(
+        _ cleanup: @escaping AsyncCleanup
+    ) {
+        state.withLockedValue {
+            state in
+
+            precondition(
+                state.phase == .accepting,
+                "Lifecycle cleanup must be registered before draining starts"
+            )
+
+            state.cleanups.append(
+                .asynchronous(cleanup)
             )
         }
     }
@@ -177,7 +203,13 @@ public final class LifecycleController:
 
         for cleanup in cleanups {
             do {
-                try cleanup()
+                switch cleanup {
+                case .synchronous(let cleanup):
+                    try cleanup()
+
+                case .asynchronous(let cleanup):
+                    try await cleanup()
+                }
             } catch {
                 if firstError == nil {
                     firstError = error

@@ -124,9 +124,10 @@ decided before route classification and span identifier generation.
 
 `WhiteThroatedLifecycle` is process-local operational coordination. Its
 middleware tracks active requests and rejects new requests after drain begins;
-the controller changes readiness before waiting for in-flight work, runs cleanup
-callbacks in reverse order, then delegates final server teardown to the existing
-`Application.shutdown()`. It adds no runtime-owned application concepts.
+the controller changes readiness before waiting for in-flight work, runs
+synchronous or asynchronous cleanup callbacks in reverse order, then delegates
+final server teardown to the existing `Application.shutdown()`. It adds no
+runtime-owned application concepts.
 
 The core exposes only read-only `PreparedResponse` status/header/content-length
 metadata for observers. This is a value-access surface, not an optional-module
@@ -146,6 +147,55 @@ lock-protected; `WhiteThroatedRedisSessions` is a vendor adapter and does not
 become an Auth or core dependency. `WhiteThroatedCSRF` depends on Sessions,
 not vice versa. Auth-related rate limiting derives a pseudonymous key and
 reuses the independently optional RateLimit module.
+
+Phase 4 data modules sit beside the core rather than above it:
+
+```text
+WhiteThroatedServices          (independent)
+WhiteThroatedDatabase <-- WhiteThroatedPostgres (system libpq)
+                     <-- WhiteThroatedMigrations <-- whitethroated-migrate
+                     <-- WhiteThroatedORM
+```
+
+The core never imports a data module, and importing one does not install
+middleware, add route-table entries, or allocate request state. A handler that
+needs a database explicitly awaits an async operation in its own body.
+
+`WhiteThroatedServices` freezes a typed registry before serving. Factories run
+once at `start()`, resolution happens during handler setup rather than through a
+per-request global registry, and async shutdown hooks run once in reverse
+registration order.
+
+`WhiteThroatedDatabase` is a driver-neutral async contract for connections,
+queries, rows, transactions, and cancellation. Transactions roll back on body
+failure, including task cancellation, and `shutdown()` drains leased sessions.
+The contract itself does not prescribe an executor; an adapter must keep
+blocking work off event loops.
+
+`WhiteThroatedPostgres` is the Phase 4 proof adapter. It is a thin Swift boundary
+over the system libpq library declared by the `CPostgres` system-library target,
+not a PostgreSQL protocol reimplementation and not a dependency on another web
+framework's driver. libpq is synchronous, so each physical connection owns one
+serial `DispatchQueue`; every libpq call runs there and SwiftNIO event loops
+never wait on it. An actor pool owns connection creation, leasing, replacement of
+broken sessions, and drain-before-shutdown. Cancellation uses `PQcancel` while a
+call is in flight, removes a cancelled caller from the lease queue, and still
+attempts transaction rollback. The adapter maps
+common PostgreSQL OIDs to portable `DatabaseValue` cases and intentionally keeps
+`numeric`, date/time, JSON, and arrays as text values.
+
+`WhiteThroatedMigrations` is a separate executable and library. It applies
+lexicographically ordered files in transactions, records SHA-256 checksums, and
+uses the optional `DatabaseMigrationLocking` capability when available. The
+Postgres implementation holds a session-level advisory lock on a dedicated
+connection outside the pool, so concurrent migration runners do not consume the
+pool connections that migration transactions need.
+
+`WhiteThroatedORM` is an explicit mapping layer, not an active-record runtime.
+Models declare their table, primary key, columns, and row decoder. Repositories
+build quoted SQL during setup and perform no database access when a property is
+read. Callers supply the connection or transaction, so there is no hidden global
+connection and no implicit relationship query.
 
 ## Accepted socket setup
 
