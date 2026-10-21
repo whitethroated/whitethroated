@@ -387,7 +387,7 @@ public final class HTTPMetrics:
     }
 
     private static func methodName(
-        _ method: HTTPMethod
+        _ method: WhiteThroated.HTTPMethod
     ) -> String {
         switch method {
         case .get: return "GET"
