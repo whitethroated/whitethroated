@@ -19,6 +19,12 @@ final class RateLimitTests: XCTestCase {
         }
     }
 
+    private final class Counter:
+        @unchecked Sendable
+    {
+        var value = 0
+    }
+
     func testAllowsUntilLimitThenReturns429() {
         let clock = ManualClock()
         let limiter = makeLimiter(
@@ -235,7 +241,7 @@ final class RateLimitTests: XCTestCase {
     }
 
     func testMissingKeyRejectsByDefaultWithoutCallingNext() {
-        var nextCalls = 0
+        let nextCalls = Counter()
 
         let limiter =
             FixedWindowRateLimiter(
@@ -250,13 +256,13 @@ final class RateLimitTests: XCTestCase {
         let result = limiter.respond(
             to: makeRequest()
         ) { _ in
-            nextCalls += 1
+            nextCalls.value += 1
             return .response(
                 .text("unexpected")
             )
         }
 
-        XCTAssertEqual(nextCalls, 0)
+        XCTAssertEqual(nextCalls.value, 0)
         XCTAssertEqual(
             response(result).status,
             .tooManyRequests
@@ -289,7 +295,7 @@ final class RateLimitTests: XCTestCase {
             return .response(.text("ok"))
         }
 
-        XCTAssertEqual(nextCalls, 1)
+        XCTAssertEqual(nextCalls.value, 1)
         XCTAssertEqual(
             response(result).status,
             .ok
