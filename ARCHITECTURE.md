@@ -132,6 +132,21 @@ The core exposes only read-only `PreparedResponse` status/header/content-length
 metadata for observers. This is a value-access surface, not an optional-module
 dependency or request-time registry lookup.
 
+
+Phase 3 keeps identity off the core request representation. `WhiteThroatedAuth`
+wraps only explicitly authenticated routes and passes `AuthPrincipal` directly
+to typed handlers. The event-loop authenticator is a separate API for
+I/O-backed identity. Core routes without auth therefore do not allocate or look
+up principal state.
+
+`WhiteThroatedSessions` is explicit/lazy rather than global middleware.
+Signed cookie verification, store access, rotation, and persistence happen only
+when application code requests them. The memory store is bounded and
+lock-protected; `WhiteThroatedRedisSessions` is a vendor adapter and does not
+become an Auth or core dependency. `WhiteThroatedCSRF` depends on Sessions,
+not vice versa. Auth-related rate limiting derives a pseudonymous key and
+reuses the independently optional RateLimit module.
+
 ## Accepted socket setup
 
 Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`

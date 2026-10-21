@@ -216,6 +216,44 @@ app.use(
 
 Observability remains opt-in and never logs bodies, credentials, cookies, or arbitrary headers by default. Metrics reject unbounded route labels, tracing samples before building route attributes, and observer middleware preserves prepared responses. See `docs/observability.md` and `docs/lifecycle.md`.
 
+
+Phase 3 adds experimental identity/state products without adding identity storage to
+the core request object:
+
+- `WhiteThroatedAuth`
+- `WhiteThroatedSessions`
+- `WhiteThroatedRedisSessions`
+- `WhiteThroatedCSRF`
+- `WhiteThroatedAuthRateLimit`
+
+```swift
+import WhiteThroatedAuth
+
+let auth = Authenticator.bearer { token, _ in
+    token == expectedToken
+        ? AuthPrincipal(
+            id: "user-42",
+            roles: ["admin"]
+        )
+        : nil
+}
+
+app.get(
+    "/admin",
+    authenticatedBy: auth,
+    authorization: .role("admin")
+) { _, principal in
+    .text(principal.id)
+}
+```
+
+Sessions are loaded explicitly only on routes that need them. The default session
+cookie policy is `HttpOnly`, `Secure`, and `SameSite=Lax`; signed cookie
+verification supports key rotation. Identity backed by event-loop I/O uses
+`EventLoopAuthenticator` with the same authorization route helpers. A bounded
+memory store is included for development/tests, while Redis is isolated in a
+separate adapter product. See `docs/identity-state.md`.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response
