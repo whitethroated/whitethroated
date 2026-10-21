@@ -323,6 +323,65 @@ final class StaticFilesTests: XCTestCase {
         }
     }
 
+    func testEmptyFileUsesKnownZeroLengthResponse() async throws {
+        let fixture = try makeFixture()
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.root
+            )
+        }
+
+        let empty = fixture.root
+            .appendingPathComponent(
+                "empty.txt"
+            )
+        try Data().write(to: empty)
+
+        try await withStaticFiles(
+            directory: fixture.root.path
+        ) { files in
+            let response = await files.response(
+                for: makeRequest(
+                    method: .GET,
+                    path: "/assets/empty.txt"
+                ),
+                mountPath: "/assets"
+            )
+
+            XCTAssertEqual(response.status, .ok)
+            XCTAssertEqual(
+                response.headers.first(
+                    name: "content-length"
+                ),
+                "0"
+            )
+
+            guard case .stream = response.body else {
+                XCTFail(
+                    "Empty static file should keep known-length stream semantics"
+                )
+                return
+            }
+        }
+    }
+
+    func testMIMEOverridesAreCaseInsensitive() {
+        let options = StaticFileOptions(
+            mimeTypes: [
+                "HTML": "application/x-one",
+                "html": "application/x-two",
+            ]
+        )
+
+        XCTAssertEqual(
+            options.mimeTypes.count,
+            1
+        )
+        XCTAssertNotNil(
+            options.mimeTypes["html"]
+        )
+    }
+
     func testFinalSymlinkIsNotServed() async throws {
         let fixture = try makeFixture()
         defer {
