@@ -236,6 +236,7 @@ let package = Package(
             name: "WhiteThroatedSessions",
             dependencies: [
                 "WhiteThroated",
+                "WhiteThroatedAuth",
                 .product(
                     name: "Crypto",
                     package: "swift-crypto"
