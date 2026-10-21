@@ -224,6 +224,10 @@ let package = Package(
                     name: "NIOHTTP1",
                     package: "swift-nio"
                 ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                ),
             ]
         ),
         .testTarget(
