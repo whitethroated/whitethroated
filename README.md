@@ -139,6 +139,30 @@ app.get("/users/:id") { request in
 
 Validation is handler-scoped rather than global middleware: routes that do not call it do not perform Validation work. The first experimental slice supports structured path/query/header/cookie string validation plus bounded, lazy Codable JSON decoding with byte and nesting-depth limits. See `docs/validation.md` for the error model, cost model, and current boundaries.
 
+
+The fourth experimental module is `WhiteThroatedRateLimit`:
+
+```swift
+import WhiteThroated
+import WhiteThroatedRateLimit
+
+let limiter = FixedWindowRateLimiter(
+    configuration:
+        FixedWindowRateLimitConfiguration(
+            limit: 100,
+            windowSeconds: 60,
+            maxKeys: 10_000
+        ),
+    keyResolver: { request in
+        request.header("x-api-key")
+    }
+)
+
+app.use(rateLimiter: limiter)
+```
+
+The initial RateLimit slice is a bounded in-process fixed-window limiter with explicit key resolution, deterministic-clock injection, LRU-style eviction, `Retry-After`, and opt-in response quota fields. It intentionally has no implicit client-IP/`X-Forwarded-For` behavior. See `docs/rate-limit.md` for the trust boundary, state bounds, concurrency model, and benchmark status.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response
