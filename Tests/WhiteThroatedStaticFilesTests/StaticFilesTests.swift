@@ -365,6 +365,51 @@ final class StaticFilesTests: XCTestCase {
         }
     }
 
+    func testRangeOnEmptyFileReturns416() async throws {
+        let fixture = try makeFixture()
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.root
+            )
+        }
+
+        let empty = fixture.root
+            .appendingPathComponent(
+                "empty.txt"
+            )
+        try Data().write(to: empty)
+
+        try await withStaticFiles(
+            directory: fixture.root.path
+        ) { files in
+            var headers = HTTPHeaders()
+            headers.add(
+                name: "range",
+                value: "bytes=0-0"
+            )
+
+            let response = await files.response(
+                for: makeRequest(
+                    method: .GET,
+                    path: "/assets/empty.txt",
+                    headers: headers
+                ),
+                mountPath: "/assets"
+            )
+
+            XCTAssertEqual(
+                response.status,
+                .rangeNotSatisfiable
+            )
+            XCTAssertEqual(
+                response.headers.first(
+                    name: "content-range"
+                ),
+                "bytes */0"
+            )
+        }
+    }
+
     func testMIMEOverridesAreCaseInsensitive() {
         let options = StaticFileOptions(
             mimeTypes: [
