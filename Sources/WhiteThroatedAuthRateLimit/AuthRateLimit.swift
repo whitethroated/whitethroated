@@ -40,7 +40,9 @@ public struct AuthRateLimitKeyDeriver:
                     using: key
                 )
 
-        return Self.hex(code)
+        return Self.hex(
+            Array(code)
+        )
     }
 
     private static func hex<C>(
