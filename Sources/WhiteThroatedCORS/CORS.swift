@@ -15,7 +15,7 @@ public enum CORSDeniedRequestBehavior: Sendable {
 
 public struct CORSConfiguration: Sendable {
     public let allowedOrigins: CORSOriginPolicy
-    public let allowedMethods: Set<HTTPMethod>
+    public let allowedMethods: Set<WhiteThroated.HTTPMethod>
     public let allowedHeaders: Set<String>
     public let exposedHeaders: [String]
     public let allowCredentials: Bool
@@ -30,7 +30,7 @@ public struct CORSConfiguration: Sendable {
 
     public init(
         allowedOrigins: CORSOriginPolicy,
-        allowedMethods: Set<HTTPMethod> = [
+        allowedMethods: Set<WhiteThroated.HTTPMethod> = [
             .get,
             .head,
             .post,
@@ -91,7 +91,7 @@ public struct CORSConfiguration: Sendable {
     }
 
     private static func methodName(
-        _ method: HTTPMethod
+        _ method: WhiteThroated.HTTPMethod
     ) -> String {
         switch method {
         case .get:
