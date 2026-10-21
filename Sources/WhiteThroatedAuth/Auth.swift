@@ -183,10 +183,14 @@ public struct Authenticator: Sendable {
 
         guard
             value.count > prefix.count,
-            value.prefix(prefix.count)
-                .caseInsensitiveCompare(
-                    prefix
-                ) == .orderedSame
+            String(
+                value.prefix(
+                    prefix.count
+                )
+            )
+            .caseInsensitiveCompare(
+                prefix
+            ) == .orderedSame
         else {
             return nil
         }
