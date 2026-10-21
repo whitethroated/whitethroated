@@ -20,6 +20,10 @@ let package = Package(
             name: "WhiteThroated",
             targets: ["WhiteThroated"]
         ),
+        .library(
+            name: "WhiteThroatedCORS",
+            targets: ["WhiteThroatedCORS"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
@@ -76,6 +80,16 @@ let package = Package(
                     name: "NIOCore",
                     package: "swift-nio"
                 ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedCORS",
+            dependencies: [
+                "WhiteThroated",
                 .product(
                     name: "NIOHTTP1",
                     package: "swift-nio"
@@ -159,6 +173,21 @@ let package = Package(
             name: "WhiteThroatedRuntimeBenchmarkServer",
             dependencies: ["WhiteThroatedRuntime"],
             path: "Benchmarks/WhiteThroatedRuntimeBenchmarkServer"
+        ),
+        .testTarget(
+            name: "WhiteThroatedCORSTests",
+            dependencies: [
+                "WhiteThroatedCORS",
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+            ]
         ),
         .testTarget(
             name: "WhiteThroatedHTTP1Tests",
