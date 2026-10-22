@@ -20,12 +20,30 @@ public struct Request: @unchecked Sendable {
     internal var routeParameterNames: RouteParameterNames
     internal var routeParameterRanges: RouteParameterRanges
 
-    init(head: HTTPRequestHead, body: ByteBuffer) {
+    /// Creates a request value from an already-decoded HTTP head and body.
+    ///
+    /// This initializer is primarily an integration surface for optional
+    /// protocol modules. It does not perform routing or body parsing.
+    public init(
+        head: HTTPRequestHead,
+        body: ByteBuffer
+    ) {
         self.init(
             head: head,
             body: body,
             routeParameterNames: .none,
             routeParameterRanges: .none
+        )
+    }
+
+    /// Creates a head-only request with an empty body.
+    public static func headOnly(
+        _ head: HTTPRequestHead
+    ) -> Request {
+        Request(
+            head: head,
+            body: ByteBufferAllocator()
+                .buffer(capacity: 0)
         )
     }
 

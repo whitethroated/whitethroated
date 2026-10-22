@@ -1,4 +1,5 @@
 import NIOCore
+import NIOHTTP1
 import NIOPosix
 
 /// Runtime-owned server bootstrap: event-loop group ownership, socket
@@ -103,7 +104,8 @@ public final class RuntimeServer: @unchecked Sendable {
         configuration: RuntimeServerConfiguration
     ) -> EventLoopFuture<Void> {
         if configuration.useTier1HTTP1,
-            !dispatcher.hasStreamingRoutes
+            !dispatcher.hasStreamingRoutes,
+            configuration.httpServerUpgrade == nil
         {
             return channel.pipeline.addHandler(
                 WTHTTP1ConnectionHandler(
@@ -113,15 +115,48 @@ public final class RuntimeServer: @unchecked Sendable {
             )
         }
 
+        let runtimeHandler =
+            RuntimeConnectionHandler(
+                dispatcher: dispatcher,
+                configuration: configuration
+            )
+
+        let upgrade:
+            NIOHTTPServerUpgradeSendableConfiguration?
+
+        if let configuredUpgrade =
+            configuration.httpServerUpgrade
+        {
+            upgrade = (
+                upgraders:
+                    configuredUpgrade.upgraders,
+                completionHandler: {
+                    context in
+
+                    context.pipeline
+                        .syncOperations
+                        .removeHandler(
+                            runtimeHandler,
+                            promise: nil
+                        )
+
+                    configuredUpgrade
+                        .completionHandler(
+                            context
+                        )
+                }
+            )
+        } else {
+            upgrade = nil
+        }
+
         return channel.pipeline.configureHTTPServerPipeline(
             withPipeliningAssistance: true,
+            withServerUpgrade: upgrade,
             withErrorHandling: true
         ).flatMap {
             channel.pipeline.addHandler(
-                RuntimeConnectionHandler(
-                    dispatcher: dispatcher,
-                    configuration: configuration
-                )
+                runtimeHandler
             )
         }
     }
