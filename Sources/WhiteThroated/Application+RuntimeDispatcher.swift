@@ -14,7 +14,9 @@ extension Application {
                 maxRequestBodyBytes
                 ?? configuration.maxRequestBodyBytes,
             useTier1HTTP1: configuration
-                .useTier1HTTP1Experimental
+                .useTier1HTTP1Experimental,
+            acceptedChannelInitializer:
+                acceptedChannelInitializer
         )
     }
 
