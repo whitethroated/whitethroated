@@ -80,9 +80,11 @@ internal final class WebSocketFrameHandler:
                 connection.pong(
                     frame.unmaskedData
                 )
+            let channel =
+                context.channel
             future.whenFailure {
                 _ in
-                context.close(
+                channel.close(
                     promise: nil
                 )
             }
@@ -335,6 +337,8 @@ internal final class WebSocketFrameHandler:
         lastClose = close
         notifyClose(close)
 
+        let channel =
+            context.channel
         connection.stateForHandler
             .receiveClose(
                 payload: payload
@@ -342,7 +346,7 @@ internal final class WebSocketFrameHandler:
             .whenFailure {
                 _ in
 
-                context.close(
+                channel.close(
                     promise: nil
                 )
             }
@@ -414,13 +418,15 @@ internal final class WebSocketFrameHandler:
     ) {
         clearFragment()
 
+        let channel =
+            context.channel
         connection.close(
             code: .protocolError,
             reason: "Protocol error"
         )
         .whenFailure {
             _ in
-            context.close(
+            channel.close(
                 promise: nil
             )
         }
@@ -430,6 +436,8 @@ internal final class WebSocketFrameHandler:
         context:
             ChannelHandlerContext
     ) {
+        let channel =
+            context.channel
         connection.close(
             code:
                 .dataInconsistentWithMessage,
@@ -438,7 +446,7 @@ internal final class WebSocketFrameHandler:
         )
         .whenFailure {
             _ in
-            context.close(
+            channel.close(
                 promise: nil
             )
         }
@@ -448,13 +456,15 @@ internal final class WebSocketFrameHandler:
         context:
             ChannelHandlerContext
     ) {
+        let channel =
+            context.channel
         connection.close(
             code: .messageTooLarge,
             reason: "Message too large"
         )
         .whenFailure {
             _ in
-            context.close(
+            channel.close(
                 promise: nil
             )
         }
