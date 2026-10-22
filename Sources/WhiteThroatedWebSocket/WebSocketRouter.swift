@@ -431,8 +431,17 @@ public struct WebSocketRouter:
                                 eventSink
                         )
 
-                    return channel.pipeline
-                        .addHandler(handler)
+                    return channel
+                        .setOption(
+                            ChannelOptions.autoRead,
+                            value: false
+                        )
+                        .flatMap {
+                            channel.pipeline
+                                .addHandler(
+                                    handler
+                                )
+                        }
                         .map {
                             eventSink?(
                                 .accepted(
@@ -451,6 +460,8 @@ public struct WebSocketRouter:
                                             head
                                         )
                                 )
+
+                            channel.read()
                         }
                 }
             )
