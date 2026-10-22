@@ -1,4 +1,5 @@
 import NIOCore
+import NIOHTTP1
 
 /// Low-level server knobs owned by the runtime.
 ///
@@ -18,6 +19,8 @@ public struct RuntimeServerConfiguration: Sendable {
     public var useTier1HTTP1: Bool
     public var acceptedChannelInitializer:
         RuntimeAcceptedChannelInitializer?
+    public var httpServerUpgrade:
+        NIOHTTPServerUpgradeSendableConfiguration?
 
     public init(
         eventLoopThreads: Int? = nil,
@@ -25,7 +28,9 @@ public struct RuntimeServerConfiguration: Sendable {
         maxRequestBodyBytes: Int = 1_048_576,
         useTier1HTTP1: Bool = true,
         acceptedChannelInitializer:
-            RuntimeAcceptedChannelInitializer? = nil
+            RuntimeAcceptedChannelInitializer? = nil,
+        httpServerUpgrade:
+            NIOHTTPServerUpgradeSendableConfiguration? = nil
     ) {
         precondition(
             maxRequestBodyBytes >= 0,
@@ -49,5 +54,7 @@ public struct RuntimeServerConfiguration: Sendable {
         self.useTier1HTTP1 = useTier1HTTP1
         self.acceptedChannelInitializer =
             acceptedChannelInitializer
+        self.httpServerUpgrade =
+            httpServerUpgrade
     }
 }

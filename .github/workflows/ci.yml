@@ -82,6 +82,12 @@ jobs:
       - name: Build Swift benchmark client
         run: swift build -c release --product whitethroated-benchmark-client
 
+      - name: Build WebSocket benchmark server
+        run: swift build -c release --product whitethroated-websocket-benchmark-server
+
+      - name: Build WebSocket benchmark client
+        run: swift build -c release --product whitethroated-websocket-benchmark-client
+
       - name: Build Swift benchmark merger
         run: swift build -c release --product whitethroated-benchmark-merge
 

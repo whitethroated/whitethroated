@@ -16,7 +16,9 @@ extension Application {
             useTier1HTTP1: configuration
                 .useTier1HTTP1Experimental,
             acceptedChannelInitializer:
-                acceptedChannelInitializer
+                acceptedChannelInitializer,
+            httpServerUpgrade:
+                httpServerUpgrade
         )
     }
 

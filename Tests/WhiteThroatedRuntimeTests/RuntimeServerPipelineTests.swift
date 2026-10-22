@@ -146,6 +146,148 @@ final class RuntimeServerPipelineTests: XCTestCase {
         XCTAssertTrue(try fixture.read().hasSuffix("ok"))
     }
 
+    func testHTTPUpgradeForcesStockAndRemovesRuntimeHandler() throws {
+        let loop = EmbeddedEventLoop()
+        let channel =
+            EmbeddedChannel(loop: loop)
+        let empty =
+            RuntimePreparedResponse(
+                status: .ok,
+                headers: HTTPHeaders(),
+                bodyBuffer: nil
+            )
+        let dispatcher =
+            RuntimeDispatcher(
+                hasMiddleware: false,
+                hasStreamingRoutes: false,
+                hasStreamingRoute: {
+                    _ in false
+                },
+                lookup: {
+                    _ in
+                    .prepared(empty)
+                },
+                dispatchPipeline: {
+                    _, _ in
+                    .response(empty.response)
+                },
+                mapError: {
+                    _, _, _ in
+                    .response(empty.response)
+                },
+                notFound: empty,
+                payloadTooLarge: empty,
+                expectationFailed: empty,
+                internalServerError: empty
+            )
+        let state =
+            UpgradeTestState()
+        let upgrader =
+            UpgradeTestUpgrader(
+                state: state
+            )
+        let upgrade:
+            NIOHTTPServerUpgradeSendableConfiguration =
+                (
+                    upgraders: [
+                        upgrader,
+                    ],
+                    completionHandler: {
+                        context in
+
+                        state
+                            .completionSawRuntimeHandler =
+                            (
+                                try? context
+                                    .pipeline
+                                    .syncOperations
+                                    .handler(
+                                        type:
+                                            RuntimeConnectionHandler
+                                                .self
+                                    )
+                            )
+                            != nil
+                    }
+                )
+        let configured =
+            RuntimeServer
+                .configureHTTPPipeline(
+                    channel: channel,
+                    dispatcher:
+                        dispatcher,
+                    configuration:
+                        RuntimeServerConfiguration(
+                            useTier1HTTP1:
+                                true,
+                            httpServerUpgrade:
+                                upgrade
+                        )
+                )
+
+        loop.run()
+        try configured.wait()
+        try channel.connect(
+            to:
+                SocketAddress(
+                    ipAddress:
+                        "127.0.0.1",
+                    port: 1
+                )
+        )
+        .wait()
+
+        XCTAssertNoThrow(
+            try channel.pipeline
+                .syncOperations
+                .handler(
+                    type:
+                        RuntimeConnectionHandler
+                            .self
+                )
+        )
+        XCTAssertThrowsError(
+            try channel.pipeline
+                .syncOperations
+                .handler(
+                    type:
+                        WTHTTP1ConnectionHandler
+                            .self
+                )
+        )
+
+        try channel.writeInbound(
+            ByteBuffer(
+                string:
+                    "GET /upgrade HTTP/1.1\r\n"
+                    + "Host: x\r\n"
+                    + "Connection: upgrade\r\n"
+                    + "Upgrade: test\r\n"
+                    + "\r\n"
+            )
+        )
+        loop.run()
+
+        XCTAssertTrue(
+            state.upgraded
+        )
+        XCTAssertFalse(
+            state
+                .completionSawRuntimeHandler
+        )
+        XCTAssertThrowsError(
+            try channel.pipeline
+                .syncOperations
+                .handler(
+                    type:
+                        RuntimeConnectionHandler
+                            .self
+                )
+        )
+
+        _ = try? channel.finish()
+    }
+
     func testStreamingRegistrationSelectsStockForWholeConnection() throws {
         let fixture = try PipelineFixture(streaming: true)
         defer { _ = try? fixture.channel.finish() }
@@ -239,6 +381,57 @@ final class RuntimeServerPipelineTests: XCTestCase {
             XCTAssertEqual(fixture.state.ordinaryCalls, 0)
             XCTAssertFalse(fixture.channel.isActive)
         }
+    }
+}
+
+private final class UpgradeTestState:
+    @unchecked Sendable
+{
+    var upgraded = false
+    var completionSawRuntimeHandler =
+        false
+}
+
+private final class UpgradeTestUpgrader:
+    HTTPServerProtocolUpgrader,
+    @unchecked Sendable
+{
+    let supportedProtocol = "test"
+    let requiredUpgradeHeaders:
+        [String] = []
+
+    private let state:
+        UpgradeTestState
+
+    init(state: UpgradeTestState) {
+        self.state = state
+    }
+
+    func buildUpgradeResponse(
+        channel: Channel,
+        upgradeRequest:
+            HTTPRequestHead,
+        initialResponseHeaders:
+            HTTPHeaders
+    ) -> EventLoopFuture<
+        HTTPHeaders
+    > {
+        channel.eventLoop
+            .makeSucceededFuture(
+                initialResponseHeaders
+            )
+    }
+
+    func upgrade(
+        context:
+            ChannelHandlerContext,
+        upgradeRequest:
+            HTTPRequestHead
+    ) -> EventLoopFuture<Void> {
+        state.upgraded = true
+
+        return context.eventLoop
+            .makeSucceededVoidFuture()
     }
 }
 

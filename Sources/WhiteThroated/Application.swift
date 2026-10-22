@@ -34,6 +34,8 @@ public final class Application: @unchecked Sendable {
     private var runtimeServer: RuntimeServer?
     internal var acceptedChannelInitializer:
         AcceptedChannelInitializer?
+    internal var httpServerUpgrade:
+        NIOHTTPServerUpgradeSendableConfiguration?
     private var configurationFrozen = false
 
     internal var hasStreamingRoutes: Bool {
@@ -85,6 +87,23 @@ public final class Application: @unchecked Sendable {
 
         acceptedChannelInitializer =
             initializer
+    }
+
+    /// Installs one setup-time HTTP protocol upgrade
+    /// configuration. Registering an upgrade forces the stock
+    /// SwiftNIO HTTP/1 pipeline for accepted connections.
+    public func installHTTPServerUpgrade(
+        _ upgrade:
+            NIOHTTPServerUpgradeSendableConfiguration
+    ) {
+        requireConfigurationPhase()
+
+        precondition(
+            httpServerUpgrade == nil,
+            "Only one HTTP server upgrade configuration can be installed"
+        )
+
+        httpServerUpgrade = upgrade
     }
 
     public func use(_ middleware: @escaping Middleware) {

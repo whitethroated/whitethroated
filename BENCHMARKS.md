@@ -320,6 +320,59 @@ swift run -c release whitethroated-benchmark-server
 
 Payload generation and network orchestration for these cases should be performed by an external benchmark harness so WhiteThroated remains Swift-only.
 
+## WebSocket feature matrix
+
+WebSocket benchmarking is isolated from the core benchmark executable. The
+existing `whitethroated-benchmark-server` remains the condition-1 control
+(module absent).
+
+Condition 2 links `WhiteThroatedWebSocket` but does not install it:
+
+```bash
+WHITETHROATED_WEBSOCKET_INSTALL=0 \
+swift run -c release whitethroated-websocket-benchmark-server
+```
+
+Run the ordinary HTTP benchmark client against `GET /prepared` and compare it
+with the same endpoint on `whitethroated-benchmark-server`. This measures
+linked-but-unused neutrality without putting WebSocket dependencies into the
+baseline server.
+
+Condition 3 installs the WebSocket router:
+
+```bash
+WHITETHROATED_WEBSOCKET_INSTALL=1 \
+swift run -c release whitethroated-websocket-benchmark-server
+```
+
+For unrelated-route feature tax, run the ordinary HTTP benchmark client against
+`GET /prepared`. The installed server intentionally selects the stock
+SwiftNIO HTTP/1 upgrade pipeline, so this measurement includes the application-
+wide transport choice required by the capability.
+
+For active WebSocket echo throughput and latency:
+
+```bash
+WHITETHROATED_WS_BENCH_CONNECTIONS=128 \
+WHITETHROATED_WS_BENCH_MESSAGES=1000000 \
+WHITETHROATED_WS_BENCH_WARMUP_PER_CONNECTION=100 \
+WHITETHROATED_WS_BENCH_PAYLOAD_BYTES=32 \
+WHITETHROATED_WS_BENCH_LATENCY=1 \
+swift run -c release whitethroated-websocket-benchmark-client
+```
+
+The client establishes and upgrades every connection before warm-up. Warm-up
+messages complete before the measured timer starts. During measurement each
+connection keeps exactly one binary echo in flight. Sorting latency samples and
+closing channels occur after the timer. Record messages/s, payload MiB/s,
+p50/p90/p99/p99.999/max, completed messages, failures/timeouts, and server peak
+RSS. Use separate throughput-only and latency-enabled runs.
+
+Use the same stable host, Swift/SwiftNIO commit, CPU allocation, worker count,
+connection matrix, payload, warm-up, and alternating order for every round.
+GitHub-hosted Actions may build and smoke these executables but are not
+performance evidence.
+
 ## Raw SwiftNIO control
 
 Start the minimal SwiftNIO control with the same worker count:

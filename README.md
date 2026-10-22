@@ -389,6 +389,66 @@ applications do not link SwiftNIO SSL. Reverse-proxy TLS termination remains a
 fully supported alternative. See `docs/tls.md` for certificate rotation,
 security boundaries, and deployment notes.
 
+Phase 6 adds optional WebSocket and OpenAPI products:
+
+```swift
+import WhiteThroatedWebSocket
+
+var sockets = WebSocketRouter()
+
+try sockets.on(
+    "/chat",
+    handlers: WebSocketHandlers(
+        onText: { connection, text in
+            _ = connection.sendText(text)
+        }
+    )
+)
+
+app.use(webSockets: sockets)
+```
+
+WebSocket registration deliberately selects SwiftNIO's stock HTTP/1 upgrade
+pipeline. Frame and message sizes are bounded, fragmented messages are
+reassembled with a configured cap, ping/pong and close lifecycle are handled,
+and authentication can be composed through the handshake acceptance closure.
+See `docs/websocket.md`.
+
+```swift
+import WhiteThroatedOpenAPI
+import WhiteThroatedValidation
+
+let input = ValidationSchema(
+    fields: [
+        .path("id", rules: [.nonEmpty]),
+    ]
+)
+
+var openAPI = OpenAPIRegistry(
+    info: OpenAPIInfo(
+        title: "Example API",
+        version: "1.0.0"
+    )
+)
+
+try openAPI.register(
+    .get,
+    "/users/:id",
+    operation: OpenAPIOperation(
+        operationID: "getUser",
+        validation: input
+    )
+)
+
+try OpenAPIService(
+    registry: openAPI
+).mount(on: app)
+```
+
+OpenAPI metadata is setup-only and opt-in. The registry consumes the same
+`ValidationSchema` values used at runtime, rejects operation/route collisions,
+and prepares JSON/YAML/UI responses once during setup. See `docs/openapi.md`.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response

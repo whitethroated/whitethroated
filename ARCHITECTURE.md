@@ -233,6 +233,27 @@ Direct TLS defaults to TLS 1.2 or newer and HTTP/1.1 ALPN. Certificate rotation
 is a controlled restart/rollout in the experimental API rather than mutable
 global context replacement.
 
+Phase 6 keeps protocol upgrade optional. `Application` owns one setup-time
+`NIOHTTPServerUpgradeSendableConfiguration`; when it is nil the existing Tier 1
+selection is unchanged. When installed, `RuntimeServer` selects SwiftNIO's
+stock HTTP/1 pipeline, wraps upgrade completion to synchronously remove
+`RuntimeConnectionHandler`, then lets the protocol upgrader install its
+post-HTTP handlers. The runtime does not know about WebSocket routes, messages,
+authentication, or observability. `WhiteThroatedWebSocket` owns those concepts
+and uses SwiftNIO's WebSocket encoder/decoder.
+
+WebSocket route tables are immutable snapshots captured when the router is
+installed. Exact route matching, authentication acceptance, subprotocol
+selection, and event hooks happen only on connections using the upgrade
+capability. Message assembly is event-loop confined and bounded by configured
+frame/message limits. There is no Task bridge in the frame path.
+
+`WhiteThroatedOpenAPI` is setup-only and depends on
+`WhiteThroatedValidation`, never the reverse. It compiles explicit route
+metadata plus shared `ValidationSchema` values into immutable JSON/YAML and
+optional local-UI prepared responses. Core routing does not discover or retain
+OpenAPI metadata, and ordinary routes do not pay documentation bookkeeping.
+
 ## Accepted socket setup
 
 Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`
