@@ -1,4 +1,5 @@
 import NIOCore
+import NIOHTTP1
 import NIOPosix
 
 /// Runtime-owned server bootstrap: event-loop group ownership, socket
