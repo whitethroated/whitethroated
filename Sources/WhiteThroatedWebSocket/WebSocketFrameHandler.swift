@@ -370,7 +370,10 @@ internal final class WebSocketFrameHandler:
         guard
             let code =
                 copy
-                    .readWebSocketErrorCode()
+                    .readWebSocketErrorCode(),
+            isValidWebSocketCloseCode(
+                code
+            )
         else {
             return nil
         }
