@@ -96,6 +96,10 @@ let package = Package(
             name: "WhiteThroatedCompression",
             targets: ["WhiteThroatedCompression"]
         ),
+        .library(
+            name: "WhiteThroatedTLS",
+            targets: ["WhiteThroatedTLS"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
@@ -133,6 +137,10 @@ let package = Package(
         .package(
             url: "https://github.com/swift-server/RediStack.git",
             exact: "1.6.3"
+        ),
+        .package(
+            url: "https://github.com/apple/swift-nio-ssl.git",
+            exact: "2.37.5"
         )
     ],
     targets: [
@@ -385,6 +393,20 @@ let package = Package(
                 .product(
                     name: "NIOHTTP1",
                     package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedTLS",
+            dependencies: [
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOSSL",
+                    package: "swift-nio-ssl"
                 ),
             ]
         ),
@@ -659,6 +681,25 @@ let package = Package(
                 .product(
                     name: "NIOPosix",
                     package: "swift-nio"
+                ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedTLSTests",
+            dependencies: [
+                "WhiteThroatedTLS",
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOEmbedded",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOSSL",
+                    package: "swift-nio-ssl"
                 ),
             ]
         ),
