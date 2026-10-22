@@ -144,7 +144,7 @@ public struct WebSocketHandlers:
     }
 }
 
-private struct WebSocketRoute:
+internal struct WebSocketRoute:
     Sendable
 {
     typealias Acceptance =
