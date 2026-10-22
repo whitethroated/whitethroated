@@ -75,6 +75,17 @@ public final class RuntimeServer: @unchecked Sendable {
     ) -> EventLoopFuture<Void> {
         channel.setOption(ChannelOptions.tcpOption(.tcp_nodelay), value: 1)
             .flatMap {
+                if let initializer =
+                    configuration
+                        .acceptedChannelInitializer
+                {
+                    return initializer(channel)
+                }
+
+                return channel.eventLoop
+                    .makeSucceededVoidFuture()
+            }
+            .flatMap {
                 Self.configureHTTPPipeline(
                     channel: channel,
                     dispatcher: dispatcher,
