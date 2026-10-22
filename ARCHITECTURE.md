@@ -222,6 +222,17 @@ the event loop; buffered compression is synchronous CPU work on the connection
 event loop, and each active compressed stream owns one zlib state until its
 producer completes.
 
+`WhiteThroatedTLS` is the direct-TLS Phase 5 capability. It depends on the
+official SwiftNIO SSL package, constructs one immutable `NIOSSLContext` during
+setup, and installs a `NIOSSLServerHandler` through the generic accepted-channel
+initializer before HTTP handlers are added. The initializer is an optional
+connection-level hook; a core-only application keeps it nil and has no
+request-time branch or TLS dependency. Only one initializer may be installed,
+which keeps ordering explicit and prevents hidden connection-pipeline mutation.
+Direct TLS defaults to TLS 1.2 or newer and HTTP/1.1 ALPN. Certificate rotation
+is a controlled restart/rollout in the experimental API rather than mutable
+global context replacement.
+
 ## Accepted socket setup
 
 Before installing either HTTP pipeline, `RuntimeServer.configureAcceptedChannel`

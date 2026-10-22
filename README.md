@@ -369,6 +369,26 @@ links the system zlib library through a SwiftPM system-library target and adds
 no third-party package dependency. See `docs/compression.md` for the
 negotiation, validator, and eligibility rules.
 
+Direct TLS is also available through the separate `WhiteThroatedTLS` product:
+
+```swift
+import WhiteThroated
+import WhiteThroatedTLS
+
+let tls = try DirectTLS(
+    certificateChainPEMFile: "/run/secrets/tls.crt",
+    privateKeyPEMFile: "/run/secrets/tls.key"
+)
+
+app.use(directTLS: tls)
+```
+
+The TLS context is built during setup, defaults to TLS 1.2 or newer, disables
+renegotiation, and installs its handler before the HTTP pipeline. Core-only
+applications do not link SwiftNIO SSL. Reverse-proxy TLS termination remains a
+fully supported alternative. See `docs/tls.md` for certificate rotation,
+security boundaries, and deployment notes.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response
