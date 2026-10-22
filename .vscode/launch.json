@@ -159,6 +159,46 @@
             "target": "whitethroated-migrate",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release whitethroated-migrate"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-websocket-benchmark-server",
+            "target": "whitethroated-websocket-benchmark-server",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-websocket-benchmark-server"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-websocket-benchmark-server",
+            "target": "whitethroated-websocket-benchmark-server",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-websocket-benchmark-server"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-websocket-benchmark-client",
+            "target": "whitethroated-websocket-benchmark-client",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-websocket-benchmark-client"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-websocket-benchmark-client",
+            "target": "whitethroated-websocket-benchmark-client",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-websocket-benchmark-client"
         }
     ]
 }
