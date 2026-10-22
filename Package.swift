@@ -131,7 +131,7 @@ let package = Package(
         .executable(
             name: "whitethroated-runtime-benchmark-server",
             targets: ["WhiteThroatedRuntimeBenchmarkServer"]
-        )
+        ),
         .executable(
             name: "whitethroated-websocket-benchmark-server",
             targets: ["WhiteThroatedWebSocketBenchmarkServer"]
