@@ -58,8 +58,10 @@ marks them with `x-whitethroated-custom-validation: true` rather than pretending
 the constraint is machine-readable.
 
 Path parameters must be required and must correspond to `:name` or `*name`
-segments in the route. WhiteThroated path syntax is converted to OpenAPI
-`{name}` syntax during setup.
+segments in the route. Every path placeholder must have a matching
+`ValidationSchema.path` field; registration rejects an undocumented placeholder
+rather than emitting an invalid OpenAPI Path Item. WhiteThroated path syntax is
+converted to OpenAPI `{name}` syntax during setup.
 
 ## JSON bodies
 
