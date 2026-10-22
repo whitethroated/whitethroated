@@ -393,7 +393,7 @@ private struct Connection {
         >
 }
 
-let configuration =
+private let configuration =
     Configuration.load()
 let group =
     MultiThreadedEventLoopGroup(
@@ -413,7 +413,7 @@ let extras =
     configuration.messages
     % configuration.connections
 
-var connections: [Connection] = []
+private var connections: [Connection] = []
 connections.reserveCapacity(
     configuration.connections
 )
@@ -488,7 +488,7 @@ for index in
         }
 
     let upgrade:
-        NIOHTTPClientUpgradeConfiguration =
+        NIOHTTPClientUpgradeSendableConfiguration =
             (
                 upgraders: [
                     upgrader,
@@ -607,7 +607,7 @@ for connection in connections {
         )
 }
 
-var results:
+private var results:
     [ConnectionResult] = []
 results.reserveCapacity(
     connections.count
