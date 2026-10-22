@@ -16,6 +16,7 @@ public enum OpenAPIRegistryError:
     case unsupportedMethod(String)
     case optionalPathParameter(String)
     case unknownPathParameter(String)
+    case missingPathParameterValidation(String)
 }
 
 public struct OpenAPIInfo:
@@ -594,12 +595,13 @@ public struct OpenAPIRegistry:
                 )
             )
 
-        guard let validation else {
-            return
-        }
+        let fields =
+            validation?.fields.filter {
+                $0.location == .path
+            }
+            ?? []
 
-        for field in validation.fields
-        where field.location == .path {
+        for field in fields {
             guard
                 names.contains(
                     field.name
@@ -617,6 +619,19 @@ public struct OpenAPIRegistry:
                         field.name
                     )
             }
+        }
+
+        let documented =
+            Set(
+                fields.map(\.name)
+            )
+
+        for name in names
+        where !documented.contains(name) {
+            throw OpenAPIRegistryError
+                .missingPathParameterValidation(
+                    name
+                )
         }
     }
 
