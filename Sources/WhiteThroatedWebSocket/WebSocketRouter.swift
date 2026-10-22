@@ -1,3 +1,4 @@
+import Foundation
 import NIOCore
 import NIOHTTP1
 import NIOWebSocket
@@ -187,7 +188,7 @@ public struct WebSocketRouter:
             WebSocketRouteConfiguration =
                 WebSocketRouteConfiguration(),
         accept:
-            WebSocketRoute.Acceptance? = nil,
+            (@Sendable (Request) -> Bool)? = nil,
         handlers:
             WebSocketHandlers
     ) throws {
