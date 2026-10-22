@@ -100,6 +100,14 @@ let package = Package(
             name: "WhiteThroatedTLS",
             targets: ["WhiteThroatedTLS"]
         ),
+        .library(
+            name: "WhiteThroatedWebSocket",
+            targets: ["WhiteThroatedWebSocket"]
+        ),
+        .library(
+            name: "WhiteThroatedOpenAPI",
+            targets: ["WhiteThroatedOpenAPI"]
+        ),
         .executable(
             name: "whitethroated-example",
             targets: ["WhiteThroatedExample"]
@@ -410,6 +418,31 @@ let package = Package(
                 ),
             ]
         ),
+        .target(
+            name: "WhiteThroatedWebSocket",
+            dependencies: [
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOWebSocket",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .target(
+            name: "WhiteThroatedOpenAPI",
+            dependencies: [
+                "WhiteThroated",
+                "WhiteThroatedValidation",
+            ]
+        ),
         .executableTarget(
             name: "WhiteThroatedMigrationCLI",
             dependencies: [
@@ -701,6 +734,37 @@ let package = Package(
                     name: "NIOSSL",
                     package: "swift-nio-ssl"
                 ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedWebSocketTests",
+            dependencies: [
+                "WhiteThroatedWebSocket",
+                "WhiteThroated",
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOEmbedded",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOWebSocket",
+                    package: "swift-nio"
+                ),
+            ]
+        ),
+        .testTarget(
+            name: "WhiteThroatedOpenAPITests",
+            dependencies: [
+                "WhiteThroatedOpenAPI",
+                "WhiteThroatedValidation",
+                "WhiteThroated",
             ]
         ),
         .testTarget(
