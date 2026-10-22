@@ -25,6 +25,7 @@ public enum WebSocketConnectionError:
 {
     case closing
     case closeReasonTooLong
+    case controlPayloadTooLarge
 }
 
 public final class WebSocketConnection:
@@ -51,6 +52,12 @@ public final class WebSocketConnection:
 
     public var eventLoop: EventLoop {
         state.channel.eventLoop
+    }
+
+    internal var stateForHandler:
+        WebSocketConnectionState
+    {
+        state
     }
 
     public var remoteAddress:
@@ -94,35 +101,45 @@ public final class WebSocketConnection:
     public func ping(
         _ buffer: ByteBuffer? = nil
     ) -> EventLoopFuture<Void> {
-        state.write(
-            WebSocketFrame(
-                fin: true,
-                opcode: .ping,
-                data:
-                    buffer
-                    ?? state.channel
-                        .allocator
-                        .buffer(
-                            capacity: 0
-                        )
-            )
+        controlFrame(
+            opcode: .ping,
+            buffer: buffer
         )
     }
 
     public func pong(
         _ buffer: ByteBuffer? = nil
     ) -> EventLoopFuture<Void> {
-        state.write(
+        controlFrame(
+            opcode: .pong,
+            buffer: buffer
+        )
+    }
+
+    private func controlFrame(
+        opcode: WebSocketOpcode,
+        buffer: ByteBuffer?
+    ) -> EventLoopFuture<Void> {
+        let payload =
+            buffer
+            ?? state.channel.allocator
+                .buffer(capacity: 0)
+
+        guard
+            payload.readableBytes <= 125
+        else {
+            return eventLoop
+                .makeFailedFuture(
+                    WebSocketConnectionError
+                        .controlPayloadTooLarge
+                )
+        }
+
+        return state.write(
             WebSocketFrame(
                 fin: true,
-                opcode: .pong,
-                data:
-                    buffer
-                    ?? state.channel
-                        .allocator
-                        .buffer(
-                            capacity: 0
-                        )
+                opcode: opcode,
+                data: payload
             )
         )
     }
