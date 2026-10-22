@@ -409,6 +409,37 @@ final class OpenAPITests:
         )
     }
 
+    func testOpenAPIUIEscapesScriptAndHTMLInjection() {
+        let html =
+            OpenAPIService.uiHTML(
+                title:
+                    "</title><script>alert(1)</script>",
+                jsonPath:
+                    "</script><script>alert(2)</script>"
+            )
+
+        XCTAssertFalse(
+            html.contains(
+                "</title><script>alert(1)</script>"
+            )
+        )
+        XCTAssertFalse(
+            html.contains(
+                "</script><script>alert(2)</script>"
+            )
+        )
+        XCTAssertTrue(
+            html.contains(
+                "&lt;/title&gt;&lt;script&gt;alert(1)&lt;/script&gt;"
+            )
+        )
+        XCTAssertTrue(
+            html.contains(
+                "\\u003c/script\\u003e"
+            )
+        )
+    }
+
     func testYAMLAndPreparedServiceAreBuiltAtSetup() throws {
         var registry =
             OpenAPIRegistry(
