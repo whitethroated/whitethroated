@@ -29,6 +29,8 @@ public final class Application: @unchecked Sendable {
     internal var errorHandler: ErrorHandlerEntry?
     internal var compiledResponder: InternalHandler?
     private var runtimeServer: RuntimeServer?
+    private var acceptedChannelInitializer:
+        RuntimeAcceptedChannelInitializer?
     private var configurationFrozen = false
 
     internal var hasStreamingRoutes: Bool {
@@ -59,6 +61,27 @@ public final class Application: @unchecked Sendable {
             application: self,
             prefix: prefix
         )
+    }
+
+    /// Installs one setup-time initializer for newly accepted
+    /// connections before the HTTP pipeline is configured.
+    ///
+    /// Optional transport capabilities such as direct TLS use this
+    /// hook. Core-only applications leave it nil and pay no
+    /// request-time cost.
+    public func installAcceptedChannelInitializer(
+        _ initializer: @escaping
+            RuntimeAcceptedChannelInitializer
+    ) {
+        requireConfigurationPhase()
+
+        precondition(
+            acceptedChannelInitializer == nil,
+            "Only one accepted-channel initializer can be installed"
+        )
+
+        acceptedChannelInitializer =
+            initializer
     }
 
     public func use(_ middleware: @escaping Middleware) {
