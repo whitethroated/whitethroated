@@ -105,6 +105,22 @@ internal final class WebSocketFrameHandler:
                 context: context
             )
         }
+
+        requestNextReadIfWritable(
+            context
+        )
+    }
+
+    func channelWritabilityChanged(
+        context:
+            ChannelHandlerContext
+    ) {
+        requestNextReadIfWritable(
+            context
+        )
+
+        context
+            .fireChannelWritabilityChanged()
     }
 
     func channelInactive(
@@ -444,6 +460,18 @@ internal final class WebSocketFrameHandler:
     private func clearFragment() {
         fragmentedKind = nil
         fragmentedBuffer = nil
+    }
+
+    private func requestNextReadIfWritable(
+        _ context:
+            ChannelHandlerContext
+    ) {
+        if
+            context.channel.isActive,
+            context.channel.isWritable
+        {
+            context.read()
+        }
     }
 
     private func notifyClose(
