@@ -85,10 +85,25 @@ try sockets.on(
 )
 ```
 
-Credentials are evaluated only during the handshake in this pattern. If the
-application needs per-message authorization, it must keep only the minimum
-necessary principal state in its own connection handler state and re-evaluate
-policy when appropriate.
+Credentials are evaluated only during the handshake in this pattern. For an
+event-loop-native authenticator or store lookup, use `onFuture`; its acceptance
+future is hopped back to the connection event loop before the handshake decision:
+
+```swift
+try sockets.onFuture(
+    "/private",
+    accept: { request, eventLoop in
+        authenticate(request, on: eventLoop)
+            .map { $0 != nil }
+    },
+    handlers: handlers
+)
+```
+
+No Swift `Task` is created by either acceptance API. If the application needs
+per-message authorization, it must keep only the minimum necessary principal
+state in its own connection handler state and re-evaluate policy when
+appropriate.
 
 ## Observability
 
