@@ -148,7 +148,10 @@ internal struct WebSocketRoute:
     Sendable
 {
     typealias Acceptance =
-        @Sendable (Request) -> Bool
+        @Sendable (
+            Request,
+            EventLoop
+        ) -> EventLoopFuture<Bool>
 
     let path: String
     let configuration:
@@ -189,6 +192,66 @@ public struct WebSocketRouter:
                 WebSocketRouteConfiguration(),
         accept:
             (@Sendable (Request) -> Bool)? = nil,
+        handlers:
+            WebSocketHandlers
+    ) throws {
+        let futureAcceptance:
+            WebSocketRoute.Acceptance?
+
+        if let accept {
+            futureAcceptance = {
+                request,
+                eventLoop in
+
+                eventLoop
+                    .makeSucceededFuture(
+                        accept(request)
+                    )
+            }
+        } else {
+            futureAcceptance = nil
+        }
+
+        try addRoute(
+            path,
+            configuration:
+                configuration,
+            accept:
+                futureAcceptance,
+            handlers:
+                handlers
+        )
+    }
+
+    public mutating func onFuture(
+        _ path: String,
+        configuration:
+            WebSocketRouteConfiguration =
+                WebSocketRouteConfiguration(),
+        accept:
+            @escaping @Sendable (
+                Request,
+                EventLoop
+            ) -> EventLoopFuture<Bool>,
+        handlers:
+            WebSocketHandlers
+    ) throws {
+        try addRoute(
+            path,
+            configuration:
+                configuration,
+            accept: accept,
+            handlers:
+                handlers
+        )
+    }
+
+    private mutating func addRoute(
+        _ path: String,
+        configuration:
+            WebSocketRouteConfiguration,
+        accept:
+            WebSocketRoute.Acceptance?,
         handlers:
             WebSocketHandlers
     ) throws {
@@ -268,52 +331,59 @@ public struct WebSocketRouter:
 
                     let request =
                         Request.headOnly(head)
-
-                    if
-                        let accept =
-                            route.accept,
-                        !accept(request)
-                    {
-                        return channel.eventLoop
+                    let accepted =
+                        route.accept?(
+                            request,
+                            channel.eventLoop
+                        )
+                        ?? channel.eventLoop
                             .makeSucceededFuture(
-                                nil
+                                true
                             )
-                    }
 
-                    let selected =
-                        Self.selectSubprotocol(
-                            route:
-                                route.configuration,
-                            headers:
-                                head.headers
+                    return accepted
+                        .hop(
+                            to:
+                                channel.eventLoop
                         )
+                        .map {
+                            isAccepted
+                                -> HTTPHeaders? in
 
-                    if
-                        route.configuration
-                            .requireSubprotocol,
-                        selected == nil
-                    {
-                        return channel.eventLoop
-                            .makeSucceededFuture(
-                                nil
-                            )
-                    }
+                            guard isAccepted else {
+                                return nil
+                            }
 
-                    var headers =
-                        HTTPHeaders()
+                            let selected =
+                                Self.selectSubprotocol(
+                                    route:
+                                        route.configuration,
+                                    headers:
+                                        head.headers
+                                )
 
-                    if let selected {
-                        headers.add(
-                            name:
-                                "sec-websocket-protocol",
-                            value: selected
-                        )
-                    }
+                            if
+                                route.configuration
+                                    .requireSubprotocol,
+                                selected == nil
+                            {
+                                return nil
+                            }
 
-                    return channel.eventLoop
-                        .makeSucceededFuture(
-                            headers
-                        )
+                            var headers =
+                                HTTPHeaders()
+
+                            if let selected {
+                                headers.add(
+                                    name:
+                                        "sec-websocket-protocol",
+                                    value:
+                                        selected
+                                )
+                            }
+
+                            return headers
+                        }
                 },
                 upgradePipelineHandler: {
                     channel,
