@@ -26,6 +26,7 @@ public enum WebSocketConnectionError:
     case closing
     case closeReasonTooLong
     case controlPayloadTooLarge
+    case invalidCloseCode
 }
 
 public final class WebSocketConnection:
@@ -200,6 +201,14 @@ internal final class WebSocketConnectionState:
         code: WebSocketErrorCode,
         reason: String?
     ) -> EventLoopFuture<Void> {
+        guard isValidWebSocketCloseCode(code) else {
+            return channel.eventLoop
+                .makeFailedFuture(
+                    WebSocketConnectionError
+                        .invalidCloseCode
+                )
+        }
+
         let reasonBytes =
             reason.map {
                 Array($0.utf8)
@@ -357,5 +366,32 @@ internal final class WebSocketConnectionState:
         }
 
         return promise.futureResult
+    }
+}
+
+@inline(__always)
+internal func isValidWebSocketCloseCode(
+    _ code: WebSocketErrorCode
+) -> Bool {
+    let raw =
+        UInt16(
+            webSocketErrorCode: code
+        )
+
+    guard
+        raw >= 1000,
+        raw < 5000
+    else {
+        return false
+    }
+
+    switch raw {
+    case 1004,
+         1005,
+         1006,
+         1015:
+        return false
+    default:
+        return true
     }
 }
