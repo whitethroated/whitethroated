@@ -32,9 +32,9 @@ public final class Application: @unchecked Sendable {
     internal var errorHandler: ErrorHandlerEntry?
     internal var compiledResponder: InternalHandler?
     private var runtimeServer: RuntimeServer?
-    private var acceptedChannelInitializer:
+    internal var acceptedChannelInitializer:
         AcceptedChannelInitializer?
-    private var httpServerUpgrade:
+    internal var httpServerUpgrade:
         NIOHTTPServerUpgradeSendableConfiguration?
     private var configurationFrozen = false
 
