@@ -2,6 +2,9 @@ import NIOCore
 import NIOHTTP1
 import WhiteThroatedRuntime
 
+public typealias AcceptedChannelInitializer =
+    @Sendable (Channel) -> EventLoopFuture<Void>
+
 private enum MiddlewareEntry {
     case asynchronous(Middleware)
     case fast(FastMiddleware)
@@ -30,7 +33,7 @@ public final class Application: @unchecked Sendable {
     internal var compiledResponder: InternalHandler?
     private var runtimeServer: RuntimeServer?
     private var acceptedChannelInitializer:
-        RuntimeAcceptedChannelInitializer?
+        AcceptedChannelInitializer?
     private var configurationFrozen = false
 
     internal var hasStreamingRoutes: Bool {
@@ -71,7 +74,7 @@ public final class Application: @unchecked Sendable {
     /// request-time cost.
     public func installAcceptedChannelInitializer(
         _ initializer: @escaping
-            RuntimeAcceptedChannelInitializer
+            AcceptedChannelInitializer
     ) {
         requireConfigurationPhase()
 
