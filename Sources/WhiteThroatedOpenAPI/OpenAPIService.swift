@@ -129,9 +129,13 @@ public struct OpenAPIService:
     private static func javaScriptStringLiteral(
         _ value: String
     ) -> String {
+        let encoder =
+            JSONEncoder()
+        encoder.outputFormatting = [
+            .withoutEscapingSlashes,
+        ]
         let data =
-            try! JSONEncoder()
-                .encode(value)
+            try! encoder.encode(value)
         let encoded =
             String(
                 decoding: data,
