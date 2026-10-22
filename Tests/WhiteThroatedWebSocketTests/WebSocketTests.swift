@@ -526,6 +526,74 @@ final class WebSocketTests:
         )
     }
 
+    func testForbiddenPeerCloseCodeSendsProtocolError() throws {
+        let (
+            channel,
+            _
+        ) = try makeFrameChannel()
+
+        var payload =
+            channel.allocator
+                .buffer(capacity: 2)
+        payload.writeInteger(
+            UInt16(1005)
+        )
+
+        _ = try channel.writeInbound(
+            WebSocketFrame(
+                fin: true,
+                opcode:
+                    .connectionClose,
+                data: payload
+            )
+        )
+
+        var close =
+            try XCTUnwrap(
+                channel.readOutbound(
+                    as:
+                        WebSocketFrame.self
+                )
+            )
+
+        XCTAssertEqual(
+            close.opcode,
+            .connectionClose
+        )
+        XCTAssertEqual(
+            close.data
+                .readWebSocketErrorCode(),
+            .protocolError
+        )
+
+        XCTAssertNoThrow(
+            try channel.finish()
+        )
+    }
+
+    func testApplicationCannotSendForbiddenCloseCode() throws {
+        let (
+            channel,
+            connection
+        ) = try makeFrameChannel()
+
+        XCTAssertThrowsError(
+            try connection.close(
+                code: .unknown(1005)
+            ).wait()
+        ) {
+            XCTAssertEqual(
+                $0 as?
+                    WebSocketConnectionError,
+                .invalidCloseCode
+            )
+        }
+
+        XCTAssertNoThrow(
+            try channel.finish()
+        )
+    }
+
     func testLifecycleSinkUsesBoundedRegisteredRouteLabel() throws {
         let events =
             Box<WebSocketLifecycleEvent>()
