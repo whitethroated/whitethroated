@@ -164,9 +164,13 @@ internal enum OpenAPIYAML {
     private static func quote(
         _ value: String
     ) -> String {
+        let encoder =
+            JSONEncoder()
+        encoder.outputFormatting = [
+            .withoutEscapingSlashes,
+        ]
         let data =
-            try! JSONEncoder()
-                .encode(value)
+            try! encoder.encode(value)
 
         return String(
             data: data,
