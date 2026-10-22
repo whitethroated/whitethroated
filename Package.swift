@@ -132,6 +132,14 @@ let package = Package(
             name: "whitethroated-runtime-benchmark-server",
             targets: ["WhiteThroatedRuntimeBenchmarkServer"]
         )
+        .executable(
+            name: "whitethroated-websocket-benchmark-server",
+            targets: ["WhiteThroatedWebSocketBenchmarkServer"]
+        ),
+        .executable(
+            name: "whitethroated-websocket-benchmark-client",
+            targets: ["WhiteThroatedWebSocketBenchmarkClient"]
+        ),
     ],
     dependencies: [
         .package(
@@ -539,6 +547,38 @@ let package = Package(
             name: "WhiteThroatedRuntimeBenchmarkServer",
             dependencies: ["WhiteThroatedRuntime"],
             path: "Benchmarks/WhiteThroatedRuntimeBenchmarkServer"
+        ),
+        .executableTarget(
+            name: "WhiteThroatedWebSocketBenchmarkServer",
+            dependencies: [
+                "WhiteThroated",
+                "WhiteThroatedWebSocket",
+            ],
+            path:
+                "Benchmarks/WhiteThroatedWebSocketBenchmarkServer"
+        ),
+        .executableTarget(
+            name: "WhiteThroatedWebSocketBenchmarkClient",
+            dependencies: [
+                .product(
+                    name: "NIOCore",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOHTTP1",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOPosix",
+                    package: "swift-nio"
+                ),
+                .product(
+                    name: "NIOWebSocket",
+                    package: "swift-nio"
+                ),
+            ],
+            path:
+                "Benchmarks/WhiteThroatedWebSocketBenchmarkClient"
         ),
         .testTarget(
             name: "WhiteThroatedCORSTests",
