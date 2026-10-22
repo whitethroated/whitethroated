@@ -381,6 +381,151 @@ final class WebSocketTests:
         )
     }
 
+    func testInvalidUTF8TextSends1007Close() throws {
+        let (
+            channel,
+            _
+        ) = try makeFrameChannel()
+
+        var payload =
+            channel.allocator
+                .buffer(capacity: 2)
+        payload.writeBytes([
+            0xC3,
+            0x28,
+        ])
+
+        _ = try channel.writeInbound(
+            WebSocketFrame(
+                fin: true,
+                opcode: .text,
+                data: payload
+            )
+        )
+
+        var close =
+            try XCTUnwrap(
+                channel.readOutbound(
+                    as:
+                        WebSocketFrame.self
+                )
+            )
+
+        XCTAssertEqual(
+            close.opcode,
+            .connectionClose
+        )
+        XCTAssertEqual(
+            close.data
+                .readWebSocketErrorCode(),
+            .dataInconsistentWithMessage
+        )
+
+        XCTAssertNoThrow(
+            try channel.finish()
+        )
+    }
+
+    func testUnexpectedContinuationSends1002Close() throws {
+        let (
+            channel,
+            _
+        ) = try makeFrameChannel()
+
+        var payload =
+            channel.allocator
+                .buffer(capacity: 1)
+        payload.writeInteger(
+            UInt8(1)
+        )
+
+        _ = try channel.writeInbound(
+            WebSocketFrame(
+                fin: true,
+                opcode: .continuation,
+                data: payload
+            )
+        )
+
+        var close =
+            try XCTUnwrap(
+                channel.readOutbound(
+                    as:
+                        WebSocketFrame.self
+                )
+            )
+
+        XCTAssertEqual(
+            close.opcode,
+            .connectionClose
+        )
+        XCTAssertEqual(
+            close.data
+                .readWebSocketErrorCode(),
+            .protocolError
+        )
+
+        XCTAssertNoThrow(
+            try channel.finish()
+        )
+    }
+
+    func testFragmentedMessageLimitAppliesToAggregate() throws {
+        let (
+            channel,
+            _
+        ) = try makeFrameChannel(
+            maxMessageBytes: 4
+        )
+
+        var first =
+            channel.allocator
+                .buffer(capacity: 3)
+        first.writeString("abc")
+
+        var second =
+            channel.allocator
+                .buffer(capacity: 2)
+        second.writeString("de")
+
+        _ = try channel.writeInbound(
+            WebSocketFrame(
+                fin: false,
+                opcode: .binary,
+                data: first
+            )
+        )
+        _ = try channel.writeInbound(
+            WebSocketFrame(
+                fin: true,
+                opcode: .continuation,
+                data: second
+            )
+        )
+
+        var close =
+            try XCTUnwrap(
+                channel.readOutbound(
+                    as:
+                        WebSocketFrame.self
+                )
+            )
+
+        XCTAssertEqual(
+            close.opcode,
+            .connectionClose
+        )
+        XCTAssertEqual(
+            close.data
+                .readWebSocketErrorCode(),
+            .messageTooLarge
+        )
+
+        XCTAssertNoThrow(
+            try channel.finish()
+        )
+    }
+
     func testLifecycleSinkUsesBoundedRegisteredRouteLabel() throws {
         let events =
             Box<WebSocketLifecycleEvent>()
