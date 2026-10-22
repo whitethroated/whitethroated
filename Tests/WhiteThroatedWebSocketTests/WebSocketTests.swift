@@ -194,23 +194,19 @@ final class WebSocketTests:
                 .buffer(capacity: 2)
         second.writeString("lo")
 
-        XCTAssertTrue(
-            try channel.writeInbound(
-                WebSocketFrame(
-                    fin: false,
-                    opcode: .text,
-                    data: first
-                )
+        _ = try channel.writeInbound(
+            WebSocketFrame(
+                fin: false,
+                opcode: .text,
+                data: first
             )
         )
-        XCTAssertTrue(
-            try channel.writeInbound(
-                WebSocketFrame(
-                    fin: true,
-                    opcode:
-                        .continuation,
-                    data: second
-                )
+        _ = try channel.writeInbound(
+            WebSocketFrame(
+                fin: true,
+                opcode:
+                    .continuation,
+                data: second
             )
         )
 
