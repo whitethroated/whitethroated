@@ -40,6 +40,21 @@ private struct Configuration {
             env[
                 "WHITETHROATED_WS_BENCH_PATH"
             ] ?? "/websocket"
+        let messages =
+            positive(
+                "WHITETHROATED_WS_BENCH_MESSAGES",
+                1_000_000
+            )
+        let requestedConnections =
+            positive(
+                "WHITETHROATED_WS_BENCH_CONNECTIONS",
+                128
+            )
+        let connections =
+            min(
+                requestedConnections,
+                messages
+            )
 
         return Configuration(
             host:
@@ -56,15 +71,9 @@ private struct Configuration {
                 ? path
                 : "/" + path,
             connections:
-                positive(
-                    "WHITETHROATED_WS_BENCH_CONNECTIONS",
-                    128
-                ),
+                connections,
             messages:
-                positive(
-                    "WHITETHROATED_WS_BENCH_MESSAGES",
-                    1_000_000
-                ),
+                messages,
             warmupMessages:
                 positive(
                     "WHITETHROATED_WS_BENCH_WARMUP_PER_CONNECTION",
