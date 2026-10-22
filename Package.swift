@@ -740,6 +740,7 @@ let package = Package(
             name: "WhiteThroatedWebSocketTests",
             dependencies: [
                 "WhiteThroatedWebSocket",
+                "WhiteThroatedAuth",
                 "WhiteThroated",
                 .product(
                     name: "NIOCore",
