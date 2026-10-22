@@ -313,6 +313,37 @@ final class OpenAPITests:
         }
     }
 
+    func testPathTemplateRequiresSharedValidationField() throws {
+        var registry =
+            OpenAPIRegistry(
+                info:
+                    OpenAPIInfo(
+                        title: "API",
+                        version: "1"
+                    )
+            )
+
+        XCTAssertThrowsError(
+            try registry.register(
+                .get,
+                "/users/:id",
+                operation:
+                    OpenAPIOperation(
+                        operationID:
+                            "missingIDValidation"
+                    )
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as?
+                    OpenAPIRegistryError,
+                .missingPathParameterValidation(
+                    "id"
+                )
+            )
+        }
+    }
+
     func testJSONBodyUsesSameValidationLimitsInDocument() throws {
         let limits =
             JSONValidationLimits(
