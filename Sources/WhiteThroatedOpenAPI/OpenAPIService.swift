@@ -73,27 +73,20 @@ public struct OpenAPIService:
         }
     }
 
-    private static func uiHTML(
+    internal static func uiHTML(
         title: String,
         jsonPath: String
     ) -> String {
-        let encoder = JSONEncoder()
         let pathLiteral =
-            String(
-                data:
-                    try! encoder.encode(
-                        jsonPath
-                    ),
-                encoding: .utf8
-            )!
+            javaScriptStringLiteral(
+                jsonPath
+            )
         let titleLiteral =
-            String(
-                data:
-                    try! encoder.encode(
-                        title
-                    ),
-                encoding: .utf8
-            )!
+            javaScriptStringLiteral(
+                title
+            )
+        let htmlTitle =
+            escapeHTML(title)
 
         return """
         <!doctype html>
@@ -101,7 +94,7 @@ public struct OpenAPIService:
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width,initial-scale=1">
-          <title>\(title) API</title>
+          <title>\(htmlTitle) API</title>
           <style>
             body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; margin: 2rem; }
             pre { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -131,5 +124,58 @@ public struct OpenAPIService:
         </body>
         </html>
         """
+    }
+
+    private static func javaScriptStringLiteral(
+        _ value: String
+    ) -> String {
+        let data =
+            try! JSONEncoder()
+                .encode(value)
+        let encoded =
+            String(
+                decoding: data,
+                as: UTF8.self
+            )
+
+        return encoded
+            .replacingOccurrences(
+                of: "<",
+                with: "\\u003c"
+            )
+            .replacingOccurrences(
+                of: ">",
+                with: "\\u003e"
+            )
+            .replacingOccurrences(
+                of: "&",
+                with: "\\u0026"
+            )
+    }
+
+    private static func escapeHTML(
+        _ value: String
+    ) -> String {
+        value
+            .replacingOccurrences(
+                of: "&",
+                with: "&amp;"
+            )
+            .replacingOccurrences(
+                of: "<",
+                with: "&lt;"
+            )
+            .replacingOccurrences(
+                of: ">",
+                with: "&gt;"
+            )
+            .replacingOccurrences(
+                of: "\"",
+                with: "&quot;"
+            )
+            .replacingOccurrences(
+                of: "'",
+                with: "&#39;"
+            )
     }
 }
