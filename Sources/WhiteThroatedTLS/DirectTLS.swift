@@ -155,12 +155,17 @@ public struct DirectTLS: Sendable {
     internal func configure(
         _ channel: Channel
     ) -> EventLoopFuture<Void> {
-        channel.pipeline.addHandler(
-            NIOSSLServerHandler(
-                context: context
-            ),
-            position: .first
-        )
+        channel.eventLoop
+            .makeCompletedFuture {
+                try channel.pipeline
+                    .syncOperations
+                    .addHandler(
+                        NIOSSLServerHandler(
+                            context: context
+                        ),
+                        position: .first
+                    )
+            }
     }
 
     private static func validateApplicationProtocols(
