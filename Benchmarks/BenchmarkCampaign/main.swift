@@ -1017,15 +1017,16 @@ private final class Campaign {
 
         for round in 1...configuration.rounds {
             let variants =
-                round.isMultiple(of: 2)
-                ? [
-                    candidateVariant,
-                    baselineVariant,
-                ]
-                : [
-                    baselineVariant,
-                    candidateVariant,
-                ]
+                responseStreamABOrder(
+                    round: round
+                ).map { side in
+                    switch side {
+                    case .baseline:
+                        return baselineVariant
+                    case .candidate:
+                        return candidateVariant
+                    }
+                }
 
             for variant in variants {
                 activeVariant = variant
