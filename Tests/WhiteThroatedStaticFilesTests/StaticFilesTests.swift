@@ -1,5 +1,13 @@
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
 import Foundation
 import NIOCore
+import NIOFileSystem
 import NIOHTTP1
 import NIOPosix
 import XCTest
@@ -697,6 +705,113 @@ final class StaticFilesTests: XCTestCase {
             body: ByteBufferAllocator()
                 .buffer(capacity: 0)
         )
+    }
+
+    func testNonRegularFileReturnsNotFoundWithoutDescriptorLeak() async throws {
+        let fixture = try makeFixture()
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.root
+            )
+        }
+
+        let fifo = fixture.root
+            .appendingPathComponent("pipe")
+        XCTAssertEqual(
+            mkfifo(
+                fifo.path,
+                S_IRUSR | S_IWUSR
+            ),
+            0
+        )
+
+        try await withStaticFiles(
+            directory: fixture.root.path
+        ) { files in
+            let response = await files.response(
+                for: makeRequest(
+                    method: .GET,
+                    path: "/assets/pipe"
+                ),
+                mountPath: "/assets"
+            )
+
+            XCTAssertEqual(
+                response.status,
+                .notFound
+            )
+        }
+    }
+
+    func testNestedWalkReleasesDirectoryDescriptorsOnSuccess() async throws {
+        let fixture = try makeFixture()
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.root
+            )
+        }
+
+        let docs = fixture.root
+            .appendingPathComponent(
+                "docs",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(
+            at: docs,
+            withIntermediateDirectories: true
+        )
+        try Data("nested hello".utf8)
+            .write(
+                to: docs.appendingPathComponent(
+                    "alice.txt"
+                )
+            )
+
+        try await withStaticFiles(
+            directory: fixture.root.path
+        ) { files in
+            let response = await files.response(
+                for: makeRequest(
+                    method: .GET,
+                    path: "/assets/docs/alice.txt"
+                ),
+                mountPath: "/assets"
+            )
+
+            XCTAssertEqual(
+                response.status,
+                .ok
+            )
+        }
+    }
+
+    func testDescriptorCleanupRunsInCancelledTask() async throws {
+        let fixture = try makeFixture()
+        defer {
+            try? FileManager.default.removeItem(
+                at: fixture.root
+            )
+        }
+
+        let file = try await FileSystem.shared.openFile(
+            forReadingAt: FilePath(fixture.file.path)
+        )
+
+        // Cancel only after acquiring the descriptor. Cancellation at
+        // request entry cannot prove cleanup of an already-open handle.
+        let cleanup = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            XCTAssertTrue(Task.isCancelled)
+            StaticFiles.releaseSynchronously(file.fileHandle)
+        }
+        await cleanup.value
+
+        do {
+            _ = try await file.info()
+            XCTFail("Expected the descriptor to be closed")
+        } catch let error as FileSystemError {
+            XCTAssertEqual(error.code, .closed)
+        }
     }
 
     private func makeFixture() throws -> (

@@ -77,6 +77,12 @@ responses do not emit an empty file region.
 The root directory stays open for the lifetime of `StaticFiles`; this is why
 the explicit `close()` call is required.
 
+Request-owned intermediate directories and failed file opens are released even
+when the request task is cancelled. Cleanup detaches these read-only handles
+and closes their descriptors on the async executor, rather than enqueueing a
+cancellation-sensitive pool close. This does not change ownership of the shared
+root or move metadata/open work onto the event loop.
+
 ## Path security
 
 The default policy is intentionally restrictive:
@@ -139,6 +145,13 @@ This first vertical slice intentionally does not yet include:
 - multipart byte ranges,
 - content-disposition helpers at the mount layer,
 - a lifecycle hook that closes the root automatically.
+
+Opening before stat and disabling symlinks protects path containment, not a
+snapshot of file contents. In-place truncation or modification during a
+`FileRegion` transfer remains an unresolved integrity edge case. Deploy assets
+as immutable files and replace them atomically; do not treat a second stat as
+a guarantee against concurrent writes. Cancellation can also currently map to
+a 500 response rather than a dedicated cancellation result.
 
 Those capabilities require separate correctness, security, and benchmark
 evidence before being added.

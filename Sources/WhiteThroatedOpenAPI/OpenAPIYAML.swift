@@ -1,3 +1,4 @@
+import CoreFoundation
 import Foundation
 
 internal enum OpenAPIYAML {
@@ -52,6 +53,13 @@ internal enum OpenAPIYAML {
                 repeating: " ",
                 count: indent
             )
+
+        // An empty object must render as a flow mapping;
+        // the sorted-key rendering would otherwise produce
+        // an empty string and corrupt the document.
+        if dictionary.isEmpty {
+            return prefix + "{}"
+        }
 
         return dictionary.keys
             .sorted()
@@ -141,16 +149,14 @@ internal enum OpenAPIYAML {
         }
 
         if let value =
-            value as? Bool
-        {
-            return value
-                ? "true"
-                : "false"
-        }
-
-        if let value =
             value as? NSNumber
         {
+            // JSONSerialization bridges both numbers and booleans to
+            // NSNumber. A numeric 0/1 also casts to Bool, so preserve
+            // the actual JSON type rather than using `as? Bool`.
+            if CFGetTypeID(value) == CFBooleanGetTypeID() {
+                return value.boolValue ? "true" : "false"
+            }
             return value.stringValue
         }
 

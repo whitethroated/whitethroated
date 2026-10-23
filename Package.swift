@@ -609,6 +609,10 @@ let package = Package(
                     package: "swift-nio"
                 ),
                 .product(
+                    name: "_NIOFileSystem",
+                    package: "swift-nio"
+                ),
+                .product(
                     name: "NIOPosix",
                     package: "swift-nio"
                 ),
