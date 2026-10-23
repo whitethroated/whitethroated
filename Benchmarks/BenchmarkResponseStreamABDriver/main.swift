@@ -214,7 +214,8 @@ private func repositoryRoot() throws -> URL {
 }
 
 private func requireFreshAbsoluteOutput(
-    _ path: String
+    _ path: String,
+    repository: URL
 ) throws -> URL {
     guard path.hasPrefix("/") else {
         throw DriverError.invalidOutput(
@@ -234,6 +235,20 @@ private func requireFreshAbsoluteOutput(
         throw DriverError.invalidOutput(
             "A/B output directory already exists: "
             + url.path
+        )
+    }
+
+    let repositoryPath =
+        repository.standardizedFileURL.path
+
+    guard
+        url.path != repositoryPath,
+        !url.path.hasPrefix(
+            repositoryPath + "/"
+        )
+    else {
+        throw DriverError.invalidOutput(
+            "A/B output directory must be outside the repository worktree"
         )
     }
 
@@ -449,6 +464,8 @@ private func removeWorktree(
     )
 }
 
+private var failureOutput: URL?
+
 do {
     let arguments =
         Array(
@@ -479,8 +496,10 @@ do {
 
     let outputRoot =
         try requireFreshAbsoluteOutput(
-            arguments[2]
+            arguments[2],
+            repository: repository
         )
+    failureOutput = outputRoot
 
     try FileManager.default
         .createDirectory(
@@ -656,6 +675,21 @@ do {
         + outputRoot.path
     )
 } catch {
+    if let failureOutput {
+        try? FileManager.default
+            .createDirectory(
+                at: failureOutput,
+                withIntermediateDirectories: true
+            )
+        try? write(
+            "\(error)\n",
+            to: failureOutput
+                .appendingPathComponent(
+                    "DRIVER_ABORTED.txt"
+                )
+        )
+    }
+
     FileHandle.standardError.write(
         Data(
             (
