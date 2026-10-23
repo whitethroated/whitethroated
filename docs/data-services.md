@@ -165,6 +165,10 @@ produces `DatabaseError.Kind.cancelled`, while task cancellation throws
 `CancellationError`. With libpq versions before 17, `PQcancel` sends the cancel
 request over a separate unencrypted connection even when the main connection
 uses TLS; the request carries only the cancel key for the in-flight query.
+The cancel request is dispatched to a dedicated queue: the blocking socket
+work of `PQcancel` never runs on the observing event loop thread and never
+while the connection's cancellation state is locked, and the handle is freed
+exactly once after in-flight sends have drained.
 
 Errors are normalized to `DatabaseError` with a stable kind, optional SQLSTATE,
 and a transient flag. Constraint violations, syntax errors, cancelled
