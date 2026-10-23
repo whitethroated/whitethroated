@@ -357,6 +357,104 @@ final class ObservabilityLifecycleTests:
         )
     }
 
+    func testTraceparentParsesHigherVersionsPositionally() {
+        // Versions above "00" keep the documented field positions;
+        // content after trace-flags is unknown and must be ignored
+        // without validation, per the W3C trace-context versioning
+        // rules.
+        XCTAssertEqual(
+            TraceContext.parse(
+                traceparent:
+                    "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-ce929d0e"
+            ),
+            TraceContext(
+                traceID:
+                    "4bf92f3577b34da6a3ce929d0e0e4736",
+                parentSpanID:
+                    "00f067aa0ba902b7",
+                traceFlags: 1
+            )
+        )
+
+        // The unknown-field area may exist without content, as long as
+        // the flags end the string or are followed by a dash.
+        XCTAssertEqual(
+            TraceContext.parse(
+                traceparent:
+                    "0a-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-03-"
+            ),
+            TraceContext(
+                traceID:
+                    "4bf92f3577b34da6a3ce929d0e0e4736",
+                parentSpanID:
+                    "00f067aa0ba902b7",
+                traceFlags: 3
+            )
+        )
+        XCTAssertEqual(
+            TraceContext.parse(
+                traceparent:
+                    "0f-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-00"
+            ),
+            TraceContext(
+                traceID:
+                    "4bf92f3577b34da6a3ce929d0e0e4736",
+                parentSpanID:
+                    "00f067aa0ba902b7",
+                traceFlags: 0
+            )
+        )
+
+        // Flags must end the string or be followed by a dash.
+        XCTAssertNil(
+            TraceContext.parse(
+                traceparent:
+                    "01-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01x"
+            )
+        )
+
+        // Headers shorter than 55 characters are never parsed.
+        XCTAssertNil(
+            TraceContext.parse(
+                traceparent:
+                    "01-4bf92f3577b34da6a3ce929d0e0e473-00f067aa0ba902b7-01"
+            )
+        )
+
+        // Unknown version fields do not relax identifier validation.
+        XCTAssertNil(
+            TraceContext.parse(
+                traceparent:
+                    "01-00000000000000000000000000000000-00f067aa0ba902b7-01-unknown"
+            )
+        )
+
+        // Version "ff" stays forbidden.
+        XCTAssertNil(
+            TraceContext.parse(
+                traceparent:
+                    "ff-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-x"
+            )
+        )
+
+        // Version "00" keeps the exact format: no trailing fields.
+        XCTAssertNil(
+            TraceContext.parse(
+                traceparent:
+                    "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01-x"
+            )
+        )
+
+        // Version prefixes that are not two lowercase hex characters
+        // cannot be parsed as versions.
+        XCTAssertNil(
+            TraceContext.parse(
+                traceparent:
+                    "0g-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+            )
+        )
+    }
+
     func testUnsampledTraceSkipsRouteAndIdentifierWork() throws {
         let events =
             EventBox<TraceSpanEvent>()
