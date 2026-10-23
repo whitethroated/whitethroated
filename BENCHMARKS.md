@@ -602,9 +602,10 @@ counts. No new deployment recommendation or production optimization follows.
 
 ## Swift-native topology campaign
 
-`whitethroated-benchmark-campaign` replaces manual orchestration for the next
-1×8 versus 4×2 adjudication. It never builds during measurement. First run the
-release tests and build the server, client, merger and campaign products:
+`whitethroated-benchmark-campaign` provides reproducible Swift-native
+orchestration for the topology matrix and the matched response-stream profile.
+It never builds during measurement. First run the release tests and build the
+server, client, merger and campaign products:
 
 ```sh
 swift test -c release
@@ -627,12 +628,44 @@ worker `ps` RSS/cumulative CPU about every 250 ms; its RPS is diagnostic only.
 The primary throughput and latency cells run without that sampler. Sampling and
 client export overhead are not calibrated away.
 
+For response-stream work, select the dedicated profile:
+
+```sh
+WHITETHROATED_CAMPAIGN_PROFILE=response-stream \
+WHITETHROATED_CAMPAIGN_OUTPUT=/tmp/stream-framework-unique \
+  .build/release/whitethroated-benchmark-campaign
+```
+
+The response-stream profile is intentionally a different experiment rather than
+an extra topology cell. It runs one server process with **2 event-loop threads**,
+four one-thread client shards, three measured rounds, c64/c512, and 125000
+requests per shard (500000 requests per cell). It validates and measures the
+existing matched routes:
+
+- `GET /response-stream-known` — 13-byte known-length stream;
+- `GET /response-stream` — the same body with HTTP/1.1 chunked framing;
+- `GET /response-stream-flush` — the same chunked body with an explicit first
+  flush.
+
+The route order rotates each round and the concurrency order reverses on even
+rounds to reduce fixed-order drift. The runner automatically enables
+`WHITETHROATED_RESPONSE_STREAM_BENCHMARKS=1` only for this profile. Run the
+profile separately with `WHITETHROATED_CAMPAIGN_SERVER` set to framework,
+runtime, and raw-NIO products when all three layers are needed. Candidate-only
+routes must be added as explicit matched controls; do not silently replace one of
+these retained baseline routes.
+
+The response-stream smoke profile uses one round, c64, four shards, and 8000
+requests per shard. Hosted-CI smoke proves only that orchestration, framing
+validation, result export, and cleanup work; it is never performance evidence.
+
 Other settings (all optional):
 
 | Environment variable | Meaning |
 |---|---|
 | `WHITETHROATED_CAMPAIGN_ROOT` | Repository path; defaults to current directory |
 | `WHITETHROATED_CAMPAIGN_SERVER` | `whitethroated-benchmark-server` (default), `whitethroated-runtime-benchmark-server`, or `raw-nio-benchmark-server` |
+| `WHITETHROATED_CAMPAIGN_PROFILE` | `rest` (default) or `response-stream` |
 | `WHITETHROATED_CAMPAIGN_PORT` | First of four loopback ports, default 3310 |
 | `WHITETHROATED_CAMPAIGN_SMOKE=1` | Correctness-only run: one round, c64, 8000 requests/shard; bypasses quiet-host rejection and marks completion as smoke |
 
@@ -646,8 +679,10 @@ with the campaign archive; binary location alone cannot prove how it was built.
 The runner checks that the required ports are free with temporary loopback binds
 before starting workers. It waits up to 30 seconds for connection readiness,
 retrying only connection-refused startup failures; bad HTTP responses and
-response timeouts fail immediately. It verifies status, exact body,
-Content-Length and relevant Content-Type on every worker/route before load.
+response timeouts fail immediately. It verifies status, exact body, relevant Content-Type, and the declared
+framing contract on every worker/route before load: exact Content-Length for
+known-length routes or exactly one `Transfer-Encoding: chunked` field for
+chunked response-stream controls.
 The campaign stops on HTTP mismatch, child
 failure, 120-second cell timeout, HEAD change or a quiet-host gate failure.
 SIGINT/SIGTERM request cleanup: it terminates/reaps its own clients/workers and
