@@ -20,6 +20,10 @@ let package = Package(
             name: "whitethroated-benchmark-ab-compare",
             targets: ["BenchmarkABCompare"]
         ),
+        .executable(
+            name: "whitethroated-response-stream-ab-driver",
+            targets: ["BenchmarkResponseStreamABDriver"]
+        ),
         .library(
             name: "WhiteThroated",
             targets: ["WhiteThroated"]
@@ -183,6 +187,10 @@ let package = Package(
             name: "BenchmarkABCompare",
             dependencies: ["BenchmarkResults"],
             path: "Benchmarks/BenchmarkABCompare"
+        ),
+        .executableTarget(
+            name: "BenchmarkResponseStreamABDriver",
+            path: "Benchmarks/BenchmarkResponseStreamABDriver"
         ),
         .testTarget(name: "BenchmarkResultsTests", dependencies: ["BenchmarkResults"]),
         .testTarget(
