@@ -54,6 +54,21 @@ internal final class WebSocketFrameHandler:
         let frame =
             unwrapInboundIn(data)
 
+        // RFC 6455 §5.1: every frame a client sends must be
+        // masked, and with no extensions negotiated the RSV bits
+        // must all be clear. NIO's frame decoder enforces
+        // neither invariant, so both violations surface here and
+        // fail the connection with a 1002 protocol-error close.
+        if
+            frame.maskKey == nil
+            || frame.rsv1
+            || frame.rsv2
+            || frame.rsv3
+        {
+            protocolViolation(context: context)
+            return
+        }
+
         switch frame.opcode {
         case .text:
             receiveDataFrame(

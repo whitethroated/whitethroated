@@ -20,6 +20,10 @@ final class WebSocketTests:
         }
     }
 
+    /// User-defined acceptance failure used to prove that failing
+    /// acceptance futures downgrade into plain refusals.
+    private struct AcceptanceBoom: Error {}
+
     func testRouterInstallsUpgradeAndNegotiatesSubprotocol() throws {
         var router =
             WebSocketRouter()
@@ -159,6 +163,116 @@ final class WebSocketTests:
                 )
                 .wait()
         )
+
+        XCTAssertNoThrow(
+            try channel.finish()
+        )
+    }
+
+    func testRouterInstallsUpgradeErrorFilter() throws {
+        var router =
+            WebSocketRouter()
+        try router.on(
+            "/chat",
+            handlers:
+                WebSocketHandlers()
+        )
+
+        let app = Application()
+        app.use(webSockets: router)
+
+        let filter =
+            try XCTUnwrap(
+                app.upgradeErrorFilter
+            )
+
+        // Both NIO downgrade error shapes must be downgraded so
+        // the re-delivered request receives a normal HTTP
+        // response rather than a bare connection close.
+        XCTAssertTrue(
+            filter(
+                NIOWebSocketUpgradeError
+                    .unsupportedWebSocketTarget
+            )
+        )
+        XCTAssertTrue(
+            filter(
+                NIOWebSocketUpgradeError
+                    .invalidUpgradeHeader
+            )
+        )
+
+        // Everything else — including WebSocket frame-level
+        // protocol errors that arrive after the upgrade — is not
+        // an upgrade-stage error and must still tear the
+        // connection down.
+        XCTAssertFalse(
+            filter(
+                WebSocketConnectionError
+                    .closing
+            )
+        )
+        XCTAssertFalse(
+            filter(
+                AcceptanceBoom()
+            )
+        )
+    }
+
+    func testAcceptanceFutureFailureBecomesPlainRefusal() throws {
+        var router =
+            WebSocketRouter()
+        try router.onFuture(
+            "/failing",
+            accept: {
+                request,
+                eventLoop in
+
+                eventLoop.makeFailedFuture(
+                    AcceptanceBoom()
+                )
+            },
+            handlers:
+                WebSocketHandlers()
+        )
+
+        let app = Application()
+        app.use(webSockets: router)
+
+        let upgrade =
+            try XCTUnwrap(
+                app.httpServerUpgrade
+            )
+        let channel =
+            EmbeddedChannel()
+        let head =
+            upgradeHead(
+                path: "/failing"
+            )
+
+        // An acceptance check that fails with a user-defined
+        // error is treated as a refusal: NIO reports its plain
+        // unsupported-target error (downgraded by the installed
+        // filter) instead of leaking the user error, which would
+        // otherwise reach the pipeline unfiltered and close the
+        // connection without an HTTP status.
+        XCTAssertThrowsError(
+            try upgrade.upgraders[0]
+                .buildUpgradeResponse(
+                    channel: channel,
+                    upgradeRequest:
+                        head,
+                    initialResponseHeaders:
+                        HTTPHeaders()
+                )
+                .wait()
+        ) { error in
+            XCTAssertEqual(
+                error as?
+                    NIOWebSocketUpgradeError,
+                .unsupportedWebSocketTarget
+            )
+        }
 
         XCTAssertNoThrow(
             try channel.finish()
@@ -470,6 +584,100 @@ final class WebSocketTests:
         )
     }
 
+    func testUnmaskedClientFrameSends1002Close() throws {
+        let (
+            channel,
+            _
+        ) = try makeFrameChannel(
+            maskInboundFrames: false
+        )
+
+        var payload =
+            channel.allocator
+                .buffer(capacity: 2)
+        payload.writeString("hi")
+
+        // An unmasked frame straight from a client violates
+        // RFC 6455 §5.1: the connection must fail with a 1002
+        // protocol-error close.
+        _ = try channel.writeInbound(
+            WebSocketFrame(
+                fin: true,
+                opcode: .text,
+                data: payload
+            )
+        )
+
+        var close =
+            try XCTUnwrap(
+                channel.readOutbound(
+                    as:
+                        WebSocketFrame.self
+                )
+            )
+
+        XCTAssertEqual(
+            close.opcode,
+            .connectionClose
+        )
+        XCTAssertEqual(
+            close.data
+                .readWebSocketErrorCode(),
+            .protocolError
+        )
+
+        XCTAssertNoThrow(
+            try channel.finish()
+        )
+    }
+
+    func testReservedBitSends1002Close() throws {
+        let (
+            channel,
+            _
+        ) = try makeFrameChannel()
+
+        var payload =
+            channel.allocator
+                .buffer(capacity: 2)
+        payload.writeString("hi")
+
+        // No extensions are negotiated, so a set RSV bit on a
+        // masked client frame (the adapter preserves the RSV
+        // bits) violates RFC 6455 §5.2/§9.1 and must fail the
+        // connection with a 1002 protocol-error close.
+        _ = try channel.writeInbound(
+            WebSocketFrame(
+                fin: true,
+                rsv1: true,
+                opcode: .text,
+                data: payload
+            )
+        )
+
+        var close =
+            try XCTUnwrap(
+                channel.readOutbound(
+                    as:
+                        WebSocketFrame.self
+                )
+            )
+
+        XCTAssertEqual(
+            close.opcode,
+            .connectionClose
+        )
+        XCTAssertEqual(
+            close.data
+                .readWebSocketErrorCode(),
+            .protocolError
+        )
+
+        XCTAssertNoThrow(
+            try channel.finish()
+        )
+    }
+
     func testFragmentedMessageLimitAppliesToAggregate() throws {
         let (
             channel,
@@ -644,7 +852,8 @@ final class WebSocketTests:
         maxMessageBytes: Int = 1024,
         eventSink:
             WebSocketRouter.EventSink? =
-                nil
+                nil,
+        maskInboundFrames: Bool = true
     ) throws
         -> (
             EmbeddedChannel,
@@ -677,14 +886,104 @@ final class WebSocketTests:
                     eventSink
             )
 
-        try channel.pipeline
-            .syncOperations
-            .addHandler(handler)
+        // The real pipeline's frame decoder forwards frames as
+        // they appear on the wire: client frames always carry a
+        // masking key and masked payloads. Tests default to the
+        // same shape; unmasked in-production-illegal frames use
+        // `maskInboundFrames: false` to exercise the handler's
+        // own validation.
+        if maskInboundFrames {
+            try channel.pipeline
+                .syncOperations
+                .addHandlers(
+                    [
+                        WireMaskAdapter(),
+                        handler,
+                    ]
+                )
+        } else {
+            try channel.pipeline
+                .syncOperations
+                .addHandler(handler)
+        }
 
         return (
             channel,
             connection
         )
+    }
+
+    /// Simulates the wire shape for inbound tests: the real frame
+    /// decoder forwards client frames with their masking keys and
+    /// masked payloads (leaving unmasking to the handler). This
+    /// adapter applies the same transformation so tests can inject
+    /// frames in plain, unmasked form.
+    private final class WireMaskAdapter:
+        ChannelInboundHandler,
+        @unchecked Sendable
+    {
+        typealias InboundIn =
+            WebSocketFrame
+        typealias InboundOut =
+            WebSocketFrame
+
+        private let maskingBytes: [UInt8] = [
+            0x2a,
+            0x4f,
+            0x11,
+            0x7b,
+        ]
+
+        func channelRead(
+            context:
+                ChannelHandlerContext,
+            data: NIOAny
+        ) {
+            let frame =
+                unwrapInboundIn(data)
+            var masked =
+                frame.data
+
+            for offset
+                in 0..<masked
+                    .readableBytes
+            {
+                let index =
+                    masked.readerIndex
+                        + offset
+                let byte: UInt8 =
+                    masked.getInteger(
+                        at: index
+                    )
+                    ?? 0
+                masked.setInteger(
+                    byte
+                        ^ maskingBytes[
+                            offset
+                                % 4
+                        ],
+                    at: index
+                )
+            }
+
+            context.fireChannelRead(
+                wrapInboundOut(
+                    WebSocketFrame(
+                        fin: frame.fin,
+                        rsv1: frame.rsv1,
+                        rsv2: frame.rsv2,
+                        rsv3: frame.rsv3,
+                        opcode:
+                            frame.opcode,
+                        maskKey:
+                            WebSocketMaskingKey(
+                                maskingBytes
+                            ),
+                        data: masked
+                    )
+                )
+            )
+        }
     }
 
     private func upgradeHead(
