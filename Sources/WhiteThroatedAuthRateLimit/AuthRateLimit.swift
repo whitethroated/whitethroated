@@ -84,6 +84,16 @@ public struct AuthRateLimitKeyDeriver:
 }
 
 public enum AuthRateLimit {
+    /// Binds a fixed-window rate limit to authenticated principals.
+    ///
+    /// The limiter keys requests on the HMAC of the authenticated
+    /// principal id. A request that fails or omits authentication belongs
+    /// to the authenticator stack rather than this limiter, so the
+    /// wrapper's key-failure behavior defaults to `.passThrough` — the
+    /// authenticator answers unauthenticated traffic itself instead of
+    /// receiving a limiter 429. Fail-closed deployments opt into
+    /// `.reject` explicitly. This value overrides the passed
+    /// configuration's key failure behavior.
     public static func fixedWindow(
         authenticator:
             Authenticator,
@@ -91,12 +101,32 @@ public enum AuthRateLimit {
             AuthRateLimitKeyDeriver,
         configuration:
             FixedWindowRateLimitConfiguration,
+        keyFailureBehavior:
+            RateLimitKeyFailureBehavior =
+                .passThrough,
         clock: RateLimitClock =
             .monotonic
     ) -> FixedWindowRateLimiter {
-        FixedWindowRateLimiter(
+        let effectiveConfiguration =
+            FixedWindowRateLimitConfiguration(
+                limit: configuration.limit,
+                windowSeconds: Int(
+                    configuration
+                        .windowNanoseconds
+                    / 1_000_000_000
+                ),
+                maxKeys: configuration.maxKeys,
+                maxKeyBytes:
+                    configuration.maxKeyBytes,
+                keyFailureBehavior:
+                    keyFailureBehavior,
+                emitHeaders:
+                    configuration.emitHeaders
+            )
+
+        return FixedWindowRateLimiter(
             configuration:
-                configuration,
+                effectiveConfiguration,
             clock: clock,
             keyResolver: {
                 request in

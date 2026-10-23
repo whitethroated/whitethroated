@@ -184,6 +184,13 @@ used for authentication.
 authenticated principal ID and feed it into the bounded RateLimit module. This
 prevents raw bearer tokens or API keys from becoming retained limiter keys.
 
+A request that fails or omits authentication belongs to the authenticator, not
+to the limiter: `AuthRateLimit.fixedWindow` passes such requests through by
+default, so the authenticator's own 401/403 flow answers them instead of a
+limiter 429. Deployments that must fail closed opt into
+`keyFailureBehavior: .reject` on the wrapper explicitly; the wrapper's value
+overrides the passed configuration's key failure behavior.
+
 ## Security boundaries
 
 - Password hashing is intentionally not implemented here. Use a maintained
