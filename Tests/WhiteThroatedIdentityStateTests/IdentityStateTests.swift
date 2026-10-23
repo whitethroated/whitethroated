@@ -1043,6 +1043,68 @@ final class IdentityStateTests:
         }
     }
 
+    func testClearCookieRepeatsSessionCookieAttributes() throws {
+        // A deletion Set-Cookie must repeat the attributes of the
+        // original session cookie; otherwise strict browsers can
+        // keep the original Secure/HttpOnly/SameSite cookie alive
+        // after logout.
+        let manager =
+            SessionManager(
+                store: MemorySessionStore(),
+                codec: SessionCookieCodec(
+                    keys: [
+                        SessionSigningKey(
+                            id: "k",
+                            secret: secretA
+                        ),
+                    ]
+                )
+            )
+
+        var response = Response.text("ok")
+        manager.clearCookie(
+            on: &response
+        )
+
+        XCTAssertEqual(
+            response.headers.first(
+                name: "set-cookie"
+            ),
+            "wt_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax"
+        )
+
+        let custom =
+            SessionManager(
+                store: MemorySessionStore(),
+                codec: SessionCookieCodec(
+                    keys: [
+                        SessionSigningKey(
+                            id: "k",
+                            secret: secretA
+                        ),
+                    ]
+                ),
+                cookie: SessionCookieConfiguration(
+                    name: "sid",
+                    path: "/app",
+                    secure: false,
+                    sameSite: .strict
+                )
+            )
+
+        var plain = Response.text("ok")
+        custom.clearCookie(
+            on: &plain
+        )
+
+        XCTAssertEqual(
+            plain.headers.first(
+                name: "set-cookie"
+            ),
+            "sid=; Path=/app; Max-Age=0; HttpOnly; SameSite=Strict"
+        )
+    }
+
     func testSessionAuthenticatorIsLazyAndEventLoopNative() async throws {
         let store =
             MemorySessionStore()
