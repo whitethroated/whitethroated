@@ -22,6 +22,8 @@ Agents should load only the skills relevant to the files and risk surface being 
   - `skills/http-correctness-security/SKILL.md`
 - Tests and regression coverage:
   - `skills/testing-regression/SKILL.md`
+- Language of generated artifacts (code, file/folder names, commits, docs):
+  - `skills/english-artifacts/SKILL.md` — always applies, to every task.
 
 ## Common combinations
 
