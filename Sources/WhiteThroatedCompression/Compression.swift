@@ -39,10 +39,10 @@ public enum CompressionError: Error, Equatable, Sendable {
 ///
 /// Compression is skipped when the response already carries a
 /// content coding, a transfer coding, a content range, a strong
-/// entity tag, an excluded content type, or a body below the
-/// configured minimum. Eligible responses always carry
-/// `Vary: Accept-Encoding`, whether or not a given request received
-/// an encoded representation.
+/// entity tag, an excluded content type, a declined
+/// `shouldCompress` policy, or a body below the configured minimum.
+/// Eligible responses always carry `Vary: Accept-Encoding`, whether
+/// or not a given request received an encoded representation.
 public struct Compression: Sendable {
     public struct Configuration: Sendable {
         /// Supported algorithms in server preference order. Equal
@@ -59,11 +59,26 @@ public struct Compression: Sendable {
         /// Content types eligible for compression.
         public var contentTypes: ContentTypePolicy
 
+        /// Request-time policy consulted after eligibility analysis
+        /// passes and before encoding. Return `false` to keep the
+        /// identity representation — for example to decline
+        /// compressing responses that carry per-request secrets such
+        /// as `Set-Cookie`, mitigating oracle attacks like BREACH.
+        ///
+        /// On `encode(_:for:)` and `middleware()` a declined response
+        /// keeps `Vary: Accept-Encoding`, because other responses of
+        /// the same route may still be served encoded.
+        /// `precompressed(_:)` consults the policy once at setup and
+        /// falls back to a plain identity handler.
+        public var shouldCompress:
+            (@Sendable (Response) -> Bool)?
+
         public init(
             algorithms: [CompressionAlgorithm] = [.gzip],
             minimumBytes: Int = 1024,
             compressionLevel: Int = 6,
-            contentTypes: ContentTypePolicy = .default
+            contentTypes: ContentTypePolicy = .default,
+            shouldCompress: (@Sendable (Response) -> Bool)? = nil
         ) {
             precondition(
                 !algorithms.isEmpty,
@@ -83,6 +98,7 @@ public struct Compression: Sendable {
             self.minimumBytes = minimumBytes
             self.compressionLevel = compressionLevel
             self.contentTypes = contentTypes
+            self.shouldCompress = shouldCompress
         }
     }
 
@@ -105,23 +121,18 @@ public struct Compression: Sendable {
     ///
     /// This API is opportunistic: ineligible responses and requests
     /// that cannot receive a configured coding are returned
-    /// unchanged. The status is never rewritten. Use
-    /// `precompressed(_:)` when strict negotiation is required.
+    /// unchanged. A response declined by the configured
+    /// `shouldCompress` policy keeps its identity body and still
+    /// carries `Vary: Accept-Encoding`. The status is never
+    /// rewritten. Use `precompressed(_:)` when strict negotiation
+    /// is required.
     public func encode(
         _ response: Response,
         for request: Request
     ) -> Response {
-        let analysis = analysis(of: response)
-
-        guard case .eligible = analysis else {
-            return response
-        }
-
-        return applying(
-            negotiator.decide(
-                headers: request.headers
-            ),
-            to: response
+        encoded(
+            response,
+            accepting: request.headers
         )
     }
 
@@ -129,7 +140,10 @@ public struct Compression: Sendable {
     /// synchronous route handler that negotiates per request.
     ///
     /// An ineligible response falls back to a handler that always
-    /// serves the identity representation. A response carrying a
+    /// serves the identity representation. The `shouldCompress`
+    /// policy is consulted once at setup, and a declined response
+    /// falls back the same way because no request can receive an
+    /// encoded representation. A response carrying a
     /// strong entity tag throws `CompressionError.conflictingETag`
     /// because strong validators must not be shared between
     /// representations. A weakly tagged response keeps its tag.
@@ -151,6 +165,12 @@ public struct Compression: Sendable {
                 .conflictingETag
 
         case .eligible:
+            if policyDeclines(response) {
+                return { _ in
+                    response
+                }
+            }
+
             var identity = response
 
             Self.appendVary(
@@ -260,22 +280,9 @@ public struct Compression: Sendable {
 
                 return .future(
                     future.map { response in
-                        let analysis =
-                            self.analysis(
-                                of: response
-                            )
-
-                        guard
-                            case .eligible = analysis
-                        else {
-                            return response
-                        }
-
-                        return self.applying(
-                            self.negotiator.decide(
-                                headers: headers
-                            ),
-                            to: response
+                        self.encoded(
+                            response,
+                            accepting: headers
                         )
                     }
                 )
@@ -448,6 +455,55 @@ public struct Compression: Sendable {
     }
 
     // MARK: - Encoding
+
+    /// Performs the eligibility, policy, and negotiation pass shared
+    /// by `encode(_:for:)` and `middleware()`. An ineligible response
+    /// is returned untouched; a response declined by the configured
+    /// policy keeps its identity body but still advertises
+    /// `Vary: Accept-Encoding`, so caches keying on `Accept-Encoding`
+    /// also treat encoded representations served for other responses
+    /// of the same route as distinct.
+    private func encoded(
+        _ response: Response,
+        accepting headers: HTTPHeaders
+    ) -> Response {
+        let analysis = analysis(
+            of: response
+        )
+
+        guard case .eligible = analysis else {
+            return response
+        }
+
+        if policyDeclines(response) {
+            return Self.addingVary(
+                to: response
+            )
+        }
+
+        return applying(
+            negotiator.decide(
+                headers: headers
+            ),
+            to: response
+        )
+    }
+
+    /// `true` when a configured policy declines compression for the
+    /// response; `false` when no policy is configured or the policy
+    /// allows it.
+    private func policyDeclines(
+        _ response: Response
+    ) -> Bool {
+        guard
+            let policy =
+                configuration.shouldCompress
+        else {
+            return false
+        }
+
+        return !policy(response)
+    }
 
     /// Applies a negotiation decision. Callers only reach this after
     /// `analysis(of:)` returned `.eligible`.

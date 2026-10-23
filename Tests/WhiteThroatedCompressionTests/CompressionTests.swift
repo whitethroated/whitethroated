@@ -1150,4 +1150,202 @@ final class CompressionTests: XCTestCase {
                 }
             }
     }
+
+    // MARK: - Policy hook
+
+    private var secretSetCookie: String {
+        "session=secret; HttpOnly"
+    }
+
+    private func makePolicyCompression(
+        minimumBytes: Int = 0
+    ) -> Compression {
+        Compression(
+            configuration:
+                Compression.Configuration(
+                    minimumBytes: minimumBytes,
+                    shouldCompress: { response in
+                        response.headers.first(
+                            name: "set-cookie"
+                        ) == nil
+                    }
+                )
+        )
+    }
+
+    func testPolicyHookDeclinesResponseCarryingSecrets() {
+        let compression = makePolicyCompression()
+        var response = largePlainResponse
+
+        response.headers.add(
+            name: "set-cookie",
+            value: secretSetCookie
+        )
+
+        let encoded = compression.encode(
+            response,
+            for: encodingRequest("gzip")
+        )
+
+        XCTAssertNil(
+            encoded.headers.first(
+                name: "content-encoding"
+            )
+        )
+        XCTAssertEqual(
+            bodyBytes(encoded),
+            Array(largeText.utf8)
+        )
+        XCTAssertTrue(
+            varyTokens(encoded.headers)
+                .contains("accept-encoding")
+        )
+
+        // The same response without the secret still encodes:
+        // the hook inspects the response, not the route.
+        let allowed = compression.encode(
+            largePlainResponse,
+            for: encodingRequest("gzip")
+        )
+
+        XCTAssertEqual(
+            allowed.headers.first(
+                name: "content-encoding"
+            ),
+            "gzip"
+        )
+    }
+
+    func testMiddlewarePolicyHookDeclinesResponseCarryingSecrets()
+        async throws
+    {
+        let app = Application()
+        let text = largeText
+        let cookie = secretSetCookie
+
+        app.use(
+            compression: makePolicyCompression()
+        )
+        app.get("/") { _ in
+            var response = Response.text(text)
+
+            response.headers.add(
+                name: "set-cookie",
+                value: cookie
+            )
+
+            return response
+        }
+
+        try await MultiThreadedEventLoopGroup
+            .withEventLoopGroup(
+                numberOfThreads: 1
+            ) { group in
+                let loop = group.next()
+
+                let response = try await app
+                    .respond(
+                        to: encodingRequest("gzip"),
+                        on: loop
+                    )
+                    .get()
+
+                XCTAssertNil(
+                    response.headers.first(
+                        name: "content-encoding"
+                    )
+                )
+                XCTAssertEqual(
+                    decodedBody(response),
+                    Array(text.utf8)
+                )
+                XCTAssertTrue(
+                    varyTokens(response.headers)
+                        .contains("accept-encoding")
+                )
+            }
+    }
+
+    func testMiddlewarePolicyHookDeclinesFutureResponseCarryingSecrets()
+        async throws
+    {
+        let app = Application()
+        let text = largeText
+        let cookie = secretSetCookie
+
+        app.use(
+            compression: makePolicyCompression()
+        )
+        app.get("/") { _, context in
+            var response = Response.text(text)
+
+            response.headers.add(
+                name: "set-cookie",
+                value: cookie
+            )
+
+            return context.eventLoop
+                .makeSucceededFuture(response)
+        }
+
+        try await MultiThreadedEventLoopGroup
+            .withEventLoopGroup(
+                numberOfThreads: 1
+            ) { group in
+                let loop = group.next()
+
+                let response = try await app
+                    .respond(
+                        to: encodingRequest("gzip"),
+                        on: loop
+                    )
+                    .get()
+
+                XCTAssertNil(
+                    response.headers.first(
+                        name: "content-encoding"
+                    )
+                )
+                XCTAssertEqual(
+                    decodedBody(response),
+                    Array(text.utf8)
+                )
+                XCTAssertTrue(
+                    varyTokens(response.headers)
+                        .contains("accept-encoding")
+                )
+            }
+    }
+
+    func testPolicyHookDeclinedPrecompressedServesIdentityOnly()
+        throws
+    {
+        let compression = makePolicyCompression()
+        var response = largePlainResponse
+
+        response.headers.add(
+            name: "set-cookie",
+            value: secretSetCookie
+        )
+
+        let handler = try compression
+            .precompressed(response)
+
+        let served = handler(
+            encodingRequest("gzip")
+        )
+
+        XCTAssertNil(
+            served.headers.first(
+                name: "content-encoding"
+            )
+        )
+        XCTAssertEqual(
+            bodyBytes(served),
+            Array(largeText.utf8)
+        )
+        XCTAssertTrue(
+            varyTokens(served.headers).isEmpty
+        )
+    }
 }
