@@ -772,10 +772,11 @@ private final class Campaign {
                     == .responseStream,
                 round.isMultiple(of: 2)
             {
-                concurrencies =
+                concurrencies = Array(
                     configuration
-                    .concurrencies
-                    .reversed()
+                        .concurrencies
+                        .reversed()
+                )
             } else {
                 concurrencies =
                     configuration
