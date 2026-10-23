@@ -384,6 +384,61 @@ CircleCI uses paired same-root smoke mode only to exercise orchestration,
 framing, cleanup, and output generation. Same-root execution is accepted only
 when `WHITETHROATED_CAMPAIGN_SMOKE=1`; it is never performance evidence.
 
+For the complete framework/runtime/raw-NIO experiment, the Swift-only driver can
+prepare detached worktrees, build release products, run all three paired
+campaigns, execute the comparator, and preserve a driver manifest in one
+invocation:
+
+```bash
+swift build -c release \
+  --product whitethroated-response-stream-ab-driver
+
+.build/release/whitethroated-response-stream-ab-driver \
+  <baseline-commit> \
+  <candidate-commit> \
+  /absolute/path/to/fresh-output
+```
+
+Both commit arguments must already resolve in the local Git object database.
+The driver never fetches or changes branch refs. It rejects identical commits,
+relative or existing output directories, and output paths inside the repository
+worktree. Temporary detached worktrees are created outside the repository and
+removed after completion or failure.
+
+The driver builds the framework, runtime, and raw-NIO server products for both
+revisions. The benchmark client, campaign runner, and A/B comparator are built
+from the baseline revision and reused as the common apparatus. After build load,
+the driver waits for the same basic load-average admission condition used by the
+campaign runner before starting measurement. Override only when diagnosing
+apparatus behavior:
+
+```bash
+WHITETHROATED_AB_LOAD_SETTLE_SECONDS=0 \
+  .build/release/whitethroated-response-stream-ab-driver \
+  <baseline-commit> <candidate-commit> /tmp/wt-stream-ab
+```
+
+A successful run creates:
+
+```text
+<output>/
+  framework/
+  runtime/
+  raw/
+  framework-comparison.json
+  runtime-comparison.json
+  raw-comparison.json
+  driver-manifest.json
+  DRIVER_COMPLETE.txt
+```
+
+Any driver-level failure writes `DRIVER_ABORTED.txt`. Individual campaign
+failures continue to preserve their normal `ABORTED.txt` evidence. A driver
+completion marker means the apparatus completed; it does not by itself establish
+that the candidate passes the performance gate. Interpret the three comparison
+reports together with retained async controls, raw-NIO drift, round spread, tail
+latency, CPU efficiency, and RSS.
+
 The `whitethroated-runtime-benchmark-server` exposes the same five routes
 under the same flag. Use the three-way raw/runtime/framework matrix to locate
 the gap: runtime minus raw covers the Tier 1 transport and runtime response
