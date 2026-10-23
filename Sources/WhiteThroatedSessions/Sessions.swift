@@ -196,9 +196,13 @@ public final class MemorySessionStore:
                 state.sessions.count
                     >= maxSessions
             {
-                Self.evictOldest(
-                    from:
-                        &state.sessions
+                Self.pruneOldest(
+                    sessions:
+                        &state.sessions,
+                    count: Self
+                        .evictionBatch(
+                            maxSessions
+                        )
                 )
             }
 
@@ -238,27 +242,133 @@ public final class MemorySessionStore:
         }
     }
 
-    private static func evictOldest(
-        from sessions:
-            inout [String: Stored]
+    static func evictionBatch(
+        _ maxSessions: Int
+    ) -> Int {
+        max(1, maxSessions / 8)
+    }
+
+    /// Amortized bounded-store eviction: capacity overflow prunes a small
+    /// batch of least-recently-touched sessions in one pass instead of
+    /// scanning the whole table per save. The store stays bounded by
+    /// `maxSessions` — a full table pays one O(n·log batch) scan per batch
+    /// of new sessions, so the per-save cost stays constant between
+    /// prunes.
+    private static func pruneOldest(
+        sessions: inout [String: Stored],
+        count: Int
     ) {
-        guard
-            let key =
-                sessions.min(
-                    by: {
-                        $0.value
-                            .lastTouch
-                            < $1.value
-                                .lastTouch
-                    }
-                )?.key
-        else {
+        guard count > 0, sessions.count > 0 else {
             return
         }
 
-        sessions.removeValue(
-            forKey: key
-        )
+        var heap: [Victim] = []
+        heap.reserveCapacity(count)
+
+        for (key, stored) in sessions {
+            let candidate = Victim(
+                key: key,
+                lastTouch: stored.lastTouch
+            )
+
+            if heap.count < count {
+                heap.append(candidate)
+                heapifyUp(&heap, heap.count - 1)
+            } else if
+                candidate.lastTouch
+                    < heap[0].lastTouch
+            {
+                // Replace the worst retained victim;
+                // ties keep the incumbent.
+                heap[0] = candidate
+                heapifyDown(&heap, 0)
+            }
+        }
+
+        while !heap.isEmpty {
+            let victim = heap[0]
+
+            heap[0] = heap[
+                heap.count - 1
+            ]
+            heap.removeLast()
+
+            if !heap.isEmpty {
+                heapifyDown(&heap, 0)
+            }
+
+            sessions.removeValue(
+                forKey: victim.key
+            )
+        }
+    }
+
+    private struct Victim: Sendable {
+        let key: String
+        let lastTouch: UInt64
+    }
+
+    private static func heapifyUp(
+        _ heap: inout [Victim],
+        _ start: Int
+    ) {
+        var child = start
+
+        while child > 0 {
+            let parent = (child - 1) / 2
+
+            if
+                heap[child].lastTouch
+                    > heap[parent]
+                        .lastTouch
+            {
+                heap.swapAt(child, parent)
+                child = parent
+            } else {
+                break
+            }
+        }
+    }
+
+    private static func heapifyDown(
+        _ heap: inout [Victim],
+        _ start: Int
+    ) {
+        var parent = start
+
+        while true {
+            let left = parent * 2 + 1
+
+            guard left < heap.count else {
+                return
+            }
+
+            let right = left + 1
+            var largest = left
+
+            if
+                right < heap.count,
+                heap[right].lastTouch
+                    > heap[left]
+                        .lastTouch
+            {
+                largest = right
+            }
+
+            if
+                heap[largest].lastTouch
+                    > heap[parent]
+                        .lastTouch
+            {
+                heap.swapAt(
+                    parent,
+                    largest
+                )
+                parent = largest
+            } else {
+                return
+            }
+        }
     }
 }
 
