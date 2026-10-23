@@ -689,31 +689,404 @@ private final class Campaign {
         }
     }
 
+    func campaignPlan() -> [String: Int] {
+        let topologyCount =
+            configuration.profile == .responseStream ? 1 : 2
+        let routeCount =
+            configuration.profile == .responseStream ? 5 : 3
+
+        return [
+            "rounds": configuration.rounds,
+            "shards": configuration.shards,
+            "serverLoops": configuration.serverLoops,
+            "clientThreadsPerShard": 1,
+            "requestsPerShard": configuration.requestsPerShard,
+            "warmupRequestsPerWorkerRoute":
+                configuration.warmupRequests,
+            "cellCount":
+                configuration.rounds
+                * topologyCount
+                * routeCount
+                * configuration.concurrencies.count
+                * 3,
+        ]
+    }
+
+    func captureVariant(
+        name: String,
+        root: String,
+        directory: URL
+    ) throws -> CampaignVariant {
+        let standardizedRoot = URL(
+            fileURLWithPath: root,
+            isDirectory: true
+        ).standardizedFileURL.path
+
+        guard FileManager.default.fileExists(
+            atPath: standardizedRoot
+        ) else {
+            throw CampaignError.invalid(
+                "Campaign root does not exist: \(standardizedRoot)"
+            )
+        }
+
+        let head = try capture(
+            "/usr/bin/git",
+            [
+                "-C",
+                standardizedRoot,
+                "rev-parse",
+                "HEAD",
+            ]
+        ).trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let worktreeDiff = try capture(
+            "/usr/bin/git",
+            [
+                "-C",
+                standardizedRoot,
+                "diff",
+                "HEAD",
+            ]
+        )
+        let packageResolved = try String(
+            contentsOfFile:
+                standardizedRoot
+                + "/Package.resolved",
+            encoding: .utf8
+        )
+
+        return CampaignVariant(
+            name: name,
+            root: standardizedRoot,
+            directory: directory,
+            binaries: URL(
+                fileURLWithPath: standardizedRoot,
+                isDirectory: true
+            ).appendingPathComponent(
+                ".build/release"
+            ),
+            head: head,
+            worktreeDiff: worktreeDiff,
+            packageResolved: packageResolved
+        )
+    }
+
+    func gitObject(
+        root: String,
+        path: String
+    ) throws -> String {
+        try capture(
+            "/usr/bin/git",
+            [
+                "-C",
+                root,
+                "rev-parse",
+                "HEAD:\(path)",
+            ]
+        ).trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+    }
+
+    func validatePairedHarness(
+        baselineVariant: CampaignVariant,
+        candidateVariant: CampaignVariant
+    ) throws {
+        guard
+            baselineVariant.worktreeDiff.isEmpty,
+            candidateVariant.worktreeDiff.isEmpty
+        else {
+            throw CampaignError.invalid(
+                "Paired A/B campaign roots must have clean worktrees"
+            )
+        }
+
+        guard
+            baselineVariant.packageResolved
+                == candidateVariant.packageResolved
+        else {
+            throw CampaignError.invalid(
+                "Paired A/B campaign Package.resolved differs"
+            )
+        }
+
+        for path in [
+            "Package.swift",
+            "Benchmarks/BenchmarkCampaign",
+            "Benchmarks/BenchmarkResults",
+            "Benchmarks/WhiteThroatedBenchmarkClient",
+        ] {
+            guard
+                try gitObject(
+                    root: baselineVariant.root,
+                    path: path
+                )
+                == gitObject(
+                    root: candidateVariant.root,
+                    path: path
+                )
+            else {
+                throw CampaignError.invalid(
+                    "Paired A/B harness differs at \(path)"
+                )
+            }
+        }
+    }
+
+    func writeVariantMetadata(
+        _ variant: CampaignVariant,
+        swiftVersion: String,
+        host: String
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: variant.directory,
+            withIntermediateDirectories: true
+        )
+
+        activeVariant = variant
+
+        let scopedConfiguration =
+            CampaignConfiguration(
+                root: variant.root,
+                output: variant.directory.path,
+                serverProduct:
+                    configuration.serverProduct,
+                basePort: configuration.basePort,
+                smoke: configuration.smoke,
+                profile: configuration.profile
+            )
+
+        try save(
+            scopedConfiguration,
+            "configuration.json"
+        )
+        try save(
+            campaignPlan(),
+            "plan.json"
+        )
+        try saveText(
+            variant.head,
+            "head.txt"
+        )
+        try saveText(
+            variant.worktreeDiff,
+            "worktree.diff"
+        )
+        try saveText(
+            swiftVersion,
+            "swift-version.txt"
+        )
+        try saveText(
+            host,
+            "host.txt"
+        )
+        try saveText(
+            variant.packageResolved,
+            "Package.resolved.txt"
+        )
+    }
+
+    func runPairedResponseStreamCampaign(
+        peerRoot: String
+    ) throws {
+        guard configuration.profile == .responseStream else {
+            throw CampaignError.invalid(
+                "Paired A/B mode requires response-stream profile"
+            )
+        }
+
+        let baselineDirectory =
+            directory.appendingPathComponent(
+                "baseline",
+                isDirectory: true
+            )
+        let candidateDirectory =
+            directory.appendingPathComponent(
+                "candidate",
+                isDirectory: true
+            )
+
+        let baselineVariant = try captureVariant(
+            name: "baseline",
+            root: configuration.root,
+            directory: baselineDirectory
+        )
+        let candidateVariant = try captureVariant(
+            name: "candidate",
+            root: peerRoot,
+            directory: candidateDirectory
+        )
+
+        try validatePairedHarness(
+            baselineVariant: baselineVariant,
+            candidateVariant: candidateVariant
+        )
+
+        guard
+            configuration.smoke
+            || baselineVariant.head
+                != candidateVariant.head
+        else {
+            throw CampaignError.invalid(
+                "Non-smoke A/B campaign requires different commits"
+            )
+        }
+
+        let baselineServer =
+            baselineVariant.binaries
+                .appendingPathComponent(
+                    configuration.serverProduct
+                )
+        let candidateServer =
+            candidateVariant.binaries
+                .appendingPathComponent(
+                    configuration.serverProduct
+                )
+        let client =
+            baselineVariant.binaries
+                .appendingPathComponent(
+                    "whitethroated-benchmark-client"
+                )
+
+        for executable in [
+            baselineServer,
+            candidateServer,
+            client,
+        ] {
+            guard FileManager.default
+                .isExecutableFile(
+                    atPath: executable.path
+                )
+            else {
+                throw CampaignError.invalid(
+                    "Build release product before paired campaign: "
+                    + executable.path
+                )
+            }
+        }
+
+        let swiftVersion = try capture(
+            "/usr/bin/env",
+            ["swift", "--version"]
+        )
+        let host = try capture(
+            "/usr/bin/uname",
+            ["-a"]
+        )
+
+        pairedClientBinaries =
+            baselineVariant.binaries
+
+        defer {
+            activeVariant = nil
+            pairedClientBinaries = nil
+        }
+
+        try writeVariantMetadata(
+            baselineVariant,
+            swiftVersion: swiftVersion,
+            host: host
+        )
+        try writeVariantMetadata(
+            candidateVariant,
+            swiftVersion: swiftVersion,
+            host: host
+        )
+
+        activeVariant = baselineVariant
+        try gate("preflight")
+
+        var order: [String] = []
+
+        for round in 1...configuration.rounds {
+            let variants =
+                round.isMultiple(of: 2)
+                ? [
+                    candidateVariant,
+                    baselineVariant,
+                ]
+                : [
+                    baselineVariant,
+                    candidateVariant,
+                ]
+
+            for variant in variants {
+                activeVariant = variant
+                order.append(
+                    "r\(round):\(variant.name)"
+                )
+                try runResponseStreamRound(round)
+            }
+        }
+
+        for variant in [
+            baselineVariant,
+            candidateVariant,
+        ] {
+            activeVariant = variant
+            try checkBaseline()
+            try saveText(
+                configuration.smoke
+                    ? "SMOKE ONLY — no performance claims\n"
+                    : "Complete; inspect variance and gates before claims\n",
+                "COMPLETE.txt"
+            )
+        }
+
+        activeVariant = nil
+
+        try saveText(
+            order.joined(separator: "\n")
+                + "\n",
+            "paired-order.txt",
+            to: directory
+        )
+        try save(
+            [
+                "baselineHead":
+                    baselineVariant.head,
+                "candidateHead":
+                    candidateVariant.head,
+                "serverProduct":
+                    configuration.serverProduct,
+            ],
+            "paired-heads.json",
+            to: directory
+        )
+        try saveText(
+            configuration.smoke
+                ? "SMOKE ONLY — paired orchestration only\n"
+                : "Complete paired response-stream A/B campaign\n",
+            "PAIRED_COMPLETE.txt",
+            to: directory
+        )
+    }
+
     func run() throws {
         guard !FileManager.default.fileExists(atPath: directory.path) else {
             throw CampaignError.invalid("Campaign output already exists; use a fresh directory")
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         outputCreated = true
-        try save(configuration, "configuration.json")
-        let topologyCount =
-            configuration.profile == .responseStream ? 1 : 2
-        let routeCount =
-            configuration.profile == .responseStream ? 5 : 3
-        try save([
-            "rounds": configuration.rounds,
-            "shards": configuration.shards,
-            "serverLoops": configuration.serverLoops,
-            "clientThreadsPerShard": 1,
-            "requestsPerShard": configuration.requestsPerShard,
-            "warmupRequestsPerWorkerRoute": configuration.warmupRequests,
-            "cellCount":
-                configuration.rounds
-                * topologyCount
-                * routeCount
-                * configuration.concurrencies.count
-                * 3
-        ], "plan.json")
+        if let peerRoot =
+            configuration.abPeerRoot
+        {
+            try runPairedResponseStreamCampaign(
+                peerRoot: peerRoot
+            )
+            return
+        }
+
+        try save(
+            configuration,
+            "configuration.json"
+        )
+        try save(
+            campaignPlan(),
+            "plan.json"
+        )
         baseline = try capture("/usr/bin/git", ["-C", configuration.root, "rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
         try saveText(baseline, "head.txt")
         try saveText(try capture("/usr/bin/git", ["-C", configuration.root, "diff", "HEAD"]), "worktree.diff")
