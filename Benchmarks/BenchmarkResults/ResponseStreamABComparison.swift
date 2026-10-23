@@ -37,8 +37,8 @@ public struct PairedBenchmarkMetricComparison:
         }
 
         guard
-            baseline.allSatisfy(\.isFinite),
-            candidate.allSatisfy(\.isFinite)
+            baseline.allSatisfy({ $0.isFinite }),
+            candidate.allSatisfy({ $0.isFinite })
         else {
             throw BenchmarkComparisonError.nonFiniteValue
         }
