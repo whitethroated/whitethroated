@@ -74,6 +74,8 @@ private struct ComparisonReport:
     let baselineHead: String
     let candidateHead: String
     let serverProduct: String
+    let host: String
+    let swiftVersion: String
     let rounds: Int
     let cells: [CellReport]
 }
@@ -82,6 +84,10 @@ private struct CampaignInput {
     let directory: URL
     let configuration: CampaignConfiguration
     let head: String
+    let host: String
+    let swiftVersion: String
+    let packageResolved: String
+    let worktreeDiff: String
 
     init(path: String) throws {
         directory = URL(
@@ -97,19 +103,40 @@ private struct CampaignInput {
                 )
         )
 
-        head = try String(
-            contentsOf:
-                directory.appendingPathComponent(
-                    "head.txt"
-                ),
-            encoding: .utf8
+        head = try Self.readText(
+            "head.txt",
+            in: directory
         ).trimmingCharacters(
             in: .whitespacesAndNewlines
         )
+        host = try Self.readText(
+            "host.txt",
+            in: directory
+        ).trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        swiftVersion = try Self.readText(
+            "swift-version.txt",
+            in: directory
+        ).trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        packageResolved = try Self.readText(
+            "Package.resolved.txt",
+            in: directory
+        )
+        worktreeDiff = try Self.readText(
+            "worktree.diff",
+            in: directory
+        )
 
-        guard !head.isEmpty else {
+        guard
+            !head.isEmpty,
+            !host.isEmpty,
+            !swiftVersion.isEmpty
+        else {
             throw ComparisonFailure.invalidSummary(
-                "Campaign head.txt is empty"
+                "Campaign identity metadata is incomplete"
             )
         }
     }
@@ -133,8 +160,15 @@ private struct CampaignInput {
                 .appendingPathComponent(name)
         )
 
+        let expectedRunID =
+            "r\(round)-1x2-"
+            + route.label
+            + "-c\(concurrency)-"
+            + mode
+
         guard
             summary.schemaVersion == 1,
+            summary.runID == expectedRunID,
             summary.method == "GET",
             summary.path == route.path,
             summary.connections == concurrency,
@@ -142,7 +176,9 @@ private struct CampaignInput {
                 == configuration.shards,
             summary.completed
                 == configuration.requestsPerShard
-                    * configuration.shards
+                    * configuration.shards,
+            summary.bodyBytes
+                == summary.completed * 13
         else {
             throw ComparisonFailure.invalidSummary(
                 "Unexpected benchmark summary contract in \(name)"
@@ -176,6 +212,19 @@ private struct CampaignInput {
         try JSONDecoder().decode(
             T.self,
             from: Data(contentsOf: url)
+        )
+    }
+
+    private static func readText(
+        _ name: String,
+        in directory: URL
+    ) throws -> String {
+        try String(
+            contentsOf:
+                directory.appendingPathComponent(
+                    name
+                ),
+            encoding: .utf8
         )
     }
 }
@@ -230,6 +279,27 @@ private func requireComparable(
     else {
         throw ComparisonFailure.incompatibleCampaigns(
             "Smoke campaigns are correctness evidence only"
+        )
+    }
+
+    guard
+        baseline.host == candidate.host,
+        baseline.swiftVersion
+            == candidate.swiftVersion,
+        baseline.packageResolved
+            == candidate.packageResolved
+    else {
+        throw ComparisonFailure.incompatibleCampaigns(
+            "Host, Swift toolchain, or Package.resolved differs"
+        )
+    }
+
+    guard
+        baseline.worktreeDiff.isEmpty,
+        candidate.worktreeDiff.isEmpty
+    else {
+        throw ComparisonFailure.incompatibleCampaigns(
+            "Campaign worktrees must be clean"
         )
     }
 
@@ -321,7 +391,9 @@ private func compare(
                     !baseThroughput
                         .collectLatency,
                     !candidateThroughput
-                        .collectLatency
+                        .collectLatency,
+                    baseThroughput.clientHost
+                        == candidateThroughput.clientHost
                 else {
                     throw ComparisonFailure
                         .invalidSummary(
@@ -354,7 +426,9 @@ private func compare(
 
                 guard
                     baseLatency.collectLatency,
-                    candidateLatency.collectLatency
+                    candidateLatency.collectLatency,
+                    baseLatency.clientHost
+                        == candidateLatency.clientHost
                 else {
                     throw ComparisonFailure
                         .invalidSummary(
@@ -544,6 +618,8 @@ private func compare(
         candidateHead: candidate.head,
         serverProduct:
             baseline.configuration.serverProduct,
+        host: baseline.host,
+        swiftVersion: baseline.swiftVersion,
         rounds: baseline.configuration.rounds,
         cells: cells
     )
