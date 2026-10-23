@@ -214,6 +214,10 @@ jobs:
           command: swift build -c release --product whitethroated-benchmark-merge
 
       - run:
+          name: Build Swift A/B comparator
+          command: swift build -c release --product whitethroated-benchmark-ab-compare
+
+      - run:
           name: Build Swift topology campaign runner
           command: swift build -c release --product whitethroated-benchmark-campaign
 
