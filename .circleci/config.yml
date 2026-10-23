@@ -218,6 +218,10 @@ jobs:
           command: swift build -c release --product whitethroated-benchmark-ab-compare
 
       - run:
+          name: Build response-stream A/B driver
+          command: swift build -c release --product whitethroated-response-stream-ab-driver
+
+      - run:
           name: Build Swift topology campaign runner
           command: swift build -c release --product whitethroated-benchmark-campaign
 
