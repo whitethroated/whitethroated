@@ -113,6 +113,41 @@ final class ValidationTests: XCTestCase {
         }
     }
 
+    func testQueryValidationValidatesMaterializedDuplicateValue() {
+        // A duplicated query key materializes as the last occurrence;
+        // validation must judge the same value handlers read from
+        // `queryParameters` instead of the first raw occurrence.
+        let request = makeRequest(
+            path: "/?page=1&page=999"
+        )
+        let schema = ValidationSchema(
+            fields: [
+                .query(
+                    "page",
+                    rules: [
+                        .maxLength(2),
+                    ]
+                ),
+            ]
+        )
+
+        let result = request.validate(schema)
+
+        XCTAssertFalse(result.isValid)
+
+        XCTAssertEqual(
+            result.issues.first?.code,
+            .tooLong
+        )
+        XCTAssertEqual(
+            result.values[
+                .query,
+                "page"
+            ],
+            "999"
+        )
+    }
+
     func testCustomRuleUsesConfiguredCodeAndMessage() {
         let request = makeRequest(
             path: "/?slug=UPPER"
