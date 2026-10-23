@@ -420,3 +420,15 @@ Read only the skills relevant to the task, but do not skip the benchmark skill f
 - `.agents/skills/testing-regression/SKILL.md` — correctness and regression strategy.
 
 When more than one skill applies, use all of them. Performance work commonly requires at least runtime-performance + benchmark-validation, and transport work normally also requires swiftnio-http-runtime + http-correctness-security.
+
+## Git and pull request operations
+
+For any task that creates or changes branches, commits, pull requests, CI state,
+reviews, or merges, also read:
+
+- `.agents/skills/agentic-git-workflow/SKILL.md`
+
+That skill defines the repository's agentic integration workflow: short-lived
+task branches, focused commits, PR-first integration, independent CI
+verification, performance gates, integration freshness, and merge safety.
+
