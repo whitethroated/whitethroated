@@ -118,6 +118,20 @@ final class PostgresCancellationState:
         }
     }
 
+    /// The libpq cancellation handle crossing to the cancel queue.
+    /// Unchecked because a raw C pointer has no Sendable conformance
+    /// of its own: Swift never dereferences the pointee — the pointer
+    /// is handed straight back to `PQcancel`, which is documented for
+    /// use from a foreign thread — and its lifetime is governed by the
+    /// reserved-drain contract documented on the contract class: the
+    /// send is reserved by `inFlightSends` and the handle is freed at
+    /// most once under the state lock.
+    private struct CancelTransfer:
+        @unchecked Sendable
+    {
+        let pointer: OpaquePointer
+    }
+
     /// Runs one reserved send on the cancel queue. The handle stays valid:
     /// it can only be freed once every reservation has drained, and this
     /// drain is what releases the final handle when the query already
@@ -125,6 +139,10 @@ final class PostgresCancellationState:
     private func dispatchSend(
         _ cancel: OpaquePointer
     ) {
+        let transfer = CancelTransfer(
+            pointer: cancel
+        )
+
         Self.cancelQueue.async {
             [self] in
 
@@ -135,7 +153,7 @@ final class PostgresCancellationState:
                 )
 
             _ = PQcancel(
-                cancel,
+                transfer.pointer,
                 &buffer,
                 Int32(buffer.count)
             )
