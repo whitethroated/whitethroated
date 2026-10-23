@@ -121,11 +121,13 @@ public struct Compression: Sendable {
     ///
     /// This API is opportunistic: ineligible responses and requests
     /// that cannot receive a configured coding are returned
-    /// unchanged. A response declined by the configured
-    /// `shouldCompress` policy keeps its identity body and still
-    /// carries `Vary: Accept-Encoding`. The status is never
-    /// rewritten. Use `precompressed(_:)` when strict negotiation
-    /// is required.
+    /// unchanged. A response carrying exactly one well-formed weak
+    /// entity tag (`W/"..."`) may be compressed, and the weak tag is
+    /// preserved; a strong entity tag keeps the response identity. A
+    /// response declined by the configured `shouldCompress` policy
+    /// keeps its identity body and still carries
+    /// `Vary: Accept-Encoding`. The status is never rewritten. Use
+    /// `precompressed(_:)` when strict negotiation is required.
     public func encode(
         _ response: Response,
         for request: Request
