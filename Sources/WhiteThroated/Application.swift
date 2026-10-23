@@ -36,6 +36,8 @@ public final class Application: @unchecked Sendable {
         AcceptedChannelInitializer?
     internal var httpServerUpgrade:
         NIOHTTPServerUpgradeSendableConfiguration?
+    internal var upgradeErrorFilter:
+        (@Sendable (Error) -> Bool)?
     private var configurationFrozen = false
 
     internal var hasStreamingRoutes: Bool {
@@ -104,6 +106,30 @@ public final class Application: @unchecked Sendable {
         )
 
         httpServerUpgrade = upgrade
+    }
+
+    /// Installs one setup-time filter for errors raised by the
+    /// pipeline's upgrade machinery.
+    ///
+    /// Upgrade capability owners use this hook so a refused (or
+    /// protocol-invalid) upgrade request is downgraded into normal
+    /// request dispatch. The re-delivered request receives its normal
+    /// HTTP response with `Connection: close`, then the connection
+    /// closes after flushing: NIO's decoder cannot resume parsing
+    /// after an upgrade-flagged request.
+    /// Errors outside the installed filter, or errors that surface
+    /// mid-request, still close the connection as before.
+    public func installUpgradeErrorFilter(
+        _ filter: @escaping @Sendable (Error) -> Bool
+    ) {
+        requireConfigurationPhase()
+
+        precondition(
+            upgradeErrorFilter == nil,
+            "Only one upgrade error filter can be installed"
+        )
+
+        upgradeErrorFilter = filter
     }
 
     public func use(_ middleware: @escaping Middleware) {

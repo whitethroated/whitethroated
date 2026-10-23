@@ -8,6 +8,22 @@ import NIOHTTP1
 public typealias RuntimeAcceptedChannelInitializer =
     @Sendable (Channel) -> EventLoopFuture<Void>
 
+/// Decides whether an error fired by the pipeline's upgrade machinery
+/// should be swallowed so the re-delivered request can receive an HTTP
+/// response before the connection closes.
+///
+/// NIOHTTP1's `HTTPServerProtocolUpgrader` flow downgrades a refused
+/// upgrade by firing the refusal error and then re-delivering the
+/// original request downstream. Swallowing such errors lets the
+/// request reach normal dispatch and produce a real HTTP status
+/// instead of tearing the connection down without a response. The
+/// runtime stays protocol-agnostic: the installed filter decides
+/// which error types count as downgrade-able. A matched error is only
+/// swallowed before a request head or active request stream. The response
+/// uses `Connection: close`: NIO's decoder cannot resume after an upgrade.
+public typealias RuntimeUpgradeErrorFilter =
+    @Sendable (Error) -> Bool
+
 public struct RuntimeServerConfiguration: Sendable {
     public var eventLoopThreads: Int?
     public var backlog: Int32
@@ -21,6 +37,8 @@ public struct RuntimeServerConfiguration: Sendable {
         RuntimeAcceptedChannelInitializer?
     public var httpServerUpgrade:
         NIOHTTPServerUpgradeSendableConfiguration?
+    public var upgradeErrorFilter:
+        RuntimeUpgradeErrorFilter?
 
     public init(
         eventLoopThreads: Int? = nil,
@@ -30,7 +48,9 @@ public struct RuntimeServerConfiguration: Sendable {
         acceptedChannelInitializer:
             RuntimeAcceptedChannelInitializer? = nil,
         httpServerUpgrade:
-            NIOHTTPServerUpgradeSendableConfiguration? = nil
+            NIOHTTPServerUpgradeSendableConfiguration? = nil,
+        upgradeErrorFilter:
+            RuntimeUpgradeErrorFilter? = nil
     ) {
         precondition(
             maxRequestBodyBytes >= 0,
@@ -56,5 +76,7 @@ public struct RuntimeServerConfiguration: Sendable {
             acceptedChannelInitializer
         self.httpServerUpgrade =
             httpServerUpgrade
+        self.upgradeErrorFilter =
+            upgradeErrorFilter
     }
 }

@@ -447,6 +447,125 @@ final class ResponseStreamLengthTests: XCTestCase {
         )
     }
 
+    func testUserTransferEncodingIsStrippedOnFactoryDeclaredStreams() throws {
+        let app = Application()
+
+        app.get("/stream") { _ in
+            Response
+                .stream(
+                    contentType: "text/plain",
+                    contentLength: 5
+                ) { writer in
+                    writer.writeString("hello")
+                }
+                .header(
+                    "transfer-encoding",
+                    "chunked"
+                )
+        }
+
+        let channel = try makeChannel(app)
+        try sendRequest(channel)
+
+        let (head, body, sawEnd) = try readHeadAndBody(
+            channel
+        )
+
+        XCTAssertEqual(
+            head?.status,
+            .ok
+        )
+        XCTAssertNil(
+            head?.headers.first(
+                name: "transfer-encoding"
+            )
+        )
+        XCTAssertNotNil(
+            head?.headers.first(
+                name: "content-length"
+            )
+        )
+        XCTAssertEqual(body, "hello")
+        XCTAssertTrue(sawEnd)
+        XCTAssertTrue(channel.isActive)
+    }
+
+    func testUserTransferEncodingIsStrippedOnUserDeclaredStreams() throws {
+        let app = Application()
+
+        app.get("/stream") { _ in
+            Response
+                .stream { writer in
+                    writer.writeString("hello")
+                }
+                .header(
+                    "content-length",
+                    "5"
+                )
+                .header(
+                    "transfer-encoding",
+                    "chunked"
+                )
+        }
+
+        let channel = try makeChannel(app)
+        try sendRequest(channel)
+
+        let (head, body, sawEnd) = try readHeadAndBody(
+            channel
+        )
+
+        XCTAssertEqual(head?.status, .ok)
+        XCTAssertNil(
+            head?.headers.first(
+                name: "transfer-encoding"
+            )
+        )
+        XCTAssertEqual(body, "hello")
+        XCTAssertTrue(sawEnd)
+        XCTAssertTrue(channel.isActive)
+    }
+
+    private func readHeadAndBody(
+        _ channel: EmbeddedChannel
+    ) throws -> (
+        HTTPResponseHead?,
+        String?,
+        sawEnd: Bool
+    ) {
+        var observedHead: HTTPResponseHead?
+        var observedBody: String?
+        var sawEnd = false
+
+        while
+            let part = try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        {
+            switch part {
+            case .head(let head):
+                observedHead = head
+
+            case .body(let data):
+                guard
+                    case .byteBuffer(let buffer) = data
+                else {
+                    continue
+                }
+
+                observedBody = buffer.getString(
+                    at: buffer.readerIndex,
+                    length: buffer.readableBytes
+                )
+
+            case .end:
+                sawEnd = true
+            }
+        }
+
+        return (observedHead, observedBody, sawEnd)
+    }
+
     private func makeChannel(
         _ app: Application
     ) throws -> EmbeddedChannel {

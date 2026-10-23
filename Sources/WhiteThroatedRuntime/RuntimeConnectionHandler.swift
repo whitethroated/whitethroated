@@ -25,6 +25,8 @@ public final class RuntimeConnectionHandler:
 
     private let dispatcher: RuntimeDispatcher
     private let maxRequestBodyBytes: Int
+    private let upgradeErrorFilter:
+        RuntimeUpgradeErrorFilter?
     private let hasMiddleware: Bool
     private let hasStreamingRoutes: Bool
     private let canUseMinimalRouteCacheFastPath: Bool
@@ -48,6 +50,12 @@ public final class RuntimeConnectionHandler:
     private var cachedRemoteAddressLoaded = false
 
     private var streamingStart: RuntimeStreamingStart?
+    /// Set when an upgrade refusal is downgraded into normal
+    /// dispatch. NIOHTTP1's request decoder permanently stops
+    /// parsing after decoding an upgrade-flagged request, so the
+    /// connection can only serve the re-delivered request and
+    /// must then answer with close semantics.
+    private var pendingDowngradeClose = false
     private var streamingPendingChunks =
         CircularBuffer<ByteBuffer>(
             initialCapacity: 4
@@ -66,6 +74,8 @@ public final class RuntimeConnectionHandler:
         self.dispatcher = dispatcher
         self.maxRequestBodyBytes =
             configuration.maxRequestBodyBytes
+        self.upgradeErrorFilter =
+            configuration.upgradeErrorFilter
         let hasMiddleware =
             dispatcher.hasMiddleware
         let hasStreamingRoutes =
@@ -110,6 +120,7 @@ public final class RuntimeConnectionHandler:
         )
         resetStreamingState()
         streamingReadsPaused = false
+        pendingDowngradeClose = false
         context.fireChannelInactive()
     }
 
@@ -117,6 +128,33 @@ public final class RuntimeConnectionHandler:
         context: ChannelHandlerContext,
         error: Error
     ) {
+        // Upgrade-downgrade handling: NIOHTTP1's upgrade
+        // machinery downgrades a refused (or protocol-invalid)
+        // upgrade request by firing the refusal error and then
+        // re-delivering the original request downstream. Swallow
+        // those errors only at a clean message boundary — before
+        // any request part has been delivered here — so the
+        // forwarded request still reaches dispatch and answers
+        // with a real HTTP status. The connection then closes
+        // with response-level close semantics: NIO's HTTP/1
+        // decoder permanently stops parsing once it decodes an
+        // upgrade-flagged request, so the connection cannot
+        // serve follow-up requests and must not strand a client
+        // on a dead pipeline. Any error that arrives while a
+        // request is in flight, while a stream is active, or
+        // from an unfiltered type still tears the connection
+        // down: the framing state is not recoverable in that
+        // case.
+        if
+            requestHead == nil,
+            streamingStart == nil,
+            let filter = upgradeErrorFilter,
+            filter(error)
+        {
+            pendingDowngradeClose = true
+            return
+        }
+
         streamingStart?.registration.cancel(error)
         resetStreamingState()
         streamingReadsPaused = false
@@ -127,7 +165,11 @@ public final class RuntimeConnectionHandler:
         _ head: HTTPRequestHead,
         context: ChannelHandlerContext
     ) {
+        // A downgraded upgrade request must use the general
+        // path so its response carries connection close
+        // semantics (see errorCaught).
         if
+            !pendingDowngradeClose,
             canUseMinimalRouteCacheFastPath,
             cachedRouteMethod == head.method,
             cachedRouteURI == head.uri,
@@ -196,7 +238,8 @@ public final class RuntimeConnectionHandler:
         var transportAction: RuntimeRouteAction?
 
         let hasMinimalHTTP11Headers =
-            requestHasMinimalHTTP11Headers(head)
+            !pendingDowngradeClose
+            && requestHasMinimalHTTP11Headers(head)
 
         let canDispatchBodylessOnHead =
             hasMinimalHTTP11Headers
@@ -550,12 +593,32 @@ public final class RuntimeConnectionHandler:
     private func requestIsKeepAlive(
         _ head: HTTPRequestHead
     ) -> Bool {
+        // A downgraded upgrade connection serves exactly the
+        // re-delivered request, then closes with close
+        // semantics (see errorCaught).
+        if pendingDowngradeClose {
+            return false
+        }
+
         guard head.headers.first(
             name: "connection"
         ) != nil else {
             return
                 head.version.major == 1
                 && head.version.minor >= 1
+        }
+
+        // NIO can decline an unrecognized Upgrade protocol without
+        // firing an error. Its decoder still stops at this message's
+        // end, so ordinary dispatch must close after the response.
+        // Only inspect connection tokens when Upgrade is present.
+        if
+            head.headers.contains(name: "upgrade"),
+            head.headers[canonicalForm: "connection"].contains(where: {
+                $0.lowercased() == "upgrade"
+            })
+        {
+            return false
         }
 
         return head.isKeepAlive

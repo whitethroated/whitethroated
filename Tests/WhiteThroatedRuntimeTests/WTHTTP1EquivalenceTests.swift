@@ -455,12 +455,39 @@ final class WTHTTP1EquivalenceTests: XCTestCase {
         )
     }
 
-    func testUpgradeRoutedNormally() throws {
-        try assertEquivalent(
-            writes: [
-                "GET /ws HTTP/1.1\r\nHost: x\r\nConnection: upgrade\r\nUpgrade: websocket\r\n\r\n"
-            ]
+    func testDeclinedUpgradePreservesRoutingWithExplicitCloseSemantics() throws {
+        let fixture = EquivalenceFixture()
+        defer {
+            _ = try? fixture.stockChannel.finish()
+            _ = try? fixture.tier1Channel.finish()
+        }
+        try fixture.writeBoth(
+            "GET /ws HTTP/1.1\r\nHost: x\r\nConnection: upgrade\r\nUpgrade: websocket\r\n\r\n"
         )
+        let prefix = "HTTP/1.1 200 OK\r\ncontent-type: text/plain; charset=utf-8\r\ncontent-length: 2\r\n"
+
+        // Neither transport upgrades; both preserve normal route content.
+        // Stock must close because its decoder stops at the upgrade-marked
+        // request. Tier 1 remains an HTTP parser and can keep serving.
+        XCTAssertEqual(
+            String(decoding: try fixture.readStock(), as: UTF8.self),
+            prefix + "connection: close\r\n\r\nws"
+        )
+        XCTAssertFalse(fixture.stockChannel.isActive)
+        XCTAssertEqual(
+            String(decoding: try fixture.readTier1(), as: UTF8.self),
+            prefix + "\r\nws"
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
+
+        try fixture.tier1Channel.writeInbound(
+            ByteBuffer(string: "GET /ws HTTP/1.1\r\nHost: x\r\n\r\n")
+        )
+        XCTAssertEqual(
+            String(decoding: try fixture.readTier1(), as: UTF8.self),
+            prefix + "\r\nws"
+        )
+        XCTAssertTrue(fixture.tier1Channel.isActive)
     }
 
     func testNotModifiedStripsLengthOnWire() throws {

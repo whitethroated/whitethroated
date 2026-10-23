@@ -346,6 +346,18 @@ public struct WebSocketRouter:
                             to:
                                 channel.eventLoop
                         )
+                        // A failing acceptance check is treated
+                        // as a plain refusal: NIO turns a `nil`
+                        // decision into a downgrade, so the
+                        // request still receives a normal HTTP
+                        // response instead of the connection
+                        // being torn down without a status.
+                        .flatMapError { _ in
+                            channel.eventLoop
+                                .makeSucceededFuture(
+                                    false
+                                )
+                        }
                         .map {
                             isAccepted
                                 -> HTTPHeaders? in
@@ -481,6 +493,22 @@ public struct WebSocketRouter:
             .installHTTPServerUpgrade(
                 upgrade
             )
+
+        // The upgrader maps every refusal (including a `nil`
+        // decision here and an invalid WebSocket handshake
+        // attempt) into an `NIOWebSocketUpgradeError` failure
+        // that NIO's upgrade handler fires before re-delivering
+        // the request downstream. Installing the filter keeps the
+        // connection alive through that downgrade so the request
+        // completes with a normal HTTP response status.
+        application
+            .installUpgradeErrorFilter { error in
+                guard let error = error as? NIOWebSocketUpgradeError else {
+                    return false
+                }
+                return error == .unsupportedWebSocketTarget
+                    || error == .invalidUpgradeHeader
+            }
     }
 
     private static func match(

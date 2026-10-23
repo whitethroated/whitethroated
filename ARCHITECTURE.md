@@ -129,6 +129,10 @@ synchronous or asynchronous cleanup callbacks in reverse order, then delegates
 final server teardown to the existing `Application.shutdown()`. It adds no
 runtime-owned application concepts.
 
+Lifecycle teardown is at-most-once: a lock-protected ownership flag and cleanup
+snapshot prevent repeated or concurrent calls from executing teardown twice.
+Other calls are not completion joins for the owning call.
+
 The core exposes only read-only `PreparedResponse` status/header/content-length
 metadata for observers. This is a value-access surface, not an optional-module
 dependency or request-time registry lookup.
@@ -242,11 +246,34 @@ post-HTTP handlers. The runtime does not know about WebSocket routes, messages,
 authentication, or observability. `WhiteThroatedWebSocket` owns those concepts
 and uses SwiftNIO's WebSocket encoder/decoder.
 
+A refused upgrade downgrades into normal serving instead of tearing the
+connection down silently. `Application` installs one optional setup-time
+upgrade-error filter; when the upgrade machinery fires a refusal error the
+filter matches, and the runtime handler is at a clean message boundary — no
+request head in flight and no active stream — the runtime swallows that one
+error so the machinery re-delivers the request to ordinary dispatch. The
+answer then carries connection close semantics: NIOHTTP1's HTTP/1 request
+decoder permanently stops parsing once it decodes an upgrade-flagged
+request, so the connection cannot keep serving. The runtime therefore
+responds to the downgraded request with `keepAlive: false` — which makes
+the writer emit `connection: close` and close after the end flush — and
+bypasses the per-connection minimal-cache fast path for that request. A
+downgraded connection is single-use: one real HTTP response, then close.
+Errors that arrive while a request is in flight, while a stream is active,
+or of types the filter does not match still tear the connection down.
+
+An unrecognized Upgrade protocol may be declined without an error callback.
+The stock runtime also disables response keep-alive when both an Upgrade header
+and a case-insensitive `upgrade` Connection token are present. An informational
+Upgrade header without that token does not disable ordinary keep-alive.
+
 WebSocket route tables are immutable snapshots captured when the router is
 installed. Exact route matching, authentication acceptance, subprotocol
 selection, and event hooks happen only on connections using the upgrade
 capability. Message assembly is event-loop confined and bounded by configured
 frame/message limits. There is no Task bridge in the frame path.
+Every inbound client frame must be masked and have all RSV bits clear; violations
+use a 1002 close because no WebSocket extensions are negotiated.
 
 `WhiteThroatedOpenAPI` is setup-only and depends on
 `WhiteThroatedValidation`, never the reverse. It compiles explicit route
@@ -316,6 +343,13 @@ Stream-validation recursion keys are retained while error mapping is pending
 and released once its response head emits; keep-alive errors cannot accumulate
 keys for the connection lifetime. Error-handler futures are hopped to the
 connection event loop before transport state changes.
+
+Declined Upgrade requests retain their normal route response in both transports.
+The stock decoder stops after such a request and therefore closes after flushing;
+Tier 1 does not switch protocols and can continue serving HTTP. This connection-
+lifetime difference is explicit and regression-tested, not byte-equivalence or
+keep-alive parity for an upgrade-marked request. Actual WebSocket registration
+always selects stock during setup.
 
 ## Event-loop model
 

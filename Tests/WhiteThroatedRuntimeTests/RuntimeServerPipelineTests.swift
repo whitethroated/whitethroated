@@ -382,6 +382,172 @@ final class RuntimeServerPipelineTests: XCTestCase {
             XCTAssertFalse(fixture.channel.isActive)
         }
     }
+
+    func testRefusedUpgradeDowngradesIntoNormalDispatch() throws {
+        let fixture = try UpgradeRefusalFixture(
+            installFilter: true
+        )
+        defer { _ = try? fixture.channel.finish() }
+
+        try fixture.writeRefusedUpgradeRequest()
+        fixture.loop.run()
+        fixture.loop.run()
+
+        // The upgrader never performs the upgrade: its build
+        // step fails with the sentinel and the downgrade
+        // continues.
+        XCTAssertFalse(fixture.state.upgraded)
+        XCTAssertTrue(fixture.state.attempted)
+
+        // The re-delivered request reaches normal dispatch, which
+        // answers with a real HTTP status carrying connection
+        // close semantics. NIO's HTTP/1 decoder permanently stops
+        // parsing after an upgrade-flagged request, so the
+        // connection serves exactly this one request and then
+        // closes instead of stranding the client on a pipeline
+        // that can never parse again.
+        let response = try fixture.readResponse()
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 404 Not Found\r\n"))
+        XCTAssertTrue(response.contains("connection: close\r\n"))
+        XCTAssertTrue(response.hasSuffix("\r\n\r\nNot Found"))
+        XCTAssertFalse(
+            fixture.channel.isActive
+        )
+    }
+
+    func testRefusedUpgradeClosesWithoutFilterBaseline() throws {
+        let fixture = try UpgradeRefusalFixture(
+            installFilter: false
+        )
+        defer { _ = try? fixture.channel.finish() }
+
+        try fixture.writeRefusedUpgradeRequest()
+        fixture.loop.run()
+        fixture.loop.run()
+
+        // Without the filter the pre-existing behavior holds: the
+        // refusal error surfaces to the runtime handler and tears
+        // the connection down, giving up the connection for
+        // keep-alive reuse. During that teardown race a status
+        // response may or may not still reach the encoder, so the
+        // deterministic differential here is the connection state.
+        XCTAssertFalse(fixture.state.upgraded)
+        XCTAssertTrue(fixture.state.attempted)
+        XCTAssertFalse(fixture.channel.isActive)
+    }
+
+    func testUnknownUpgradeProtocolRespondsThenCloses() throws {
+        let fixture = try UpgradeRefusalFixture(installFilter: true)
+        defer { _ = try? fixture.channel.finish() }
+
+        try fixture.writeRefusedUpgradeRequest(protocolName: "unknown")
+        fixture.loop.run()
+
+        // No upgrader was selected, so NIO emits no refusal error.
+        // Its HTTP decoder nevertheless stops after an upgrade request.
+        XCTAssertFalse(fixture.state.attempted)
+        let response = try fixture.readResponse()
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 404 Not Found\r\n"))
+        XCTAssertTrue(response.contains("connection: close\r\n"))
+        XCTAssertTrue(response.hasSuffix("\r\n\r\nNot Found"))
+        XCTAssertFalse(fixture.channel.isActive)
+    }
+
+    func testDeferredUpgradeRefusalReplaysCompleteRequestThenCloses() throws {
+        let fixture = try UpgradeRefusalFixture(
+            installFilter: true,
+            deferredRefusal: true
+        )
+        defer { _ = try? fixture.channel.finish() }
+
+        try fixture.writeRefusedUpgradeRequest()
+        fixture.loop.run()
+        XCTAssertTrue(fixture.state.attempted)
+        XCTAssertTrue(fixture.channel.isActive)
+        XCTAssertEqual(try fixture.readResponse(), "")
+
+        // NIO has already consumed the original .end. On refusal it
+        // replays a head plus synthetic .end to ordinary dispatch.
+        let refusal = try XCTUnwrap(fixture.state.refusal)
+        fixture.state.refusal = nil
+        refusal.fail(UpgradeRefusalSentinelError())
+        fixture.loop.run()
+
+        let response = try fixture.readResponse()
+        XCTAssertTrue(response.hasPrefix("HTTP/1.1 404 Not Found\r\n"))
+        XCTAssertTrue(response.contains("connection: close\r\n"))
+        XCTAssertTrue(response.hasSuffix("\r\n\r\nNot Found"))
+        XCTAssertFalse(fixture.state.upgraded)
+        XCTAssertFalse(fixture.channel.isActive)
+    }
+
+    func testUnknownUpgradeWithMixedConnectionTokensCloses() throws {
+        let fixture = try UpgradeRefusalFixture(installFilter: true)
+        defer { _ = try? fixture.channel.finish() }
+
+        try fixture.writeRefusedUpgradeRequest(
+            protocolName: "unknown",
+            connection: "keep-alive, UpGrAdE"
+        )
+        fixture.loop.run()
+
+        let response = try fixture.readResponse()
+        XCTAssertTrue(response.contains("connection: close\r\n"))
+        XCTAssertFalse(fixture.channel.isActive)
+    }
+
+    func testUpgradeHeaderWithoutConnectionTokenKeepsServing() throws {
+        let fixture = try UpgradeRefusalFixture(installFilter: true)
+        defer { _ = try? fixture.channel.finish() }
+
+        try fixture.writeRefusedUpgradeRequest(
+            protocolName: "unknown",
+            connection: "keep-alive"
+        )
+        fixture.loop.run()
+        let first = try fixture.readResponse()
+        XCTAssertTrue(first.hasSuffix("Not Found"))
+        XCTAssertFalse(first.contains("connection: close"))
+        XCTAssertTrue(fixture.channel.isActive)
+
+        try fixture.channel.writeInbound(
+            ByteBuffer(string: "GET /after HTTP/1.1\r\nHost: x\r\n\r\n")
+        )
+        fixture.loop.run()
+        XCTAssertTrue(try fixture.readResponse().hasSuffix("Not Found"))
+        XCTAssertTrue(fixture.channel.isActive)
+    }
+
+    func testUpgradeErrorFilterDoesNotSwallowMidRequestError() throws {
+        let fixture = try UpgradeRefusalFixture(
+            installFilter: true
+        )
+        defer { _ = try? fixture.channel.finish() }
+
+        // An incomplete request with the head already delivered to
+        // the runtime handler: an error is not at a clean message
+        // boundary here and must not be swallowed even though the
+        // filter would otherwise match it.
+        try fixture.channel.writeInbound(
+            ByteBuffer(
+                string:
+                    "POST /upload HTTP/1.1\r\n"
+                    + "Host: x\r\n"
+                    + "Content-Length: 4\r\n"
+                    + "\r\n"
+                    + "ab"
+            )
+        )
+        fixture.loop.run()
+        fixture.channel.pipeline.fireErrorCaught(
+            UpgradeRefusalSentinelError()
+        )
+        fixture.loop.run()
+
+        XCTAssertFalse(
+            fixture.channel.isActive
+        )
+    }
 }
 
 private final class UpgradeTestState:
@@ -432,6 +598,230 @@ private final class UpgradeTestUpgrader:
 
         return context.eventLoop
             .makeSucceededVoidFuture()
+    }
+}
+
+/// Sentinel simulating the refusal error shape of an upgrade
+/// capability: failing the upgrade build step makes the NIOHTTP1
+/// upgrade machinery downgrade the request.
+private struct UpgradeRefusalSentinelError:
+    Error,
+    Equatable
+{
+}
+
+// All state and callbacks are confined to the fixture's EmbeddedEventLoop.
+private final class UpgradeRefusalState:
+    @unchecked Sendable
+{
+    var upgraded = false
+    var attempted = false
+    var refusal: EventLoopPromise<HTTPHeaders>?
+}
+
+/// Mirrors ``UpgradeTestUpgrader`` but always refuses its upgrade
+/// by failing the build step, which is exactly how NIOWebSocket's
+/// upgrader surfaces a rejected handshake.
+private final class RefusingUpgradeTestUpgrader:
+    HTTPServerProtocolUpgrader,
+    @unchecked Sendable
+{
+    let supportedProtocol = "test"
+    let requiredUpgradeHeaders:
+        [String] = []
+
+    private let state:
+        UpgradeRefusalState
+    private let deferredRefusal: Bool
+
+    init(state: UpgradeRefusalState, deferredRefusal: Bool) {
+        self.state = state
+        self.deferredRefusal = deferredRefusal
+    }
+
+    func buildUpgradeResponse(
+        channel: Channel,
+        upgradeRequest:
+            HTTPRequestHead,
+        initialResponseHeaders:
+            HTTPHeaders
+    ) -> EventLoopFuture<
+        HTTPHeaders
+    > {
+        state.attempted = true
+
+        if deferredRefusal {
+            let promise = channel.eventLoop.makePromise(of: HTTPHeaders.self)
+            state.refusal = promise
+            return promise.futureResult
+        }
+
+        return channel.eventLoop
+            .makeFailedFuture(
+                UpgradeRefusalSentinelError()
+            )
+    }
+
+    func upgrade(
+        context:
+            ChannelHandlerContext,
+        upgradeRequest:
+            HTTPRequestHead
+    ) -> EventLoopFuture<Void> {
+        state.upgraded = true
+
+        return context.eventLoop
+            .makeSucceededVoidFuture()
+    }
+}
+
+/// End-to-end fixture for the upgrade refusal path: it installs the
+/// same stock HTTP pipeline that accepted production connections
+/// use, with an upgrade configuration whose only upgrader refuses.
+private final class UpgradeRefusalFixture {
+    let loop = EmbeddedEventLoop()
+    let channel: EmbeddedChannel
+    let state = UpgradeRefusalState()
+
+    init(
+        installFilter: Bool,
+        deferredRefusal: Bool = false
+    ) throws {
+        channel = EmbeddedChannel(loop: loop)
+        let empty =
+            RuntimePreparedResponse(
+                status: .ok,
+                headers:
+                    HTTPHeaders(),
+                bodyBuffer: nil
+            )
+        var notFoundHeaders =
+            HTTPHeaders()
+        let notFoundBody =
+            ByteBuffer(string: "Not Found")
+        notFoundHeaders.add(
+            name: "content-length",
+            value: String(
+                notFoundBody.readableBytes
+            )
+        )
+        let notFound =
+            RuntimePreparedResponse(
+                status: .notFound,
+                headers:
+                    notFoundHeaders,
+                bodyBuffer:
+                    notFoundBody
+            )
+        let dispatcher =
+            RuntimeDispatcher(
+                hasMiddleware: false,
+                hasStreamingRoutes: false,
+                hasStreamingRoute: {
+                    _ in false
+                },
+                lookup: { _ in
+                    .prepared(notFound)
+                },
+                dispatchPipeline: {
+                    _, _ in
+                    .response(empty.response)
+                },
+                mapError: {
+                    _, _, _ in
+                    .response(empty.response)
+                },
+                notFound: notFound,
+                payloadTooLarge: empty,
+                expectationFailed: empty,
+                internalServerError: empty
+            )
+        let state = state
+        let upgrader =
+            RefusingUpgradeTestUpgrader(
+                state: state,
+                deferredRefusal: deferredRefusal
+            )
+        let refusalFilter:
+            RuntimeUpgradeErrorFilter?
+
+        if installFilter {
+            refusalFilter = { error in
+                error is UpgradeRefusalSentinelError
+            }
+        } else {
+            refusalFilter = nil
+        }
+        let upgrade:
+            NIOHTTPServerUpgradeSendableConfiguration =
+                (
+                    upgraders: [
+                        upgrader,
+                    ],
+                    completionHandler: {
+                        _ in
+                    }
+                )
+        let configured =
+            RuntimeServer
+                .configureHTTPPipeline(
+                    channel: channel,
+                    dispatcher:
+                        dispatcher,
+                    configuration:
+                        RuntimeServerConfiguration(
+                            useTier1HTTP1:
+                                true,
+                            httpServerUpgrade:
+                                upgrade,
+                            upgradeErrorFilter:
+                                refusalFilter
+                        )
+                )
+
+        loop.run()
+        try configured.wait()
+        try channel.connect(
+            to:
+                SocketAddress(
+                    ipAddress:
+                        "127.0.0.1",
+                    port: 1
+                )
+        )
+        .wait()
+    }
+
+    func writeRefusedUpgradeRequest(
+        protocolName: String = "test",
+        connection: String = "upgrade"
+    ) throws {
+        try channel.writeInbound(
+            ByteBuffer(
+                string:
+                    "GET /upgrade HTTP/1.1\r\n"
+                    + "Host: x\r\n"
+                    + "Connection: \(connection)\r\n"
+                    + "Upgrade: \(protocolName)\r\n"
+                    + "\r\n"
+            )
+        )
+    }
+
+    /// The installed encoder queues wire bytes, not typed response parts.
+    func readResponse() throws -> String {
+        var response = ""
+        while let data = try channel.readOutbound(as: IOData.self) {
+            guard case .byteBuffer(let buffer) = data else {
+                XCTFail("Unexpected file region in the fixed response")
+                continue
+            }
+            response += buffer.getString(
+                at: buffer.readerIndex,
+                length: buffer.readableBytes
+            ) ?? ""
+        }
+        return response
     }
 }
 
