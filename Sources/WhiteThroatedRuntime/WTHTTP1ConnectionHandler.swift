@@ -1468,17 +1468,38 @@ public final class WTHTTP1ConnectionHandler:
             lengthTracker: tracker
         )
 
-        stream.produce(writer).hop(to: context.eventLoop)
-            .assumeIsolatedUnsafeUnchecked()
-            .whenComplete { result in
-                self.tier1ProducerCompleted(
-                    result,
-                    sequence: sequence,
-                    stream: stream,
-                    tracker: tracker,
-                    context: context
-                )
+        switch stream.producer {
+        case .synchronous(let produce):
+            let result: Result<Void, Error>
+
+            do {
+                try produce(writer)
+                result = .success(())
+            } catch {
+                result = .failure(error)
             }
+
+            tier1ProducerCompleted(
+                result,
+                sequence: sequence,
+                stream: stream,
+                tracker: tracker,
+                context: context
+            )
+
+        case .asynchronous(let produce):
+            produce(writer).hop(to: context.eventLoop)
+                .assumeIsolatedUnsafeUnchecked()
+                .whenComplete { result in
+                    self.tier1ProducerCompleted(
+                        result,
+                        sequence: sequence,
+                        stream: stream,
+                        tracker: tracker,
+                        context: context
+                    )
+                }
+        }
     }
 
     private func tier1WriteBody(

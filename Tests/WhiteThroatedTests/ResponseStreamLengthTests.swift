@@ -526,6 +526,99 @@ final class ResponseStreamLengthTests: XCTestCase {
         XCTAssertTrue(channel.isActive)
     }
 
+    func testSynchronousDeclaredLengthOverflowDoesNotWriteOverflowChunk()
+        throws
+    {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+        let errors = StreamLengthErrorBox()
+
+        app.get("/stream") { _ in
+            Response
+                .streamSync(
+                    onError: { error in
+                        errors.error =
+                            error as? ResponseStreamError
+                    }
+                ) { writer in
+                    try writer.writeString("hello")
+                    try writer.writeString("!")
+                }
+                .header(
+                    "content-length",
+                    "5"
+                )
+        }
+
+        let channel = EmbeddedChannel(loop: loop)
+        try addHandler(
+            app,
+            to: channel
+        )
+
+        try sendRequest(channel)
+        loop.run()
+
+        XCTAssertEqual(
+            try readParts(channel),
+            [.head, .body("hello")]
+        )
+        XCTAssertEqual(
+            errors.error,
+            .contentLengthExceeded(
+                expected: 5,
+                attempted: 6
+            )
+        )
+        XCTAssertFalse(channel.isActive)
+    }
+
+    func testSynchronousDeclaredLengthUnderflowClosesWithoutEnd()
+        throws
+    {
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+        let errors = StreamLengthErrorBox()
+
+        app.get("/stream") { _ in
+            Response
+                .streamSync(
+                    onError: { error in
+                        errors.error =
+                            error as? ResponseStreamError
+                    }
+                ) { writer in
+                    try writer.writeString("hey")
+                }
+                .header(
+                    "content-length",
+                    "5"
+                )
+        }
+
+        let channel = EmbeddedChannel(loop: loop)
+        try addHandler(
+            app,
+            to: channel
+        )
+
+        try sendRequest(channel)
+        loop.run()
+
+        XCTAssertEqual(
+            try readParts(channel),
+            [.head, .body("hey")]
+        )
+        XCTAssertEqual(
+            errors.error,
+            .contentLengthMismatch(
+                expected: 5,
+                actual: 3
+            )
+        )
+        XCTAssertFalse(channel.isActive)
+    }
+
     private func readHeadAndBody(
         _ channel: EmbeddedChannel
     ) throws -> (

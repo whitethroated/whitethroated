@@ -467,39 +467,71 @@ public struct RuntimeResponseWriter: @unchecked Sendable {
             context: context,
             lengthTracker: lengthTracker
         )
-        let future = stream.produce(writer).hop(
-            to: context.eventLoop
-        )
-        let context = context
 
-        future
-            .assumeIsolatedUnsafeUnchecked()
-            .whenComplete { result in
-                guard context.channel.isActive else {
-                return
-            }
-
-            switch result {
-            case .success:
-                if let error =
-                    lengthTracker?.completionError()
-                {
-                    stream.onError?(error)
-                    context.flush()
-                    context.close(promise: nil)
-                    return
-                }
-
-                Self.finishStreamResponse(
-                    keepAlive: streamKeepAlive,
-                    context: context
-                )
-
-            case .failure(let error):
+        switch stream.producer {
+        case .synchronous(let produce):
+            do {
+                try produce(writer)
+            } catch {
                 stream.onError?(error)
                 context.flush()
                 context.close(promise: nil)
+                return
             }
+
+            guard context.channel.isActive else {
+                return
+            }
+
+            if let error =
+                lengthTracker?.completionError()
+            {
+                stream.onError?(error)
+                context.flush()
+                context.close(promise: nil)
+                return
+            }
+
+            Self.finishStreamResponse(
+                keepAlive: streamKeepAlive,
+                context: context
+            )
+
+        case .asynchronous(let produce):
+            let future = produce(writer).hop(
+                to: context.eventLoop
+            )
+            let context = context
+
+            future
+                .assumeIsolatedUnsafeUnchecked()
+                .whenComplete { result in
+                    guard context.channel.isActive else {
+                        return
+                    }
+
+                    switch result {
+                    case .success:
+                        if let error =
+                            lengthTracker?.completionError()
+                        {
+                            stream.onError?(error)
+                            context.flush()
+                            context.close(promise: nil)
+                            return
+                        }
+
+                        Self.finishStreamResponse(
+                            keepAlive: streamKeepAlive,
+                            context: context
+                        )
+
+                    case .failure(let error):
+                        stream.onError?(error)
+                        context.flush()
+                        context.close(promise: nil)
+                    }
+                }
         }
     }
 

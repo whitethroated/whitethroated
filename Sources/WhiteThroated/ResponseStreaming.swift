@@ -20,11 +20,23 @@ public struct ResponseStream: @unchecked Sendable {
         ResponseStreamWriter
     ) -> EventLoopFuture<Void>
 
+    public typealias SynchronousProducer =
+        @Sendable (
+            SynchronousResponseStreamWriter
+        ) throws -> Void
+
     public typealias ErrorHandler = @Sendable (
         Error
     ) -> Void
 
-    internal let producer: Producer
+    internal enum ProducerStorage:
+        @unchecked Sendable
+    {
+        case asynchronous(Producer)
+        case synchronous(SynchronousProducer)
+    }
+
+    internal let producer: ProducerStorage
     internal let errorHandler: ErrorHandler?
     internal let expectedContentLength: Int?
 
@@ -33,7 +45,22 @@ public struct ResponseStream: @unchecked Sendable {
         errorHandler: ErrorHandler?,
         expectedContentLength: Int? = nil
     ) {
-        self.producer = producer
+        self.producer = .asynchronous(producer)
+        self.errorHandler = errorHandler
+        self.expectedContentLength =
+            expectedContentLength
+    }
+
+    internal init(
+        synchronousProducer:
+            @escaping SynchronousProducer,
+        errorHandler: ErrorHandler?,
+        expectedContentLength: Int? = nil
+    ) {
+        self.producer =
+            .synchronous(
+                synchronousProducer
+            )
         self.errorHandler = errorHandler
         self.expectedContentLength =
             expectedContentLength
@@ -121,6 +148,65 @@ public struct ResponseStreamWriter: @unchecked Sendable {
         runtimeWriter.writeStringAndFlush(
             value
         )
+    }
+
+    public func flush() {
+        runtimeWriter.flush()
+    }
+}
+
+
+/// Developer-facing writer for synchronous response producers.
+///
+/// Writes enqueue directly on the connection event loop and do not
+/// return an `EventLoopFuture` per chunk. This avoids producer-side
+/// future chaining. Use the existing `ResponseStreamWriter` when
+/// producer progress depends on asynchronous write completion or
+/// future-based backpressure.
+public struct SynchronousResponseStreamWriter:
+    @unchecked Sendable
+{
+    private let runtimeWriter:
+        RuntimeStreamWriter
+
+    internal init(
+        runtimeWriter: RuntimeStreamWriter
+    ) {
+        self.runtimeWriter =
+            runtimeWriter.mappingErrors(
+                mapRuntimeStreamError
+            )
+    }
+
+    public func makeBuffer(
+        capacity: Int = 0
+    ) -> ByteBuffer {
+        runtimeWriter.makeBuffer(
+            capacity: capacity
+        )
+    }
+
+    public func write(
+        _ buffer: ByteBuffer
+    ) throws {
+        try runtimeWriter
+            .writeSynchronously(buffer)
+    }
+
+    public func writeFileRegion(
+        _ region: FileRegion
+    ) throws {
+        try runtimeWriter
+            .writeFileRegionSynchronously(
+                region
+            )
+    }
+
+    public func writeString(
+        _ value: String
+    ) throws {
+        try runtimeWriter
+            .writeStringSynchronously(value)
     }
 
     public func flush() {
