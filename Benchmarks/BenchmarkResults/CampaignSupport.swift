@@ -13,6 +13,24 @@ public enum CampaignProfile: String, Codable, Sendable, Equatable {
     case responseStream = "response-stream"
 }
 
+package enum CampaignABSide: String, Sendable, Equatable {
+    case baseline
+    case candidate
+}
+
+package func responseStreamABOrder(
+    round: Int
+) -> [CampaignABSide] {
+    precondition(
+        round > 0,
+        "A/B campaign round must be positive"
+    )
+
+    return round.isMultiple(of: 2)
+        ? [.candidate, .baseline]
+        : [.baseline, .candidate]
+}
+
 public struct CampaignConfiguration: Codable, Sendable {
     public let root: String
     public let output: String
@@ -20,6 +38,7 @@ public struct CampaignConfiguration: Codable, Sendable {
     public let basePort: Int
     public let smoke: Bool
     public let profile: CampaignProfile
+    public let abPeerRoot: String?
 
     public var rounds: Int {
         if smoke {
@@ -86,6 +105,48 @@ public struct CampaignConfiguration: Codable, Sendable {
             )
         }
         self.profile = profile
+
+        let peerRoot =
+            environment["WHITETHROATED_CAMPAIGN_AB_PEER_ROOT"]
+
+        if let peerRoot {
+            guard peerRoot.hasPrefix("/") else {
+                throw CampaignError.invalid(
+                    "A/B peer root must be an absolute path"
+                )
+            }
+
+            guard profile == .responseStream else {
+                throw CampaignError.invalid(
+                    "A/B peer root is only supported by the response-stream profile"
+                )
+            }
+
+            guard smoke || peerRoot != root else {
+                throw CampaignError.invalid(
+                    "Non-smoke A/B campaigns require distinct baseline and candidate roots"
+                )
+            }
+        }
+
+        abPeerRoot = peerRoot
+    }
+
+    package init(
+        root: String,
+        output: String,
+        serverProduct: String,
+        basePort: Int,
+        smoke: Bool,
+        profile: CampaignProfile
+    ) {
+        self.root = root
+        self.output = output
+        self.serverProduct = serverProduct
+        self.basePort = basePort
+        self.smoke = smoke
+        self.profile = profile
+        self.abPeerRoot = nil
     }
 }
 
