@@ -1,44 +1,45 @@
-# Rencana modul opsional WhiteThroated
+# WhiteThroated Optional Modules Plan
 
 Status: proposal
 
-Dokumen ini merencanakan fasilitas aplikasi di atas `WhiteThroated` tanpa
-memasukkannya ke hot path core. Nama produk dan contoh API di bawah masih
-bersifat rancangan; perilaku dan kontrak harus dikunci melalui proposal API,
-tes, dan benchmark sebelum implementasi dianggap stabil.
+This document plans application facilities on top of `WhiteThroated` without
+putting them into the core hot path. The product names and example APIs below
+are still a design; behavior and contracts must be locked down through API
+proposals, tests, and benchmarks before an implementation is considered
+stable.
 
-## 1. Tujuan
+## 1. Goals
 
-- Menyediakan pengalaman "batteries available" tanpa menjadikan semua fitur
-  sebagai biaya wajib.
-- Mempertahankan `WhiteThroated` sebagai core HTTP kecil, cepat, dan dapat
-  digunakan sendiri.
-- Membuat setiap capability dapat dipasang secara independen melalui SwiftPM.
-- Menjaga API Swift yang eksplisit tentang I/O, concurrency, penyimpanan, dan
-  biaya request-time.
-- Menyediakan integrasi resmi dengan implementasi pihak ketiga tanpa memaksa
-  satu database, exporter, atau deployment platform.
+- Provide a "batteries available" experience without making every feature a
+  mandatory cost.
+- Keep `WhiteThroated` as a small, fast HTTP core that can be used on its own.
+- Make every capability independently installable through SwiftPM.
+- Keep the Swift API explicit about I/O, concurrency, storage, and
+  request-time cost.
+- Provide official integrations with third-party implementations without
+  forcing one database, exporter, or deployment platform.
 
-## 2. Non-tujuan
+## 2. Non-goals
 
-- Memindahkan ORM, authentication, template, telemetry, atau deployment
-  orchestration ke `WhiteThroatedRuntime`.
-- Menyatukan handler prepared, synchronous, future, dan async ke satu abstraksi
-  yang membuat jalur murah membayar `Task` atau `EventLoopFuture`.
-- Menulis ulang database driver, TLS stack, compressor, atau telemetry backend
-  yang sudah matang tanpa alasan correctness dan performance yang terukur.
-- Mengaktifkan logging, metrics, tracing, compression, session, atau rate limit
-  secara implisit.
-- Menjanjikan kompatibilitas API stabil selama WhiteThroated masih pre-alpha.
+- Moving the ORM, authentication, templates, telemetry, or deployment
+  orchestration into `WhiteThroatedRuntime`.
+- Unifying prepared, synchronous, future, and async handlers into one
+  abstraction that makes the cheap path pay for a `Task` or an
+  `EventLoopFuture`.
+- Rewriting mature database drivers, TLS stacks, compressors, or telemetry
+  backends without a measurable correctness and performance reason.
+- Implicitly enabling logging, metrics, tracing, compression, sessions, or
+  rate limiting.
+- Promising stable API compatibility while WhiteThroated is still pre-alpha.
 
-## 3. Prinsip arsitektur
+## 3. Architecture principles
 
-### 3.1 Core tetap independen
+### 3.1 The core stays independent
 
-Graf dependency harus satu arah:
+The dependency graph must be one-way:
 
 ```text
-Modul aplikasi opsional
+Optional application modules
         |
         v
 WhiteThroated
@@ -47,27 +48,27 @@ WhiteThroated
 WhiteThroatedRuntime -> WhiteThroatedHTTP1 -> SwiftNIO
 ```
 
-`WhiteThroated`, `WhiteThroatedRuntime`, dan `WhiteThroatedHTTP1` tidak boleh
-bergantung pada modul opsional. Modul opsional tidak boleh menambahkan konsep
-framework ke runtime, seperti user identity, session, schema, ORM model, span,
-atau static-file root.
+`WhiteThroated`, `WhiteThroatedRuntime`, and `WhiteThroatedHTTP1` must not
+depend on optional modules. Optional modules must not add framework concepts
+to the runtime, such as user identity, sessions, schemas, ORM models, spans,
+or a static-file root.
 
-Pengecualian hanya untuk hook core yang benar-benar diperlukan oleh beberapa
-modul. Hook tersebut harus:
+Exceptions are only for core hooks that are genuinely required by several
+modules. Such a hook must:
 
-- berupa value/closure concrete, bukan service-locator global;
-- dibangun ketika setup dan immutable ketika serving;
-- memiliki jalur `nil`/disabled yang tidak mengalokasikan per request;
-- tidak mengubah semantik prepared, sync, future, dan async responder;
-- disertai benchmark sebelum/selesai jika menyentuh hot path.
+- be a concrete value/closure, not a global service locator;
+- be built at setup time and immutable while serving;
+- have a `nil`/disabled path that does not allocate per request;
+- not change the semantics of prepared, sync, future, and async responders;
+- ship with before/after benchmarks if it touches the hot path.
 
-### 3.2 Produk kecil, umbrella opsional
+### 3.2 Small products, an optional umbrella
 
-Setiap capability diterbitkan sebagai library product terpisah. Umbrella
-product boleh disediakan hanya sebagai kemudahan import dan tidak boleh
-mengaktifkan fitur otomatis.
+Every capability is published as a separate library product. An umbrella
+product may be provided purely as an import convenience and must not
+activate features automatically.
 
-Contoh bentuk package:
+Example package shape:
 
 ```swift
 .library(name: "WhiteThroatedAuth", targets: ["WhiteThroatedAuth"])
@@ -76,148 +77,156 @@ Contoh bentuk package:
 .library(name: "WhiteThroatedObservability", targets: ["WhiteThroatedObservability"])
 ```
 
-Keputusan awal adalah memakai **monorepo modular**: seluruh kontrak dan modul
-resmi yang masih berinkubasi tinggal di repository WhiteThroated, tetapi masing-
-masing merupakan SwiftPM target dan library product terpisah. Aplikasi core-only
-tidak boleh menarik, menginisialisasi, atau mengeksekusi modul yang tidak dipilih.
+The initial decision is a **modular monorepo**: all official contracts and
+modules that are still incubating live in the WhiteThroated repository, but
+each is a separate SwiftPM target and library product. A core-only
+application must not pull in, initialize, or execute modules it did not
+choose.
 
-Pemisahan repository bukan syarat modularitas binary atau dependency. Sebuah
-modul baru dipindahkan menjadi package/repository terpisah setelah API integration
-stabil, ownership dan release cadence-nya jelas, serta CI lintas package tersedia.
+Splitting repositories is not a requirement for binary or dependency
+modularity. A new module is moved into its own package/repository after its
+integration API is stable, its ownership and release cadence are clear, and
+cross-package CI is available.
 
-Gunakan struktur hybrid berikut dalam jangka panjang:
-
-```text
-Repository utama WhiteThroated
-  - core dan runtime
-  - kontrak capability
-  - modul resmi yang ringan
-  - integration tests lintas modul
-
-Repository adapter resmi terpisah
-  - database/vendor driver
-  - Redis session/rate-limit store
-  - JWT/OIDC provider
-  - OpenTelemetry exporter
-  - backend compression tambahan
-
-Repository komunitas
-  - integrasi vendor atau platform khusus
-```
-
-Kriteria memindahkan sebuah adapter/modul ke repository sendiri:
-
-- membawa dependency eksternal besar atau khusus;
-- memiliki release cadence atau maintainer berbeda;
-- perubahan modul jarang membutuhkan perubahan core;
-- API kontraknya sudah stabil dan mempunyai compatibility matrix;
-- CI, platform, atau operational lifecycle-nya berbeda secara material;
-- dapat berguna untuk lebih dari satu framework.
-
-### 3.3 Setup-time first dan opt-in
-
-- Konfigurasi dikompilasi/finalisasi sebelum `run` atau `listen`.
-- Route dan middleware yang tidak memakai modul tidak menanggung lookup modul.
-- Parsing request tetap lazy jika nilainya belum dibutuhkan.
-- Immutable policy, schema, template metadata, dan header disiapkan saat setup.
-- Blocking I/O wajib dipindahkan dari event loop ke executor yang eksplisit.
-- State mutable request/connection tetap event-loop confined jika memungkinkan.
-
-### 3.4 Provider dan adapter
-
-Modul yang membutuhkan backend mendefinisikan kontrak kecil dan adapter resmi:
+Use this hybrid structure in the long term:
 
 ```text
-API WhiteThroated -> kontrak capability -> adapter -> backend
+Main WhiteThroated repository
+  - core and runtime
+  - capability contracts
+  - lightweight official modules
+  - cross-module integration tests
+
+Separate official adapter repositories
+  - database/vendor drivers
+  - Redis session/rate-limit stores
+  - JWT/OIDC providers
+  - OpenTelemetry exporters
+  - additional compression backends
+
+Community repositories
+  - vendor- or platform-specific integrations
 ```
 
-Contoh: session API tidak mengetahui Redis secara langsung. Ia menggunakan
-`SessionStore`; adapter Redis berada di product lain. Kontrak tidak boleh
-memaksa semua backend memakai model concurrency atau transaksi yang tidak
-sesuai.
+Criteria for moving an adapter/module into its own repository:
 
-### 3.5 Keamanan default
+- it carries a large or specialized external dependency;
+- it has a different release cadence or maintainer;
+- changes to the module rarely require core changes;
+- its contract API is stable and has a compatibility matrix;
+- its CI, platform, or operational lifecycle differs materially;
+- it can be useful to more than one framework.
 
-- Cookie session default ke `HttpOnly`, `Secure` saat HTTPS, dan `SameSite` yang
-  terdokumentasi.
-- Secret, token, cookie, authorization header, dan body sensitif tidak masuk log
-  secara default.
-- Static files menolak path traversal dan symlink escape sesuai policy.
-- CORS default deny untuk cross-origin yang tidak dikonfigurasi.
-- CSRF aktif hanya pada model autentikasi berbasis browser/cookie yang sesuai.
-- Proxy headers tidak dipercaya tanpa `TrustedProxy` eksplisit.
-- TLS tidak memiliki mode trust-all atau validation-off sebagai default.
+### 3.3 Setup-time first and opt-in
 
-### 3.6 Dependency Tier 1 / fundamental
+- Configuration is compiled/finalized before `run` or `listen`.
+- Routes and middleware that do not use a module do not pay for module
+  lookups.
+- Request parsing stays lazy if the value is not yet needed.
+- Immutable policies, schemas, template metadata, and headers are prepared
+  at setup.
+- Blocking I/O must be moved off the event loop onto an explicit executor.
+- Mutable request/connection state stays event-loop confined where possible.
 
-Dependency baru wajib berasal dari Tier 1 atau fundamental. Aturan ini berlaku
-untuk dependency langsung maupun transitif.
+### 3.4 Providers and adapters
 
-Yang dianggap Tier 1 / fundamental:
+A module that needs a backend defines a small contract and official adapters:
 
-- Swift standard library dan Foundation;
-- SwiftNIO dan modul resmi SwiftNIO;
-- paket resmi Swift project yang bersifat low-level dan tidak dimiliki oleh
-  framework web lain, seperti Swift Crypto, Swift Log, Swift Metrics, Swift
-  Collections, Swift Atomics, Swift System, dan Swift Service Lifecycle;
-- system library/fundamental OS interface seperti SQLite, libpq, POSIX, atau
-  OpenSSL, yang diakses melalui system-library target dan tanpa menambahkan
-  source implementasi non-Swift ke repository.
+```text
+WhiteThroated API -> capability contract -> adapter -> backend
+```
 
-Yang dilarang:
+Example: the session API does not know Redis directly. It uses a
+`SessionStore`; the Redis adapter lives in another product. The contract
+must not force every backend into a concurrency or transaction model that
+does not suit it.
 
-- paket milik framework/ecosystem lain, termasuk seluruh paket `vapor/*`;
-- paket yang secara transitif menarik framework web atau application framework
-  lain;
-- membungkus driver framework lain sebagai dependency adapter resmi;
-- memilih paket framework hanya karena API-nya nyaman bila ada jalur
-  Tier 1/fundamental yang memadai.
+### 3.5 Safe defaults
 
-Jika capability membutuhkan backend yang tidak memiliki driver Tier 1 /
-fundamental, pilihan yang diizinkan adalah:
+- Session cookies default to `HttpOnly`, `Secure` over HTTPS, and a
+  documented `SameSite`.
+- Secrets, tokens, cookies, authorization headers, and sensitive bodies are
+  not logged by default.
+- Static files reject path traversal and symlink escapes per policy.
+- CORS defaults to deny for cross-origin requests that are not configured.
+- CSRF is active only on the browser/cookie authentication model it suits.
+- Proxy headers are not trusted without an explicit `TrustedProxy`.
+- TLS has no trust-all mode or validation-off mode as a default.
 
-1. membangun adapter Swift tipis di atas system library/fundamental interface;
-2. menunda capability tersebut; atau
-3. mengajukan pengecualian dependency secara eksplisit dengan review terpisah.
+### 3.6 Tier 1 / fundamental dependencies
 
-Menulis ulang protokol database, TLS stack, atau codec dari nol tetap bukan
-default. Pengecualian tidak boleh disamarkan sebagai "adapter tipis".
+New dependencies must come from Tier 1 or be fundamental. This rule applies
+to direct and transitive dependencies alike.
 
-Setiap dependency baru harus mencatat:
+Considered Tier 1 / fundamental:
 
-- alasan fungsional dan mengapa Tier 1/fundamental tidak cukup;
-- lisensi dan ownership;
-- transitive dependency graph;
-- allocation, concurrency, dan lifecycle cost;
-- exact pin di `Package.resolved`;
-- dampak benchmark bila menyentuh hot path.
+- the Swift standard library and Foundation;
+- SwiftNIO and official SwiftNIO modules;
+- official Swift project packages that are low-level and not owned by
+  another web framework, such as Swift Crypto, Swift Log, Swift Metrics,
+  Swift Collections, Swift Atomics, Swift System, and Swift Service
+  Lifecycle;
+- system libraries / fundamental OS interfaces such as SQLite, libpq,
+  POSIX, or OpenSSL, accessed through a system-library target and without
+  adding non-Swift implementation source to the repository.
 
-## 4. Katalog modul
+Forbidden:
+
+- packages owned by another framework/ecosystem, including all `vapor/*`
+  packages;
+- packages that transitively pull in another web or application framework;
+- wrapping another framework's driver as an official dependency adapter;
+- choosing a framework package only because its API is convenient when an
+  adequate Tier 1/fundamental path exists.
+
+If a capability needs a backend that has no Tier 1/fundamental driver, the
+permitted choices are:
+
+1. build a thin Swift adapter on top of a system library/fundamental
+   interface;
+2. defer the capability; or
+3. request an explicit dependency exception with a separate review.
+
+Rewriting a database protocol, TLS stack, or codec from scratch is still
+not the default. An exception must not be disguised as a "thin adapter".
+
+Every new dependency must record:
+
+- its functional rationale and why Tier 1/fundamental is not sufficient;
+- its license and ownership;
+- its transitive dependency graph;
+- its allocation, concurrency, and lifecycle costs;
+- an exact pin in `Package.resolved`;
+- its benchmark impact if it touches the hot path.
+
+## 4. Module catalog
 
 ### 4.1 Authentication, sessions, validation
 
-Kategori ini dipecah agar API token stateless tidak perlu menarik session store,
-CSRF, OpenAPI, atau rate limiter.
+This category is split so that stateless API tokens do not need to pull in a
+session store, CSRF, OpenAPI, or a rate limiter.
 
 #### `WhiteThroatedAuth`
 
-Tanggung jawab:
+Responsibilities:
 
-- kontrak `Authenticator`, `Principal`, `Credential`, dan `AuthorizationPolicy`;
-- middleware autentikasi untuk bearer token, API key, dan session principal;
-- route/group authorization berdasarkan policy, role, atau permission;
-- response `401` dan `403` yang konsisten;
-- opt-in hooks untuk audit tanpa mencatat credential.
+- the `Authenticator`, `Principal`, `Credential`, and `AuthorizationPolicy`
+  contracts;
+- authentication middleware for bearer tokens, API keys, and session
+  principals;
+- route/group authorization based on policy, role, or permission;
+- consistent `401` and `403` responses;
+- opt-in hooks for auditing without recording credentials.
 
-Batasan:
+Limits:
 
-- password hashing menjadi adapter khusus yang memakai library kriptografi
-  terawat; jangan membuat algoritme kriptografi sendiri;
-- JWT/OAuth/OIDC menjadi adapter terpisah agar dependency dan network behavior
-  tidak dibayar pengguna auth sederhana;
-- authentication tidak boleh otomatis berarti authorization.
+- password hashing becomes a dedicated adapter using a maintained
+  cryptography library; do not invent your own cryptographic algorithm;
+- JWT/OAuth/OIDC become separate adapters so their dependencies and network
+  behavior are not paid for by simple-auth users;
+- authentication must not automatically imply authorization.
 
-API kandidat:
+Candidate API:
 
 ```swift
 app.use(authentication: authenticator)
@@ -226,172 +235,183 @@ app.group("/admin").authorize(AdminPolicy())
 
 #### `WhiteThroatedSessions`
 
-Tanggung jawab:
+Responsibilities:
 
-- lifecycle session ID: create, load, rotate, expire, destroy;
+- session ID lifecycle: create, load, rotate, expire, destroy;
 - signed/encrypted cookie metadata;
-- kontrak `SessionStore` dengan adapter memory untuk development/test;
-- adapter Redis/database sebagai product terpisah;
-- TTL, idle expiration, fixation protection, dan key rotation.
+- the `SessionStore` contract with an in-memory adapter for
+  development/tests;
+- Redis/database adapters as separate products;
+- TTL, idle expiration, fixation protection, and key rotation.
 
-Invariant utama:
+Key invariants:
 
-- store asynchronous tidak boleh memblokir event loop;
-- request tanpa akses session sebaiknya tidak melakukan decode/store lookup jika
-  mode lazy dapat dipertahankan;
-- session ID harus dirotasi setelah perubahan privilege/login;
-- memory store bukan rekomendasi untuk multi-process production.
+- an asynchronous store must not block the event loop;
+- a request that never accesses a session should not perform a
+  decode/store lookup if a lazy mode can be preserved;
+- session IDs must be rotated after a privilege change/login;
+- the memory store is not a recommendation for multi-process production.
 
 #### `WhiteThroatedCSRF`
 
-Tanggung jawab:
+Responsibilities:
 
-- synchronizer token atau signed double-submit cookie;
-- integrasi dengan session/cookie authentication;
-- pengecualian method aman dan policy origin/referrer yang terdokumentasi;
-- response kegagalan yang dapat dikustomisasi.
+- synchronizer tokens or a signed double-submit cookie;
+- integration with session/cookie authentication;
+- documented exceptions for safe methods and an origin/referrer policy;
+- a customizable failure response.
 
-Tes wajib mencakup token hilang, salah, replay sesuai policy, method aman,
-cross-origin, cookie attributes, dan interaksi trusted proxy/HTTPS.
+Required tests cover a missing token, a wrong token, replay per policy,
+safe methods, cross-origin cases, cookie attributes, and trusted
+proxy/HTTPS interaction.
 
 #### `WhiteThroatedRateLimit`
 
-Tanggung jawab:
+Responsibilities:
 
-- fixed window, sliding window, dan/atau token bucket;
-- key resolver eksplisit: IP tepercaya, principal, API key, atau closure aplikasi;
-- local in-memory limiter dan kontrak distributed store;
-- `Retry-After` dan header limit yang terdokumentasi;
-- bounded state dan eviction.
+- fixed window, sliding window, and/or token bucket;
+- an explicit key resolver: trusted IP, principal, API key, or an
+  application closure;
+- a local in-memory limiter and a distributed-store contract;
+- `Retry-After` and documented limit headers;
+- bounded state and eviction.
 
-Limiter tidak boleh mempercayai `X-Forwarded-For` tanpa konfigurasi
-`TrustedProxy`. Atomicity dan failure policy untuk distributed store harus
-eksplisit: fail-open atau fail-closed, tidak tersembunyi.
+The limiter must not trust `X-Forwarded-For` without a `TrustedProxy`
+configuration. Atomicity and the failure policy for a distributed store
+must be explicit: fail-open or fail-closed, never hidden.
 
 #### `WhiteThroatedValidation`
 
-Tanggung jawab:
+Responsibilities:
 
-- schema request untuk path, query, header, cookie, dan body;
-- error validation terstruktur dengan lokasi field;
-- integrasi `Codable` tanpa memaksa decode jika handler tidak membutuhkan body;
-- batas ukuran dan kedalaman data.
+- request schemas for path, query, header, cookie, and body;
+- structured validation errors with field locations;
+- `Codable` integration without forcing a decode when the handler does not
+  need the body;
+- size and depth limits for data.
 
 #### `WhiteThroatedOpenAPI`
 
-Tanggung jawab:
+Responsibilities:
 
-- menghasilkan OpenAPI dari metadata route/schema;
-- menyajikan dokumen JSON/YAML dan UI hanya jika diaktifkan;
-- menjaga schema dokumentasi dan validation berasal dari sumber kontrak yang
-  sama;
-- mendeteksi operation ID dan route collision saat setup.
+- generate OpenAPI from route/schema metadata;
+- serve the JSON/YAML document and UI only when enabled;
+- keep documentation schemas and validation driven by the same contract
+  source;
+- detect operation ID and route collisions at setup.
 
-OpenAPI bergantung pada `WhiteThroatedValidation`, bukan sebaliknya. Route biasa
-harus tetap dapat didaftarkan tanpa metadata OpenAPI.
+OpenAPI depends on `WhiteThroatedValidation`, not the other way around.
+Ordinary routes must remain registerable without OpenAPI metadata.
 
-### 4.2 Database dan business services
+### 4.2 Database and business services
 
 #### `WhiteThroatedServices`
 
-Menyediakan dependency registry ber-scope jelas:
+Provides a dependency registry with clear scopes:
 
-- application singleton untuk pool/configuration immutable;
-- connection/request scope hanya bila benar-benar diperlukan;
-- factory dan shutdown hook;
-- override yang mudah untuk test.
+- application singletons for immutable pools/configuration;
+- connection/request scope only when genuinely needed;
+- factories and shutdown hooks;
+- easy overrides for tests.
 
-Registry tidak boleh melakukan runtime reflection atau global lookup pada setiap
-request. Preferensi awal adalah typed application context atau generated key,
-bukan dictionary `Any` yang diakses berulang di hot path.
+The registry must not perform runtime reflection or a global lookup on
+every request. The initial preference is a typed application context or a
+generated key, not a dictionary of `Any` accessed repeatedly on the hot
+path.
 
 #### `WhiteThroatedDatabase`
 
-Tanggung jawab:
+Responsibilities:
 
-- kontrak connection pool, lease, transaction, query cancellation, dan shutdown;
-- integrasi deadline/cancellation request bila backend mendukung;
-- adapter resmi untuk database yang dipilih kemudian;
-- observability hook tanpa dependency wajib pada exporter.
+- contracts for connection pool, lease, transaction, query cancellation,
+  and shutdown;
+- request deadline/cancellation integration where the backend supports it;
+- official adapters for a database chosen later;
+- observability hooks without a mandatory exporter dependency.
 
-Database work harus non-blocking atau dijalankan pada executor khusus. Pool
-tidak boleh dibuat per request.
+Database work must be non-blocking or run on a dedicated executor. Pools
+must not be created per request.
 
-Adapter database resmi wajib mengikuti aturan dependency Tier 1/fundamental pada
-bagian 3.6. Paket driver milik framework lain seperti `vapor/*` tidak boleh
-dipakai. Jika driver Tier 1/fundamental belum tersedia, adapter harus dibangun
-di atas system library/fundamental interface atau capability ditunda sampai ada
-keputusan dependency yang terpisah.
+Official database adapters must follow the Tier 1/fundamental dependency
+rule in section 3.6. Driver packages owned by another framework, such as
+`vapor/*`, must not be used. If no Tier 1/fundamental driver is available,
+the adapter must be built on top of a system library/fundamental interface
+or the capability is deferred until there is a separate dependency
+decision.
 
-#### `WhiteThroatedPostgres` (proof adapter Fase 4)
+#### `WhiteThroatedPostgres` (Phase 4 proof adapter)
 
-Adapter produksi awal untuk PostgreSQL dibangun langsung di atas system library
-`libpq` melalui target SwiftPM `CPostgres`:
+The initial production adapter for PostgreSQL is built directly on top of
+the system library `libpq` through a SwiftPM target `CPostgres`:
 
-- system library dan header deklarasi, bukan implementasi protokol non-Swift;
-- actor pool dengan lease, pembuatan koneksi lazy, penggantian koneksi rusak,
-  dan drain saat shutdown;
-- satu serial `DispatchQueue` per koneksi fisik agar panggilan libpq yang
-  blocking tidak pernah berjalan di event loop;
-- cancellation melalui `PQcancel`, rollback transaksi, pemetaan SQLSTATE, dan
-  pemetaan tipe PostgreSQL ke `DatabaseValue`;
-- session-level advisory lock untuk migration runner.
+- a system library and header declarations, not a non-Swift protocol
+  implementation;
+- an actor pool with leases, lazy connection creation, replacement of
+  broken connections, and draining on shutdown;
+- one serial `DispatchQueue` per physical connection so blocking libpq
+  calls never run on an event loop;
+- cancellation through `PQcancel`, transaction rollback, SQLSTATE mapping,
+  and mapping of PostgreSQL types to `DatabaseValue`;
+- a session-level advisory lock for the migration runner.
 
-Adapter tidak menambahkan dependency pada modul framework lain. `numeric`,
-date/time, JSON, array, dan tipe extension dipertahankan sebagai teks agar
-presisi tidak hilang diam-diam.
+The adapter adds no dependency on another framework's module. `numeric`,
+date/time, JSON, array, and extension types are preserved as text so
+precision is not silently lost.
 
 #### `WhiteThroatedORM`
 
-Tanggung jawab tahap awal:
+Initial-stage responsibilities:
 
-- typed query/model mapping di atas adapter database;
+- typed query/model mapping on top of the database adapter;
 - explicit fetch/insert/update/delete;
-- transaction boundaries yang terlihat;
-- eager/lazy relationship behavior yang tidak mengejutkan.
+- visible transaction boundaries;
+- unsurprising eager/lazy relationship behavior.
 
-ORM harus dimulai setelah database contract stabil. Hindari active-record magic,
-implicit N+1 query, hidden global connection, atau query saat property dibaca.
+The ORM must start only after the database contract is stable. Avoid
+active-record magic, implicit N+1 queries, hidden global connections, or
+queries triggered by property reads.
 
 #### `WhiteThroatedMigrations`
 
-Tanggung jawab:
+Responsibilities:
 
-- migration ID dan checksum;
-- ordered apply, status, dry-run, dan explicit rollback jika tersedia;
-- locking agar dua instance tidak bermigrasi bersamaan;
-- CLI executable terpisah dari server request path.
+- migration IDs and checksums;
+- ordered apply, status, dry-run, and explicit rollback where available;
+- locking so two instances do not migrate at the same time;
+- a CLI executable separate from the server request path.
 
-Migration tidak dijalankan otomatis saat server menerima traffic kecuali
-aplikasi memilih mode tersebut secara eksplisit.
+Migrations are not run automatically as the server starts receiving
+traffic unless the application explicitly chooses that mode.
 
 ### 4.3 HTML rendering / static assets
 
-Scope kategori ini untuk roadmap awal adalah static-file server, bukan template
-engine. Secara teknis static files adalah penyajian asset, bukan rendering HTML;
-nama kategori dipertahankan agar sesuai pengelompokan produk yang diminta.
+The scope of this category for the initial roadmap is a static-file server,
+not a template engine. Technically static files are asset serving, not HTML
+rendering; the category name is kept to match the requested product
+grouping.
 
 #### `WhiteThroatedStaticFiles`
 
-Tanggung jawab:
+Responsibilities:
 
-- mount satu atau lebih directory pada prefix URL;
-- MIME type, index file opsional, cache policy, dan download disposition;
-- `GET`/`HEAD`, conditional request, single range, dan `FileRegion`;
-- precompressed `.br`/`.gz` hanya setelah negosiasi `Accept-Encoding` benar;
-- fallback eksplisit untuk SPA tanpa menelan route API secara tidak sengaja.
+- mount one or more directories at a URL prefix;
+- MIME types, optional index files, cache policy, and download disposition;
+- `GET`/`HEAD`, conditional requests, single ranges, and `FileRegion`;
+- precompressed `.br`/`.gz` only after correct `Accept-Encoding`
+  negotiation;
+- an explicit SPA fallback that does not accidentally swallow API routes.
 
-Keamanan dan correctness:
+Security and correctness:
 
-- normalisasi percent-decoding harus dilakukan tepat satu kali dengan policy
-  yang jelas;
-- tolak `..`, separator tersamar, NUL, path absolut, dan root escape;
-- symlink policy harus configurable dan default aman;
-- tidak menampilkan directory listing secara default;
-- file stat/open race dan perubahan file selama transfer harus ditangani;
-- header path cepat harus tetap melalui validasi response header.
+- percent-decoding normalization must happen exactly once under a clear
+  policy;
+- reject `..`, disguised separators, NUL, absolute paths, and root escapes;
+- the symlink policy must be configurable and safe by default;
+- no directory listing by default;
+- file stat/open races and changes during transfer must be handled;
+- the fast header path must still go through response-header validation.
 
-API kandidat:
+Candidate API:
 
 ```swift
 app.mountStatic(
@@ -405,124 +425,127 @@ app.mountStatic(
 
 #### `WhiteThroatedObservability`
 
-Umbrella integrasi untuk tiga capability independen:
+An umbrella integration for three independent capabilities:
 
 - structured logging;
 - metrics;
 - tracing.
 
-Subtarget atau product adapter dapat berupa:
+Subtargets or adapter products may include:
 
-- `WhiteThroatedLogging` untuk `swift-log` atau sink internal yang dipilih;
-- `WhiteThroatedMetrics` untuk counter, gauge, dan histogram;
-- `WhiteThroatedTracing` untuk W3C Trace Context/OpenTelemetry adapter.
+- `WhiteThroatedLogging` for `swift-log` or a chosen internal sink;
+- `WhiteThroatedMetrics` for counters, gauges, and histograms;
+- `WhiteThroatedTracing` for W3C Trace Context/OpenTelemetry adapters.
 
-Data request standar:
+Standard request data:
 
 - request/correlation ID;
-- method dan route template, bukan raw URI sebagai label metrics;
-- status class, duration, response bytes, dan error category;
-- connection/stream counters yang cardinality-nya bounded.
+- method and route template, not the raw URI as a metrics label;
+- status class, duration, response bytes, and error category;
+- connection/stream counters with bounded cardinality.
 
-Aturan penting:
+Important rules:
 
-- instrumentation disabled harus memiliki jalur langsung tanpa span/event;
-- metrics dilarang memakai user ID, raw path, query, atau request ID sebagai
-  label;
-- sampling tracing harus diputuskan sebelum membangun atribut mahal;
-- logging body/header sensitif bersifat opt-in dengan redaction;
-- exporter network tidak boleh memblokir event loop;
-- health/readiness bukan pengganti metrics dan tracing.
+- disabled instrumentation must have a direct path with no span/event;
+- metrics must not use user IDs, raw paths, queries, or request IDs as
+  labels;
+- tracing sampling must be decided before building expensive attributes;
+- logging of sensitive bodies/headers is opt-in with redaction;
+- network exporters must not block the event loop;
+- health/readiness is not a substitute for metrics and tracing.
 
 ### 4.5 Production deployment
 
 #### `WhiteThroatedTLS`
 
-Tanggung jawab:
+Responsibilities:
 
-- konfigurasi HTTPS melalui adapter TLS yang terawat;
-- certificate chain, private key, ALPN policy, dan minimum TLS version;
-- reload/rotation strategy bila backend memungkinkan;
-- explicit direct-TLS versus TLS termination di reverse proxy.
+- HTTPS configuration through a maintained TLS adapter;
+- certificate chain, private key, ALPN policy, and minimum TLS version;
+- a reload/rotation strategy where the backend allows it;
+- explicit direct TLS versus TLS termination at a reverse proxy.
 
-Core tetap dapat berjalan plain HTTP di belakang trusted reverse proxy. Scheme
-dan secure-cookie decisions hanya boleh memakai forwarded headers melalui
-`TrustedProxy` yang eksplisit.
+The core can still run plain HTTP behind a trusted reverse proxy. Scheme
+and secure-cookie decisions may only use forwarded headers through an
+explicit `TrustedProxy`.
 
 #### `WhiteThroatedCompression`
 
-Tanggung jawab:
+Responsibilities:
 
-- negosiasi `Accept-Encoding` yang benar;
-- gzip terlebih dahulu; Brotli/Zstandard hanya melalui dependency/adapter yang
-  dinilai terpisah;
-- threshold, content-type allowlist, dan skip untuk body kecil/already-compressed;
-- streaming compression dengan backpressure;
-- `Vary: Accept-Encoding`, ETag/range/cache semantics yang benar;
-- larangan compression pada response sensitif bila policy mitigasi side-channel
-  mengharuskannya.
+- correct `Accept-Encoding` negotiation;
+- gzip first; Brotli/Zstandard only through a separately evaluated
+  dependency/adapter;
+- thresholds, a content-type allowlist, and skips for small or
+  already-compressed bodies;
+- streaming compression with backpressure;
+- correct `Vary: Accept-Encoding`, ETag/range/cache semantics;
+- a ban on compressing sensitive responses where side-channel mitigation
+  policy requires it.
 
-Prepared response boleh memiliki varian precompressed yang disiapkan saat setup.
-Route tanpa compression tidak boleh membayar compressor allocation.
+Prepared responses may have precompressed variants prepared at setup.
+Routes without compression must not pay for compressor allocation.
 
 #### `WhiteThroatedLifecycle`
 
-Tanggung jawab runtime-operasional:
+Runtime-operational responsibilities:
 
-- graceful shutdown dan drain timeout;
-- readiness berubah sebelum listener dihentikan;
-- cleanup service/database/exporter secara berurutan;
-- signal handling yang dapat dinonaktifkan untuk embedding/test.
+- graceful shutdown and drain timeouts;
+- readiness changes before the listener is stopped;
+- ordered cleanup of services/databases/exporters;
+- signal handling that can be disabled for embedding/tests.
 
 #### Deployment tooling
 
-Ini bukan library request-path. Deliverable-nya meliputi:
+This is not a request-path library. Its deliverables include:
 
-- contoh release build dan container image;
-- environment/secrets configuration guide;
-- health/readiness endpoint recipe;
-- graceful shutdown recipe;
-- contoh reverse proxy dan direct TLS;
-- template CI/CD dan Kubernetes/systemd bila sudah tervalidasi;
-- checklist migration, rollout, rollback, dan observability.
+- release build and container image examples;
+- an environment/secrets configuration guide;
+- health/readiness endpoint recipes;
+- a graceful shutdown recipe;
+- reverse-proxy and direct-TLS examples;
+- CI/CD and Kubernetes/systemd templates once validated;
+- migration, rollout, rollback, and observability checklists.
 
-Template deployment harus diberi status contoh, bukan jaminan aman untuk semua
-infrastruktur. Jangan menambahkan source non-Swift untuk benchmark atau runtime
-WhiteThroated; file deployment metadata harus tetap sesuai kebijakan repository.
+Deployment templates must be labeled as examples, not as safety guarantees
+for every infrastructure. Do not add non-Swift source for WhiteThroated
+benchmarks or runtime; deployment metadata files must still comply with
+repository policy.
 
-### 4.6 Komunikasi/protokol tambahan
+### 4.6 Additional communication/protocols
 
 #### `WhiteThroatedCORS`
 
-Tanggung jawab:
+Responsibilities:
 
-- simple request dan preflight;
-- exact origin, bounded allowlist, dan dynamic origin resolver;
+- simple requests and preflight;
+- exact origins, a bounded allowlist, and a dynamic origin resolver;
 - method/header/exposed-header policy;
-- credentials dan max-age;
+- credentials and max-age;
 - `Vary: Origin`/preflight cache semantics.
 
-Wildcard origin tidak boleh digabung dengan credential secara tidak valid.
-Rejection/pass-through behavior harus eksplisit dan diuji untuk route miss serta
-middleware ordering.
+A wildcard origin must not be combined with credentials in an invalid way.
+Rejection/pass-through behavior must be explicit and tested for route
+misses and middleware ordering.
 
 #### `WhiteThroatedWebSocket`
 
-Tanggung jawab:
+Responsibilities:
 
-- upgrade handshake dan subprotocol negotiation;
-- frame/message API, fragmentation, ping/pong, close handshake;
+- the upgrade handshake and subprotocol negotiation;
+- a frame/message API, fragmentation, ping/pong, and the close handshake;
 - message and frame size limits;
-- backpressure, cancellation, disconnect, dan exactly-once cleanup;
-- optional compression sebagai capability terpisah.
+- backpressure, cancellation, disconnects, and exactly-once cleanup;
+- optional compression as a separate capability.
 
-Implementasi pertama sebaiknya memakai SwiftNIO WebSocket primitives melalui
-stock NIO pipeline. Jangan memperluas Tier 1 parser sebelum semantik, tes
-differential, lifecycle, dan benchmark stock path sudah matang. Aplikasi yang
-mendaftarkan WebSocket boleh memilih pipeline pada setup-time; route non-
-WebSocket tidak boleh melakukan upgrade bookkeeping bila capability tidak ada.
+The first implementation should use SwiftNIO WebSocket primitives through
+the stock NIO pipeline. Do not extend the Tier 1 parser before the stock
+path's semantics, differential tests, lifecycle, and benchmarks are mature.
+An application that registers WebSocket may choose the pipeline at setup
+time; non-WebSocket routes must not perform upgrade bookkeeping when the
+capability is absent.
 
-## 5. Dependency graph yang diusulkan
+## 5. Proposed dependency graph
 
 ```text
 WhiteThroated
@@ -546,350 +569,374 @@ WhiteThroated
   \-- WebSocket
 ```
 
-Dependency antarmodul harus sesedikit mungkin. Secara khusus:
+Inter-module dependencies should be as few as possible. In particular:
 
-- semua dependency eksternal wajib mengikuti aturan Tier 1/fundamental pada
-  bagian 3.6;
-- Auth tidak bergantung wajib pada Sessions.
-- Validation tidak bergantung pada OpenAPI.
-- Observability tidak menjadi dependency wajib modul lain; modul lain hanya
-  mengeluarkan event melalui hook opsional kecil.
-- StaticFiles tidak bergantung pada Compression; keduanya berintegrasi melalui
-  capability atau konfigurasi precompressed asset.
-- WebSocket tidak bergantung pada Auth, tetapi upgrade route dapat memakai auth
-  middleware yang sama.
+- every external dependency must follow the Tier 1/fundamental rule in
+  section 3.6;
+- Auth does not mandatorily depend on Sessions.
+- Validation does not depend on OpenAPI.
+- Observability is not a mandatory dependency of other modules; other
+  modules only emit events through small optional hooks.
+- StaticFiles does not depend on Compression; the two integrate through a
+  capability or precompressed-asset configuration.
+- WebSocket does not depend on Auth, but an upgrade route can use the same
+  auth middleware.
 
-## 6. Urutan implementasi
+## 6. Implementation order
 
-### Fase 0 — Kontrak dan package skeleton
+### Phase 0 — Contracts and package skeleton
 
-Deliverable:
+Deliverables:
 
-- catat baseline test/build/benchmark core;
-- buat skeleton target/product terpisah di monorepo sesuai keputusan arsitektur;
-- tetapkan naming, semantic version policy, dan dependency direction;
-- buat integration test fixture yang dapat digunakan semua modul;
-- definisikan aturan konfigurasi setup-time dan lifecycle shutdown;
-- audit apakah hook core baru benar-benar diperlukan.
+- record the core test/build/benchmark baseline;
+- create separate target/product skeletons in the monorepo per the
+  architecture decision;
+- establish naming, a semantic version policy, and dependency direction;
+- create an integration test fixture usable by all modules;
+- define the setup-time configuration and lifecycle shutdown rules;
+- audit whether a new core hook is genuinely needed.
 
 Exit gate:
 
-- dependency graph tidak memiliki cycle;
-- aplikasi tanpa modul menghasilkan behavior dan jalur dispatch yang sama;
-- baseline core terdokumentasi sebelum hook apa pun ditambahkan.
+- the dependency graph has no cycles;
+- a module-free application produces the same behavior and dispatch path;
+- the core baseline is documented before any hook is added.
 
-### Fase 1 — Modul HTTP yang paling mandiri
+### Phase 1 — The most independent HTTP modules
 
-Implementasikan berurutan:
+Implement in order:
 
 1. `WhiteThroatedCORS`;
 2. `WhiteThroatedStaticFiles`;
 3. `WhiteThroatedValidation`;
-4. `WhiteThroatedRateLimit` dengan in-memory store bounded.
+4. `WhiteThroatedRateLimit` with a bounded in-memory store.
 
-Alasan: modul-modul ini menguji extension surface, middleware ordering,
-filesystem I/O, lazy request access, serta provider contract tanpa terlebih dulu
-mengunci desain identity atau database yang lebih luas.
+Rationale: these modules exercise the extension surface, middleware
+ordering, filesystem I/O, lazy request access, and provider contracts
+without first locking in a broader identity or database design.
 
-### Fase 2 — Observability dan lifecycle
+### Phase 2 — Observability and lifecycle
 
-Implementasikan:
+Implement:
 
-1. request ID dan structured logging;
+1. request IDs and structured logging;
 2. bounded-cardinality HTTP metrics;
-3. trace-context propagation dan tracing;
-4. graceful shutdown/readiness melalui `WhiteThroatedLifecycle`.
+3. trace-context propagation and tracing;
+4. graceful shutdown/readiness through `WhiteThroatedLifecycle`.
 
-Observability dibangun setelah extension surface terbukti, tetapi sebelum auth
-dan database agar modul berikutnya dapat dioperasikan dan diukur sejak awal.
+Observability is built after the extension surface is proven, but before
+auth and the database, so the following modules can be operated and
+measured from the start.
 
-### Fase 3 — Identity dan state
+### Phase 3 — Identity and state
 
-Implementasikan:
+Implement:
 
 1. auth principal + authentication middleware;
 2. authorization policy;
-3. memory session store untuk test/development;
-4. satu production session adapter;
+3. an in-memory session store for tests/development;
+4. one production session adapter;
 5. CSRF;
 6. auth-related rate-limit integration.
 
-Security review wajib sebelum menandai API production-ready.
+A security review is mandatory before marking the API production-ready.
 
-### Fase 4 — Data dan services
+### Phase 4 — Data and services
 
-Implementasikan:
+Implement:
 
 1. typed service registry/lifecycle;
 2. database pool/transaction contract;
-3. satu adapter database sebagai proof of design;
+3. one database adapter as a proof of design;
 4. migrations CLI;
-5. ORM minimum setelah query dan transaction semantics stabil.
+5. a minimum ORM after query and transaction semantics are stable.
 
-Jangan mendesain ORM terlebih dahulu lalu memaksa database contract mengikuti
-ORM.
+Do not design the ORM first and then force the database contract to follow
+the ORM.
 
-Status implementasi Fase 4 saat ini experimental: kontrak database, adapter
-system libpq, migrations CLI, dan ORM minimum tersedia dengan coverage unit dan
-integration test. Migrations masih forward-only; ORM belum memiliki relationship
-atau lazy loading. Bukti dan batasan operasional dicatat di
-`docs/data-services.md`.
+Current Phase 4 implementation status is experimental: the database
+contract, the system-libpq adapter, the migrations CLI, and the minimum
+ORM are available with unit and integration test coverage. Migrations are
+still forward-only; the ORM has no relationships or lazy loading yet.
+Evidence and operational limits are recorded in `docs/data-services.md`.
 
-### Fase 5 — Production HTTP
+### Phase 5 — Production HTTP
 
-Implementasikan:
+Implement:
 
-1. compression untuk buffered response;
-2. compression untuk streaming dengan backpressure;
+1. compression for buffered responses;
+2. compression for streaming with backpressure;
 3. direct TLS configuration;
-4. validated deployment examples dan operational checklist.
+4. validated deployment examples and an operational checklist.
 
-### Fase 6 — WebSocket dan OpenAPI completion
+### Phase 6 — WebSocket and OpenAPI completion
 
-Implementasikan:
+Implement:
 
-1. WebSocket stock-pipeline handshake dan lifecycle;
-2. auth/observability integration untuk upgrade connection;
+1. WebSocket stock-pipeline handshake and lifecycle;
+2. auth/observability integration for upgrade connections;
 3. OpenAPI document generation;
-4. shared validation/OpenAPI schema source;
-5. hardening, fuzz/differential tests, dan API review lintas modul.
+4. a shared validation/OpenAPI schema source;
+5. hardening, fuzz/differential tests, and a cross-module API review.
 
-Fase ini tidak berarti kedua fitur saling bergantung; keduanya ditempatkan akhir
-karena membutuhkan kontrak route/schema atau transport yang lebih matang.
+This phase does not mean the two features depend on each other; they are
+placed last because they need a more mature route/schema or transport
+contract.
 
-## 7. Checklist desain untuk setiap modul
+## 7. Design checklist for every module
 
-Setiap proposal modul harus menjawab:
+Every module proposal must answer:
 
-1. Apa semantik publik dan error model-nya?
-2. Apa yang terjadi saat modul tidak dipasang dan saat dipasang tetapi tidak
-   digunakan oleh sebuah route?
-3. Pekerjaan mana yang dilakukan saat setup, per connection, dan per request?
-4. Apakah ada allocation, copy, ARC traffic, lock, `Task`, future, atau event-loop
-   hop baru?
-5. Bagaimana cancellation, shutdown, dan resource cleanup bekerja?
-6. Data apa yang sensitif dan bagaimana redaction/default security-nya?
-7. Apakah input/output tetap RFC-correct untuk `HEAD`, bodyless status,
-   keep-alive, range, conditional request, dan streaming?
-8. Apakah state bounded dan apa strategi eviction/backpressure-nya?
-9. Backend/provider mana yang wajib dan mana yang opsional?
-10. Bagaimana API diuji tanpa network dan kapan real network test diperlukan?
-11. Benchmark apa yang membuktikan feature cost dan disabled-path neutrality?
-12. Dokumentasi, migration guide, dan contoh minimal apa yang dibutuhkan?
+1. What are its public semantics and error model?
+2. What happens when the module is not installed, and when it is installed
+   but a route does not use it?
+3. What work happens at setup, per connection, and per request?
+4. Is there any new allocation, copy, ARC traffic, lock, `Task`, future, or
+   event-loop hop?
+5. How do cancellation, shutdown, and resource cleanup work?
+6. What data is sensitive, and how do redaction/secure defaults work?
+7. Are input/output still RFC-correct for `HEAD`, bodyless statuses,
+   keep-alive, ranges, conditional requests, and streaming?
+8. Is state bounded, and what are the eviction/backpressure strategies?
+9. Which backends/providers are mandatory and which are optional?
+10. How is the API tested without a network, and when is a real network
+    test needed?
+11. Which benchmark proves the feature cost and disabled-path neutrality?
+12. What documentation, migration guide, and minimal example are needed?
 
-## 8. Strategi testing
+## 8. Testing strategy
 
-Setiap module target memiliki unit test dan integration test sendiri. Minimum:
+Every module target has its own unit tests and integration tests. Minimum:
 
-- happy path, miss/pass-through, invalid input, boundary, dan cleanup;
-- middleware ordering dan short-circuit;
-- prepared, sync, future, dan async route compatibility bila relevan;
-- stock dan Tier 1 transport equivalence kecuali capability memang memilih stock;
-- keep-alive, pipelining, body limits, streaming, disconnect, dan write failure
-  untuk fitur transport;
-- deterministic clock/random/store injection untuk session, rate limit, dan auth;
-- adversarial path/header/framing test untuk static files, CORS, CSRF, TLS, dan
-  compression;
-- compile-time API usage tests untuk overload dan type inference;
-- full `swift test -c release` sebelum milestone selesai.
+- happy path, miss/pass-through, invalid input, boundaries, and cleanup;
+- middleware ordering and short-circuiting;
+- prepared, sync, future, and async route compatibility where relevant;
+- stock and Tier 1 transport equivalence, unless the capability explicitly
+  chooses stock;
+- keep-alive, pipelining, body limits, streaming, disconnects, and write
+  failures for transport features;
+- deterministic clock/random/store injection for sessions, rate limits,
+  and auth;
+- adversarial path/header/framing tests for static files, CORS, CSRF, TLS,
+  and compression;
+- compile-time API usage tests for overloads and type inference;
+- a full `swift test -c release` before a milestone is complete.
 
-Security-sensitive parser/policy mendapat fuzz atau property test bila tooling
-Swift yang dipilih dapat direproduksi di CI.
+Security-sensitive parsers/policies get fuzz or property tests where the
+chosen Swift tooling can be reproduced in CI.
 
-## 9. Strategi benchmark
+## 9. Benchmark strategy
 
-Setiap fitur hot-path memiliki tiga kondisi:
+Every hot-path feature has three conditions:
 
-1. modul tidak terpasang/disabled;
-2. modul terpasang tetapi route tidak menggunakannya;
-3. modul aktif pada route.
+1. module not installed/disabled;
+2. module installed but the route does not use it;
+3. module active on the route.
 
-Acceptance utama:
+Primary acceptance:
 
-- kondisi 1 tetap setara baseline core;
-- kondisi 2 netral dalam noise atau overhead-nya terukur dan disetujui;
-- kondisi 3 dibandingkan dengan control yang semantiknya identik;
-- tidak ada klaim lebih cepat berdasarkan debug build atau satu run;
-- p50/p90/p99/p99.999/max, errors, RPS, dan completed requests dicatat;
-- peak RSS wajib untuk sessions, rate limits, static files, compression,
-  WebSocket, database pool, dan exporter buffering;
-- response throughput wajib untuk static files, compression, dan WebSocket;
-- benchmark menggunakan release mode, warm-up, multiple rounds, dan urutan A/B
-  bergantian sesuai `BENCHMARKS.md`.
+- condition 1 stays equal to the core baseline;
+- condition 2 is neutral within noise, or its overhead is measured and
+  approved;
+- condition 3 is compared against a control with identical semantics;
+- no "faster" claim based on a debug build or a single run;
+- p50/p90/p99/p99.999/max, errors, RPS, and completed requests are
+  recorded;
+- peak RSS is mandatory for sessions, rate limits, static files,
+  compression, WebSocket, the database pool, and exporter buffering;
+- response throughput is mandatory for static files, compression, and
+  WebSocket;
+- benchmarks use release mode, warm-up, multiple rounds, and alternating
+  A/B order per `BENCHMARKS.md`.
 
-Tambahkan matriks feature-specific secara opt-in agar benchmark route tidak
-mengontaminasi baseline server.
+Add an opt-in feature-specific matrix so benchmark routes do not
+contaminate the baseline server.
 
-## 10. Versioning dan release gates
+## 10. Versioning and release gates
 
-Tahap maturity per modul:
+Maturity stages per module:
 
 ```text
 experimental -> preview -> stable
 ```
 
-- **Experimental:** API dapat berubah; correctness coverage dasar tersedia.
-- **Preview:** API review selesai, docs lengkap, integration adapter nyata,
-  security review, dan benchmark record tersedia.
-- **Stable:** compatibility policy, migration guide, CI platform matrix,
-  production incident policy, dan maintenance owner jelas.
+- **Experimental:** the API may change; basic correctness coverage exists.
+- **Preview:** API review complete, docs complete, a real integration
+  adapter, a security review, and a benchmark record are available.
+- **Stable:** a compatibility policy, a migration guide, a CI platform
+  matrix, a production incident policy, and a clear maintenance owner.
 
-Sebuah modul tidak boleh dipromosikan hanya karena fiturnya dapat didemokan.
-Gate preview/stable mencakup:
+A module must not be promoted merely because its feature can be demoed.
+The preview/stable gates include:
 
-- release tests dan relevant products build;
-- public API documentation dan contoh minimal;
+- release tests and the relevant products build;
+- public API documentation and a minimal example;
 - failure/cancellation/shutdown semantics;
-- security checklist;
+- a security checklist;
 - disabled-path and enabled-path benchmark evidence;
-- dependency/license review;
-- tidak ada perubahan diam-diam pada semantik core.
+- a dependency/license review;
+- no silent changes to core semantics.
 
-## 11. Dokumentasi yang harus dihasilkan
+## 11. Documentation to produce
 
-Untuk setiap modul:
+For every module:
 
-- README singkat dengan install dan minimal example;
-- API reference dan concurrency/blocking notes;
-- security defaults dan threat boundaries;
-- operational guide dan observability fields;
-- backend adapter matrix;
-- benchmark methodology/result yang memisahkan fakta dari hipotesis;
-- migration notes untuk breaking change.
+- a short README with installation and a minimal example;
+- an API reference and concurrency/blocking notes;
+- security defaults and threat boundaries;
+- an operational guide and observability fields;
+- a backend adapter matrix;
+- benchmark methodology/results that separate facts from hypotheses;
+- migration notes for breaking changes.
 
-Dokumentasi root WhiteThroated harus membedakan:
+The WhiteThroated root documentation must distinguish:
 
-- fitur yang ada di core;
-- modul resmi yang stabil;
-- modul preview/experimental;
-- integrasi komunitas/pihak ketiga.
+- features that are in the core;
+- official modules that are stable;
+- preview/experimental modules;
+- community/third-party integrations.
 
-## 12. Keputusan yang perlu dibuat sebelum implementasi
+## 12. Decisions to make before implementation
 
-1. Versi platform minimum selain macOS dan target Linux CI untuk modul baru.
-2. Dependency eksternal yang diizinkan untuk crypto, TLS, compression,
-   observability, dan database. Keputusan: hanya Tier 1/fundamental sesuai
-   bagian 3.6; paket framework/ecosystem seperti `vapor/*` dilarang. Adapter
-   proof Fase 4 memakai system `libpq`, bukan paket driver framework lain.
-3. Bentuk extension surface core: middleware saja, typed application storage,
-   lifecycle hooks, atau kombinasi minimalnya.
-4. Model konfigurasi environment/secrets dan ownership shutdown.
-5. Modul pertama yang dijadikan vertical slice. Rekomendasi: CORS untuk
-   middleware-only slice, lalu StaticFiles untuk I/O dan HTTP correctness.
-6. Standar compatibility dan release cadence antar-package.
+1. Minimum platform versions beyond macOS, and the Linux CI targets for new
+   modules.
+2. External dependencies allowed for crypto, TLS, compression,
+   observability, and databases. Decision: Tier 1/fundamental only, per
+   section 3.6; framework/ecosystem packages such as `vapor/*` are
+   forbidden. The Phase 4 proof adapter uses the system `libpq`, not
+   another framework's driver package.
+3. The shape of the core extension surface: middleware only, typed
+   application storage, lifecycle hooks, or a minimal combination.
+4. The environment/secrets configuration model and shutdown ownership.
+5. The first module to use as a vertical slice. Recommendation: CORS for a
+   middleware-only slice, then StaticFiles for I/O and HTTP correctness.
+6. Compatibility standards and release cadence between packages.
 
-## 13. Estimasi token sampai siap produksi
+## 13. Token estimate to production-ready
 
-Estimasi ini memakai **total model tokens**: input, output, konteks repository,
-hasil tool/test/benchmark, review, dan iterasi perbaikan. Angka ini bukan ukuran
-source code dan bukan jaminan biaya, durasi, atau kualitas. Token merupakan alat
-perencanaan kasar; release gate tetap ditentukan oleh bukti correctness,
-security, interoperability, dan benchmark.
+This estimate uses **total model tokens**: input, output, repository
+context, tool/test/benchmark results, reviews, and fix iterations. The
+figures are not a measure of source code and are not a guarantee of cost,
+duration, or quality. Tokens are a rough planning tool; the release gate is
+still determined by correctness, security, interoperability, and benchmark
+evidence.
 
-Asumsi scope:
+Scope assumptions:
 
-- implementasi dilakukan bertahap oleh coding agent dengan review manusia;
-- macOS dan Linux menjadi platform utama;
-- satu adapter database production dan satu adapter session/distributed store;
-- gzip menjadi compression baseline;
-- WebSocket dimulai dari stock SwiftNIO pipeline;
-- crypto, TLS, database protocol, dan exporter tidak ditulis ulang sendiri;
-- API dapat mengalami rework selama fase experimental/preview;
-- estimasi mencakup test, documentation, benchmark, dan hardening;
-- estimasi tidak mencakup banyak adapter vendor atau dukungan cloud platform
-  yang luas.
+- implementation proceeds in stages by a coding agent with human review;
+- macOS and Linux are the primary platforms;
+- one production database adapter and one session/distributed-store
+  adapter;
+- gzip is the compression baseline;
+- WebSocket starts from the stock SwiftNIO pipeline;
+- crypto, TLS, database protocols, and exporters are not rewritten from
+  scratch;
+- the API may undergo rework during the experimental/preview stages;
+- the estimate includes tests, documentation, benchmarks, and hardening;
+- the estimate excludes many vendor adapters or broad cloud-platform
+  support.
 
-### Anggaran per fase
+### Budget per phase
 
-| Fase | Scope utama | Estimasi token |
+| Phase | Main scope | Token estimate |
 | --- | --- | ---: |
-| 0 | Kontrak, package skeleton, baseline, extension surface | 0,5–0,9 juta |
-| 1 | CORS, StaticFiles, Validation, RateLimit | 1,75–3,15 juta |
-| 2 | Logging, metrics, tracing, lifecycle/shutdown | 1,3–2,35 juta |
-| 3 | Authentication, authorization, sessions, CSRF, store adapter | 2,5–4,55 juta |
-| 4 | Services, database contract/adapter, migrations, ORM | 3,7–6,65 juta |
-| 5 | Compression, TLS, deployment tooling | 1,65–2,95 juta |
-| 6 | WebSocket, OpenAPI, integration hardening | 2,8–5,0 juta |
-| Lintas fase | Final audit, docs reconciliation, release fixes | 0,8–1,6 juta |
-| **Subtotal engineering** |  | **15,0–27,15 juta** |
-| **Cadangan rework 20–30%** | API churn, bug, benchmark regression | **3,0–8,15 juta** |
-| **Working budget** | Sampai seluruh scope layak disebut production-ready | **18–35 juta** |
+| 0 | Contracts, package skeleton, baseline, extension surface | 0.5–0.9 million |
+| 1 | CORS, StaticFiles, Validation, RateLimit | 1.75–3.15 million |
+| 2 | Logging, metrics, tracing, lifecycle/shutdown | 1.3–2.35 million |
+| 3 | Authentication, authorization, sessions, CSRF, store adapter | 2.5–4.55 million |
+| 4 | Services, database contract/adapter, migrations, ORM | 3.7–6.65 million |
+| 5 | Compression, TLS, deployment tooling | 1.65–2.95 million |
+| 6 | WebSocket, OpenAPI, integration hardening | 2.8–5.0 million |
+| Cross-phase | Final audit, docs reconciliation, release fixes | 0.8–1.6 million |
+| **Engineering subtotal** |  | **15.0–27.15 million** |
+| **Rework reserve 20–30%** | API churn, bugs, benchmark regressions | **3.0–8.15 million** |
+| **Working budget** | Until the whole scope deserves to be called production-ready | **18–35 million** |
 
-Gunakan **20–35 juta token** sebagai budget program yang realistis. Target
-sekitar 18 juta hanya masuk akal bila kontrak cepat stabil, dependency yang
-dipilih cocok, dan hasil test/benchmark tidak memerlukan redesign besar. Batas
-atas dapat terlampaui jika ORM dibuat sangat luas, Tier 1 diperluas untuk
-WebSocket, atau banyak backend resmi dimasukkan ke scope awal.
+Use **20–35 million tokens** as a realistic program budget. A target around
+18 million only makes sense if the contracts stabilize quickly, the chosen
+dependencies fit, and test/benchmark results do not require a major
+redesign. The upper bound can be exceeded if the ORM is made very broad,
+Tier 1 is extended for WebSocket, or many official backends are brought
+into the initial scope.
 
-### Anggaran berdasarkan milestone produk
+### Budget by product milestone
 
-Tidak perlu menunggu seluruh katalog selesai untuk menghasilkan release yang
-berguna:
+There is no need to wait for the entire catalog to finish to produce a
+useful release:
 
-| Milestone | Isi | Token kumulatif perkiraan |
+| Milestone | Contents | Estimated cumulative tokens |
 | --- | --- | ---: |
-| Modular foundation | Fase 0 | 0,5–0,9 juta |
-| HTTP batteries preview | Fase 0–1 | 2,25–4,05 juta |
-| Operable HTTP release | Fase 0–2 | 3,55–6,4 juta |
-| Secure application preview | Fase 0–3 | 6,05–10,95 juta |
-| Data-backed application preview | Fase 0–4 | 9,75–17,6 juta |
-| Production HTTP candidate | Fase 0–5 | 11,4–20,55 juta |
-| Full roadmap candidate | Fase 0–6 + final audit/rework | 18–35 juta |
+| Modular foundation | Phase 0 | 0.5–0.9 million |
+| HTTP batteries preview | Phases 0–1 | 2.25–4.05 million |
+| Operable HTTP release | Phases 0–2 | 3.55–6.4 million |
+| Secure application preview | Phases 0–3 | 6.05–10.95 million |
+| Data-backed application preview | Phases 0–4 | 9.75–17.6 million |
+| Production HTTP candidate | Phases 0–5 | 11.4–20.55 million |
+| Full roadmap candidate | Phases 0–6 + final audit/rework | 18–35 million |
 
-Milestone tidak otomatis berarti production-ready. Setiap milestone masih harus
-melewati release gate modul yang termasuk di dalamnya.
+A milestone does not automatically mean production-ready. Every milestone
+must still pass the release gates of the modules it includes.
 
-### Faktor yang paling banyak mengonsumsi token
+### Factors that consume the most tokens
 
-- review lifecycle dan concurrency bugs yang hanya muncul saat disconnect,
-  cancellation, pipelining, atau shutdown;
-- adversarial security tests untuk auth, session, CSRF, path traversal, CORS,
-  compression, dan proxy boundaries;
-- ORM semantics, transaction behavior, migration locking, serta backend
+- lifecycle and concurrency bug reviews that only surface on disconnects,
+  cancellation, pipelining, or shutdown;
+- adversarial security tests for auth, sessions, CSRF, path traversal,
+  CORS, compression, and proxy boundaries;
+- ORM semantics, transaction behavior, migration locking, and backend
   interoperability;
-- benchmark before/after berulang dan diagnosis regression pada hot path;
-- WebSocket framing, backpressure, close handshake, dan integration dengan auth;
-- reconciliation dokumentasi/API setelah kontrak berubah.
+- repeated before/after benchmarks and regression diagnosis on the hot
+  path;
+- WebSocket framing, backpressure, the close handshake, and integration
+  with auth;
+- documentation/API reconciliation after contracts change.
 
-### Biaya tambahan di luar baseline
+### Additional costs beyond the baseline
 
-Gunakan kisaran berikut untuk perubahan scope:
+Use the following ranges for scope changes:
 
-- adapter database production tambahan: 0,5–1,2 juta token per adapter;
-- session/rate-limit store tambahan: 0,25–0,65 juta per adapter;
-- JWT atau OIDC provider lengkap: 0,5–1,2 juta per provider;
-- telemetry exporter tambahan: 0,25–0,6 juta per exporter;
-- compression codec tambahan: 0,2–0,5 juta per codec;
-- platform deployment tervalidasi: 0,25–0,75 juta per platform;
-- dukungan WebSocket pada Tier 1 custom transport: 1,0–2,5 juta tambahan;
-- template engine penuh, jika dimasukkan kembali ke scope: 1,0–2,5 juta.
+- an additional production database adapter: 0.5–1.2 million tokens per
+  adapter;
+- an additional session/rate-limit store: 0.25–0.65 million per adapter;
+- a complete JWT or OIDC provider: 0.5–1.2 million per provider;
+- an additional telemetry exporter: 0.25–0.6 million per exporter;
+- an additional compression codec: 0.2–0.5 million per codec;
+- a validated deployment platform: 0.25–0.75 million per platform;
+- WebSocket support on a custom Tier 1 transport: an additional
+  1.0–2.5 million;
+- a full template engine, if brought back into scope: 1.0–2.5 million.
 
-### Pengendalian pemakaian token
+### Controlling token usage
 
-- Kerjakan satu vertical slice sampai release gate sebelum membuka banyak modul.
-- Gunakan proposal API singkat sebelum implementasi untuk mengurangi rework.
-- Pertahankan konteks per modul; jangan memuat seluruh repository pada setiap
-  iterasi.
-- Jalankan targeted test selama iterasi dan full release suite pada milestone.
-- Gunakan benchmark hanya ketika correctness sudah stabil.
-- Catat keputusan arsitektur agar agent berikutnya tidak mengulang investigasi.
-- Hentikan perluasan scope bila adapter kedua belum membuktikan kelemahan pada
-  kontrak pertama.
+- Work one vertical slice to its release gate before opening many modules.
+- Use a short API proposal before implementation to reduce rework.
+- Keep per-module context; do not load the entire repository on every
+  iteration.
+- Run targeted tests during iteration and the full release suite at
+  milestones.
+- Use benchmarks only once correctness is stable.
+- Record architecture decisions so the next agent does not repeat the
+  investigation.
+- Stop expanding scope if a second adapter has not yet proven a weakness
+  in the first contract.
 
-Budget disarankan dialokasikan per milestone, bukan diberikan sekaligus. Setelah
-setiap fase, bandingkan token aktual, jumlah rework, test failures, dan benchmark
-regressions untuk memperbarui estimasi fase berikutnya.
+Budgets should be allocated per milestone, not granted all at once. After
+each phase, compare actual tokens, the amount of rework, test failures,
+and benchmark regressions to update the estimate for the next phase.
 
-## 14. Definisi selesai untuk roadmap modular
+## 14. Definition of done for the modular roadmap
 
-Roadmap dianggap terealisasi ketika:
+The roadmap counts as realized when:
 
-- semua capability dapat dipilih tanpa umbrella dependency;
-- aplikasi core-only tidak membayar feature bookkeeping yang tidak digunakan;
-- dependency graph tetap satu arah dan runtime bebas konsep aplikasi;
-- setiap modul memiliki correctness, security, lifecycle, dan benchmark gate;
-- integration lintas auth/session/CSRF, validation/OpenAPI,
-  static/compression, database/services, dan observability terbukti;
-- deployment examples telah diuji pada environment yang didokumentasikan;
-- README tidak menyebut WhiteThroated "batteries included" tanpa menjelaskan
-  modul, status maturity, dan fitur yang benar-benar tersedia.
+- every capability can be selected without an umbrella dependency;
+- a core-only application does not pay for feature bookkeeping it does not
+  use;
+- the dependency graph stays one-way and the runtime stays free of
+  application concepts;
+- every module has correctness, security, lifecycle, and benchmark gates;
+- cross-module integration across auth/session/CSRF, validation/OpenAPI,
+  static/compression, database/services, and observability is proven;
+- deployment examples have been tested in the documented environment;
+- the README does not call WhiteThroated "batteries included" without
+  explaining the modules, their maturity status, and the features that are
+  actually available.
