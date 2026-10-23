@@ -28,20 +28,63 @@ private struct CommandFailure: Error, CustomStringConvertible {
     let description: String
 }
 
+private struct CampaignVariant {
+    let name: String
+    let root: String
+    let directory: URL
+    let binaries: URL
+    let head: String
+    let worktreeDiff: String
+    let packageResolved: String
+}
+
 private final class Campaign {
     let configuration: CampaignConfiguration
     let cancellation: Cancellation
     var children: [Process] = []
     var baseline = ""
     var outputCreated = false
+    var activeVariant: CampaignVariant?
+    var pairedClientBinaries: URL?
     let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         return encoder
     }()
-    var directory: URL { URL(fileURLWithPath: configuration.output, isDirectory: true) }
-    var binaries: URL { URL(fileURLWithPath: configuration.root).appendingPathComponent(".build/release") }
+    var directory: URL {
+        URL(
+            fileURLWithPath: configuration.output,
+            isDirectory: true
+        )
+    }
+
+    var binaries: URL {
+        URL(
+            fileURLWithPath: configuration.root,
+            isDirectory: true
+        ).appendingPathComponent(".build/release")
+    }
+
+    var activeDirectory: URL {
+        activeVariant?.directory ?? directory
+    }
+
+    var activeBinaries: URL {
+        activeVariant?.binaries ?? binaries
+    }
+
+    var clientBinaries: URL {
+        pairedClientBinaries ?? activeBinaries
+    }
+
+    var activeRoot: String {
+        activeVariant?.root ?? configuration.root
+    }
+
+    var activeHead: String {
+        activeVariant?.head ?? baseline
+    }
 
     init(configuration: CampaignConfiguration, cancellation: Cancellation) {
         self.configuration = configuration
@@ -66,18 +109,53 @@ private final class Campaign {
         return String(decoding: data, as: UTF8.self)
     }
 
+    func save<T: Encodable>(
+        _ value: T,
+        _ name: String,
+        to targetDirectory: URL
+    ) throws {
+        try encoder.encode(value).write(
+            to: targetDirectory.appendingPathComponent(name),
+            options: .atomic
+        )
+    }
+
     func save<T: Encodable>(_ value: T, _ name: String) throws {
-        try encoder.encode(value).write(to: directory.appendingPathComponent(name), options: .atomic)
+        try save(value, name, to: activeDirectory)
+    }
+
+    func saveText(
+        _ value: String,
+        _ name: String,
+        to targetDirectory: URL
+    ) throws {
+        try Data(value.utf8).write(
+            to: targetDirectory.appendingPathComponent(name),
+            options: .atomic
+        )
     }
 
     func saveText(_ value: String, _ name: String) throws {
-        try Data(value.utf8).write(to: directory.appendingPathComponent(name), options: .atomic)
+        try saveText(value, name, to: activeDirectory)
     }
 
     func checkBaseline() throws {
-        guard !cancellation.cancelled else { throw CampaignError.invalid("Interrupted") }
-        let current = try capture("/usr/bin/git", ["-C", configuration.root, "rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard current == baseline else { throw CampaignError.invalid("HEAD changed; stop and reconcile baseline") }
+        guard !cancellation.cancelled else {
+            throw CampaignError.invalid("Interrupted")
+        }
+
+        let current = try capture(
+            "/usr/bin/git",
+            ["-C", activeRoot, "rev-parse", "HEAD"]
+        ).trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard current == activeHead else {
+            throw CampaignError.invalid(
+                "HEAD changed for \(activeRoot); stop and reconcile baseline"
+            )
+        }
     }
 
     func host() throws -> HostObservation {
@@ -135,7 +213,7 @@ private final class Campaign {
         // silently alter the default contract or worker/client loop counts.
         process.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("WHITETHROATED_") }
             .merging(environment) { _, value in value }
-        let url = directory.appendingPathComponent(log)
+        let url = activeDirectory.appendingPathComponent(log)
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
             throw CampaignError.invalid("Could not create child log")
         }
@@ -220,8 +298,8 @@ private final class Campaign {
     }
 
     func verify(worker: Process, port: Int, method: String, path: String, name: String) throws {
-        let body = directory.appendingPathComponent(name + "-body.txt")
-        let headers = directory.appendingPathComponent(name + "-headers.txt")
+        let body = activeDirectory.appendingPathComponent(name + "-body.txt")
+        let headers = activeDirectory.appendingPathComponent(name + "-headers.txt")
         let arguments = ["--http1.1", "--silent", "--show-error", "--max-time", "3",
             "--request", method, "--output", body.path, "--dump-header", headers.path, "--write-out", "%{http_code}",
             "http://127.0.0.1:\(port)\(path)"]
@@ -275,14 +353,14 @@ private final class Campaign {
             throw CampaignError.invalid("Concurrency must divide evenly across shards")
         }
         for shard in 0..<shards {
-            let file = directory.appendingPathComponent(id + "-shard-\(shard).json")
+            let file = activeDirectory.appendingPathComponent(id + "-shard-\(shard).json")
             files.append(file)
             var env = clientEnvironment(port: configuration.basePort + shard % workers.count, method: method, path: path,
                                         connections: concurrency / shards, requests: configuration.requestsPerShard)
             env["WHITETHROATED_BENCH_LATENCY"] = mode == "latency" ? "1" : "0"
             env["WHITETHROATED_BENCH_RUN_ID"] = id
             env["WHITETHROATED_BENCH_OUTPUT"] = file.path
-            clients.append(try spawn(binaries.appendingPathComponent("whitethroated-benchmark-client"),
+            clients.append(try spawn(activeBinaries.appendingPathComponent("whitethroated-benchmark-client"),
                                     environment: env, log: id + "-shard-\(shard).log"))
         }
         if mode == "resource" {
@@ -321,10 +399,10 @@ private final class Campaign {
         chunked: Bool,
         name: String
     ) throws {
-        let body = directory.appendingPathComponent(
+        let body = activeDirectory.appendingPathComponent(
             name + "-body.txt"
         )
-        let headers = directory.appendingPathComponent(
+        let headers = activeDirectory.appendingPathComponent(
             name + "-headers.txt"
         )
         let arguments = [
@@ -502,7 +580,7 @@ private final class Campaign {
             )
 
             let worker = try spawn(
-                binaries.appendingPathComponent(
+                activeBinaries.appendingPathComponent(
                     configuration.serverProduct
                 ),
                 environment: [
@@ -543,7 +621,7 @@ private final class Campaign {
 
             for route in routes {
                 let warm = try spawn(
-                    binaries.appendingPathComponent(
+                    activeBinaries.appendingPathComponent(
                         "whitethroated-benchmark-client"
                     ),
                     environment:
@@ -635,7 +713,7 @@ private final class Campaign {
         try saveText(try String(contentsOfFile: configuration.root + "/Package.resolved", encoding: .utf8), "Package.resolved.txt")
         try gate("preflight")
         for product in [configuration.serverProduct, "whitethroated-benchmark-client"] {
-            guard FileManager.default.isExecutableFile(atPath: binaries.appendingPathComponent(product).path) else {
+            guard FileManager.default.isExecutableFile(atPath: activeBinaries.appendingPathComponent(product).path) else {
                 throw CampaignError.invalid("Build release product before campaign: \(product)")
             }
         }
@@ -659,7 +737,7 @@ private final class Campaign {
                 defer { stop(workers) }
                 for worker in 0..<workerCount { try requireFreePort(configuration.basePort + worker) }
                 for worker in 0..<workerCount {
-                    workers.append(try spawn(binaries.appendingPathComponent(configuration.serverProduct), environment: [
+                    workers.append(try spawn(activeBinaries.appendingPathComponent(configuration.serverProduct), environment: [
                         "WHITETHROATED_HOST": "127.0.0.1", "WHITETHROATED_PORT": String(configuration.basePort + worker),
                         "WHITETHROATED_THREADS": String(8 / workerCount)
                     ], log: prefix + "-worker-\(worker).log"))
@@ -673,7 +751,7 @@ private final class Campaign {
                 try save(try observe(workers), prefix + "-idle.json")
                 for worker in 0..<workerCount {
                     for (method, path, label) in routes {
-                        let warm = try spawn(binaries.appendingPathComponent("whitethroated-benchmark-client"), environment:
+                        let warm = try spawn(activeBinaries.appendingPathComponent("whitethroated-benchmark-client"), environment:
                             clientEnvironment(port: configuration.basePort + worker, method: method, path: path,
                                               connections: 8, requests: configuration.warmupRequests),
                             log: prefix + "-warm-\(worker)-" + label + ".log")
