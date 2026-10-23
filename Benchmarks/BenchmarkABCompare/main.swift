@@ -306,6 +306,7 @@ private func requireComparable(
     guard
         left.serverProduct
             == right.serverProduct,
+        left.basePort == right.basePort,
         left.rounds == right.rounds,
         left.concurrencies
             == right.concurrencies,
