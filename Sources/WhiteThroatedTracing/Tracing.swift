@@ -42,6 +42,14 @@ public struct TraceContext:
         self.traceFlags = traceFlags
     }
 
+    /// Parses a W3C Trace Context `traceparent` value.
+    ///
+    /// Version "00" is validated in full and must carry exactly the
+    /// four documented fields. Higher versions keep the documented
+    /// field positions; content after `trace-flags` is unknown and is
+    /// ignored without interpretation, matching the versioning rules
+    /// of the specification. Version "ff" is forbidden and headers
+    /// shorter than 55 characters are never parsed.
     public static func parse(
         traceparent: String
     ) -> TraceContext? {
@@ -50,10 +58,21 @@ public struct TraceContext:
         )
 
         guard
-            bytes.count == 55,
+            bytes.count >= 55,
             bytes[2] == 45,
             bytes[35] == 45,
             bytes[52] == 45
+        else {
+            return nil
+        }
+
+        guard
+            isLowercaseHex(
+                bytes[0]
+            ),
+            isLowercaseHex(
+                bytes[1]
+            )
         else {
             return nil
         }
@@ -63,8 +82,24 @@ public struct TraceContext:
             as: UTF8.self
         )
 
-        guard version == "00" else {
+        // Version "ff" is forbidden.
+        guard version != "ff" else {
             return nil
+        }
+
+        if version == "00" {
+            // Version "00" requires the exact format: no fields
+            // beyond `trace-flags`.
+            guard bytes.count == 55 else {
+                return nil
+            }
+        } else {
+            // Higher versions are additive: after `trace-flags` the
+            // value either ends or continues with unknown fields,
+            // which must be ignored rather than validated.
+            guard bytes.count == 55 || bytes[55] == 45 else {
+                return nil
+            }
         }
 
         let traceID = String(
@@ -132,6 +167,17 @@ public struct TraceContext:
         }
 
         return allowAllZero || hasNonZero
+    }
+
+    fileprivate static func isLowercaseHex(
+        _ byte: UInt8
+    ) -> Bool {
+        switch byte {
+        case 48...57, 97...102:
+            return true
+        default:
+            return false
+        }
     }
 }
 
