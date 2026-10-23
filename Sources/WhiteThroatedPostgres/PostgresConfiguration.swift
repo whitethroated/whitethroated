@@ -20,6 +20,10 @@ public struct PostgresConfiguration:
             "Postgres connection string must not be empty"
         )
         precondition(
+            !connectionString.utf8.contains(0),
+            "Postgres connection string must not contain a NUL byte"
+        )
+        precondition(
             (1...64).contains(poolSize),
             "Postgres pool size must be between 1 and 64"
         )

@@ -818,6 +818,7 @@ let package = Package(
                 "WhiteThroatedPostgres",
                 "WhiteThroatedDatabase",
                 "WhiteThroatedMigrations",
+                "CPostgres",
             ]
         ),
         .testTarget(
