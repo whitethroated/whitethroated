@@ -1376,6 +1376,61 @@ final class IdentityStateTests:
         )
     }
 
+    func testCSRFFailureResponseDefaultsToForbiddenText() {
+        let csrf = CSRFProtection()
+        let response = csrf.failureResponse()
+
+        XCTAssertEqual(
+            response.status,
+            .forbidden
+        )
+
+        guard
+            case .text(let body) =
+                response.body
+        else {
+            return XCTFail(
+                "Expected text body"
+            )
+        }
+
+        XCTAssertEqual(
+            body,
+            "CSRF validation failed"
+        )
+    }
+
+    func testCSRFFailureResponseCanBeCustomized() {
+        let csrf = CSRFProtection(
+            failureResponse: {
+                .text(
+                    "{\"error\":\"csrf_failed\"}",
+                    status: .forbidden
+                )
+            }
+        )
+        let response = csrf.failureResponse()
+
+        XCTAssertEqual(
+            response.status,
+            .forbidden
+        )
+
+        guard
+            case .text(let body) =
+                response.body
+        else {
+            return XCTFail(
+                "Expected text body"
+            )
+        }
+
+        XCTAssertEqual(
+            body,
+            "{\"error\":\"csrf_failed\"}"
+        )
+    }
+
     func testAuthRateLimitUsesDerivedPrincipalKey() {
         let auth =
             Authenticator.bearer {

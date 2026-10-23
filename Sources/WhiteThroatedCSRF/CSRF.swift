@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import NIOHTTP1
 import WhiteThroated
 import WhiteThroatedSessions
 
@@ -21,6 +22,9 @@ public struct CSRFProtection:
     public let originPolicy:
         CSRFOriginPolicy
 
+    private let failureResponseProvider:
+        @Sendable () -> Response
+
     public init(
         headerName: String =
             "x-csrf-token",
@@ -28,7 +32,15 @@ public struct CSRFProtection:
             "_csrf",
         originPolicy:
             CSRFOriginPolicy =
-                .disabled
+                .disabled,
+        failureResponse:
+            @escaping @Sendable () -> Response =
+                {
+                    .text(
+                        "CSRF validation failed",
+                        status: .forbidden
+                    )
+                }
     ) {
         precondition(
             !headerName.isEmpty,
@@ -43,6 +55,8 @@ public struct CSRFProtection:
         self.sessionKey = sessionKey
         self.originPolicy =
             originPolicy
+        self.failureResponseProvider =
+            failureResponse
     }
 
     public func ensureToken(
@@ -107,13 +121,15 @@ public struct CSRFProtection:
         return true
     }
 
+    /// The response returned when `validate(request:session:)`
+    /// fails. The default is a 403 text response; applications
+    /// customize it through the `failureResponse` initializer
+    /// parameter, for example to answer with the JSON error body
+    /// their API convention uses.
     public func failureResponse()
         -> Response
     {
-        .text(
-            "CSRF validation failed",
-            status: .forbidden
-        )
+        failureResponseProvider()
     }
 
     private func validateOrigin(
@@ -170,7 +186,8 @@ public struct CSRFProtection:
     }
 
     private static func isSafe(
-        _ method: HTTPMethod
+        _ method:
+            WhiteThroated.HTTPMethod
     ) -> Bool {
         switch method {
         case .get,
