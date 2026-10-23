@@ -708,6 +708,8 @@ let package = Package(
             dependencies: [
                 "WhiteThroatedServices",
                 "WhiteThroatedLifecycle",
+                "WhiteThroatedDatabase",
+                "WhiteThroatedDatabaseTestSupport",
                 "WhiteThroated",
                 .product(
                     name: "NIOConcurrencyHelpers",
