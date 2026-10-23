@@ -50,6 +50,40 @@ final class ServerSentEventTests: XCTestCase {
         )
     }
 
+    func testSSEMutatedEventFieldCannotInjectOtherFields() {
+        // Fields stay mutable after construction, so the writer must
+        // not rely on initializer-time checks. A line break inside a
+        // header field is emitted one labeled line at a time instead
+        // of forging other field lines.
+        var event = ServerSentEvent(
+            data: "ok",
+            event: "greeting"
+        )
+        event.event = "greeting\r\nid: forged-id"
+
+        XCTAssertEqual(
+            event.serialized(),
+            "event: greeting\n"
+                + "event: id: forged-id\n"
+                + "data: ok\n\n"
+        )
+    }
+
+    func testSSEMutatedIDFieldCannotInjectOtherFields() {
+        var event = ServerSentEvent(
+            data: "ok",
+            id: "1"
+        )
+        event.id = "1\nretry: forged-retry"
+
+        XCTAssertEqual(
+            event.serialized(),
+            "id: 1\n"
+                + "id: retry: forged-retry\n"
+                + "data: ok\n\n"
+        )
+    }
+
     func testStreamWriterCreatesChannelAllocatorBuffer() throws {
         let app = Application()
 

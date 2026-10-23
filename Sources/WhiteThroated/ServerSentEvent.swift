@@ -61,15 +61,19 @@ public struct ServerSentEvent: Sendable {
         to buffer: inout ByteBuffer
     ) {
         if let event {
-            buffer.writeStaticString("event: ")
-            buffer.writeString(event)
-            buffer.writeInteger(UInt8(10))
+            Self.writeLabeledField(
+                "event: ",
+                value: event,
+                to: &buffer
+            )
         }
 
         if let id {
-            buffer.writeStaticString("id: ")
-            buffer.writeString(id)
-            buffer.writeInteger(UInt8(10))
+            Self.writeLabeledField(
+                "id: ",
+                value: id,
+                to: &buffer
+            )
         }
 
         if let retryMilliseconds {
@@ -132,6 +136,77 @@ public struct ServerSentEvent: Sendable {
             bytes.formIndex(after: &cursor)
             lineStart = cursor
             buffer.writeStaticString("data: ")
+        }
+
+        buffer.writeBytes(
+            bytes[lineStart..<bytes.endIndex]
+        )
+        buffer.writeInteger(UInt8(10))
+    }
+
+    /// Writes one labeled header field. A value that carries CR or
+    /// LF — possible when an event is mutated after construction,
+    /// bypassing the initializer's checks — is emitted one labeled
+    /// line per contained line (with CR-LF collapsed the same way as
+    /// data lines), keeping injected content inside the field's own
+    /// type instead of forging other field lines.
+    private static func writeLabeledField(
+        _ label: StaticString,
+        value: String,
+        to buffer: inout ByteBuffer
+    ) {
+        let bytes = value.utf8
+
+        guard
+            containsLineBreak(value)
+        else {
+            buffer.writeStaticString(
+                label
+            )
+            buffer.writeString(value)
+            buffer.writeInteger(UInt8(10))
+
+            return
+        }
+
+        var lineStart = bytes.startIndex
+        var cursor = bytes.startIndex
+
+        buffer.writeStaticString(label)
+
+        while cursor != bytes.endIndex {
+            let byte = bytes[cursor]
+
+            guard byte == 10 || byte == 13
+            else {
+                bytes.formIndex(
+                    after: &cursor
+                )
+                continue
+            }
+
+            buffer.writeBytes(
+                bytes[lineStart..<cursor]
+            )
+            buffer.writeInteger(UInt8(10))
+            buffer.writeStaticString(label)
+
+            if byte == 13 {
+                let next =
+                    bytes.index(after: cursor)
+
+                if
+                    next != bytes.endIndex,
+                    bytes[next] == 10
+                {
+                    cursor = next
+                }
+            }
+
+            bytes.formIndex(
+                after: &cursor
+            )
+            lineStart = cursor
         }
 
         buffer.writeBytes(
