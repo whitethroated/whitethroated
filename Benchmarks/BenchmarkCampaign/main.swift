@@ -28,20 +28,63 @@ private struct CommandFailure: Error, CustomStringConvertible {
     let description: String
 }
 
+private struct CampaignVariant {
+    let name: String
+    let root: String
+    let directory: URL
+    let binaries: URL
+    let head: String
+    let worktreeDiff: String
+    let packageResolved: String
+}
+
 private final class Campaign {
     let configuration: CampaignConfiguration
     let cancellation: Cancellation
     var children: [Process] = []
     var baseline = ""
     var outputCreated = false
+    var activeVariant: CampaignVariant?
+    var pairedClientBinaries: URL?
     let encoder: JSONEncoder = {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         return encoder
     }()
-    var directory: URL { URL(fileURLWithPath: configuration.output, isDirectory: true) }
-    var binaries: URL { URL(fileURLWithPath: configuration.root).appendingPathComponent(".build/release") }
+    var directory: URL {
+        URL(
+            fileURLWithPath: configuration.output,
+            isDirectory: true
+        )
+    }
+
+    var binaries: URL {
+        URL(
+            fileURLWithPath: configuration.root,
+            isDirectory: true
+        ).appendingPathComponent(".build/release")
+    }
+
+    var activeDirectory: URL {
+        activeVariant?.directory ?? directory
+    }
+
+    var activeBinaries: URL {
+        activeVariant?.binaries ?? binaries
+    }
+
+    var clientBinaries: URL {
+        pairedClientBinaries ?? activeBinaries
+    }
+
+    var activeRoot: String {
+        activeVariant?.root ?? configuration.root
+    }
+
+    var activeHead: String {
+        activeVariant?.head ?? baseline
+    }
 
     init(configuration: CampaignConfiguration, cancellation: Cancellation) {
         self.configuration = configuration
@@ -66,18 +109,53 @@ private final class Campaign {
         return String(decoding: data, as: UTF8.self)
     }
 
+    func save<T: Encodable>(
+        _ value: T,
+        _ name: String,
+        to targetDirectory: URL
+    ) throws {
+        try encoder.encode(value).write(
+            to: targetDirectory.appendingPathComponent(name),
+            options: .atomic
+        )
+    }
+
     func save<T: Encodable>(_ value: T, _ name: String) throws {
-        try encoder.encode(value).write(to: directory.appendingPathComponent(name), options: .atomic)
+        try save(value, name, to: activeDirectory)
+    }
+
+    func saveText(
+        _ value: String,
+        _ name: String,
+        to targetDirectory: URL
+    ) throws {
+        try Data(value.utf8).write(
+            to: targetDirectory.appendingPathComponent(name),
+            options: .atomic
+        )
     }
 
     func saveText(_ value: String, _ name: String) throws {
-        try Data(value.utf8).write(to: directory.appendingPathComponent(name), options: .atomic)
+        try saveText(value, name, to: activeDirectory)
     }
 
     func checkBaseline() throws {
-        guard !cancellation.cancelled else { throw CampaignError.invalid("Interrupted") }
-        let current = try capture("/usr/bin/git", ["-C", configuration.root, "rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard current == baseline else { throw CampaignError.invalid("HEAD changed; stop and reconcile baseline") }
+        guard !cancellation.cancelled else {
+            throw CampaignError.invalid("Interrupted")
+        }
+
+        let current = try capture(
+            "/usr/bin/git",
+            ["-C", activeRoot, "rev-parse", "HEAD"]
+        ).trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        guard current == activeHead else {
+            throw CampaignError.invalid(
+                "HEAD changed for \(activeRoot); stop and reconcile baseline"
+            )
+        }
     }
 
     func host() throws -> HostObservation {
@@ -135,7 +213,7 @@ private final class Campaign {
         // silently alter the default contract or worker/client loop counts.
         process.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("WHITETHROATED_") }
             .merging(environment) { _, value in value }
-        let url = directory.appendingPathComponent(log)
+        let url = activeDirectory.appendingPathComponent(log)
         guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
             throw CampaignError.invalid("Could not create child log")
         }
@@ -220,8 +298,8 @@ private final class Campaign {
     }
 
     func verify(worker: Process, port: Int, method: String, path: String, name: String) throws {
-        let body = directory.appendingPathComponent(name + "-body.txt")
-        let headers = directory.appendingPathComponent(name + "-headers.txt")
+        let body = activeDirectory.appendingPathComponent(name + "-body.txt")
+        let headers = activeDirectory.appendingPathComponent(name + "-headers.txt")
         let arguments = ["--http1.1", "--silent", "--show-error", "--max-time", "3",
             "--request", method, "--output", body.path, "--dump-header", headers.path, "--write-out", "%{http_code}",
             "http://127.0.0.1:\(port)\(path)"]
@@ -275,14 +353,14 @@ private final class Campaign {
             throw CampaignError.invalid("Concurrency must divide evenly across shards")
         }
         for shard in 0..<shards {
-            let file = directory.appendingPathComponent(id + "-shard-\(shard).json")
+            let file = activeDirectory.appendingPathComponent(id + "-shard-\(shard).json")
             files.append(file)
             var env = clientEnvironment(port: configuration.basePort + shard % workers.count, method: method, path: path,
                                         connections: concurrency / shards, requests: configuration.requestsPerShard)
             env["WHITETHROATED_BENCH_LATENCY"] = mode == "latency" ? "1" : "0"
             env["WHITETHROATED_BENCH_RUN_ID"] = id
             env["WHITETHROATED_BENCH_OUTPUT"] = file.path
-            clients.append(try spawn(binaries.appendingPathComponent("whitethroated-benchmark-client"),
+            clients.append(try spawn(clientBinaries.appendingPathComponent("whitethroated-benchmark-client"),
                                     environment: env, log: id + "-shard-\(shard).log"))
         }
         if mode == "resource" {
@@ -321,10 +399,10 @@ private final class Campaign {
         chunked: Bool,
         name: String
     ) throws {
-        let body = directory.appendingPathComponent(
+        let body = activeDirectory.appendingPathComponent(
             name + "-body.txt"
         )
-        let headers = directory.appendingPathComponent(
+        let headers = activeDirectory.appendingPathComponent(
             name + "-headers.txt"
         )
         let arguments = [
@@ -445,14 +523,14 @@ private final class Campaign {
         }
     }
 
-    func runResponseStreamProfile() throws {
-        typealias Route = (
-            path: String,
-            label: String,
-            chunked: Bool
-        )
+    typealias ResponseStreamRoute = (
+        path: String,
+        label: String,
+        chunked: Bool
+    )
 
-        let baseRoutes: [Route] = [
+    private var responseStreamRoutes: [ResponseStreamRoute] {
+        [
             (
                 "/response-stream-known",
                 "stream-known",
@@ -479,127 +557,527 @@ private final class Campaign {
                 true
             ),
         ]
+    }
 
-        for round in 1...configuration.rounds {
-            let offset =
-                (round - 1) % baseRoutes.count
-            let routes =
-                Array(baseRoutes[offset...])
-                + Array(baseRoutes[..<offset])
-            let concurrencies =
-                round.isMultiple(of: 2)
-                ? Array(
-                    configuration
-                        .concurrencies
-                        .reversed()
-                )
-                : configuration.concurrencies
-            let prefix = "r\(round)-1x2"
-
-            try gate(prefix)
-            try requireFreePort(
-                configuration.basePort
+    func runResponseStreamRound(
+        _ round: Int
+    ) throws {
+        let baseRoutes = responseStreamRoutes
+        let offset =
+            (round - 1) % baseRoutes.count
+        let routes =
+            Array(baseRoutes[offset...])
+            + Array(baseRoutes[..<offset])
+        let concurrencies =
+            round.isMultiple(of: 2)
+            ? Array(
+                configuration
+                    .concurrencies
+                    .reversed()
             )
+            : configuration.concurrencies
+        let prefix = "r\(round)-1x2"
 
-            let worker = try spawn(
-                binaries.appendingPathComponent(
-                    configuration.serverProduct
-                ),
-                environment: [
-                    "WHITETHROATED_HOST":
-                        "127.0.0.1",
-                    "WHITETHROATED_PORT":
-                        String(
-                            configuration.basePort
-                        ),
-                    "WHITETHROATED_THREADS": "2",
-                    "WHITETHROATED_RESPONSE_STREAM_BENCHMARKS":
-                        "1",
-                ],
-                log: prefix + "-worker-0.log"
-            )
-            var workers = [worker]
-            defer {
-                stop(workers)
-            }
+        try gate(prefix)
+        try requireFreePort(
+            configuration.basePort
+        )
 
-            for route in routes {
-                try verifyResponseStream(
-                    worker: worker,
-                    port: configuration.basePort,
-                    path: route.path,
-                    chunked: route.chunked,
-                    name:
-                        prefix
-                        + "-verify-"
-                        + route.label
-                )
-            }
-
-            try save(
-                try observe(workers),
-                prefix + "-idle.json"
-            )
-
-            for route in routes {
-                let warm = try spawn(
-                    binaries.appendingPathComponent(
-                        "whitethroated-benchmark-client"
+        let worker = try spawn(
+            activeBinaries.appendingPathComponent(
+                configuration.serverProduct
+            ),
+            environment: [
+                "WHITETHROATED_HOST":
+                    "127.0.0.1",
+                "WHITETHROATED_PORT":
+                    String(
+                        configuration.basePort
                     ),
-                    environment:
-                        clientEnvironment(
-                            port:
-                                configuration.basePort,
-                            method: "GET",
-                            path: route.path,
-                            connections: 8,
-                            requests:
-                                configuration
-                                .warmupRequests
-                        ),
-                    log:
+                "WHITETHROATED_THREADS": "2",
+                "WHITETHROATED_RESPONSE_STREAM_BENCHMARKS":
+                    "1",
+            ],
+            log: prefix + "-worker-0.log"
+        )
+        let workers = [worker]
+        defer {
+            stop(workers)
+        }
+
+        for route in routes {
+            try verifyResponseStream(
+                worker: worker,
+                port: configuration.basePort,
+                path: route.path,
+                chunked: route.chunked,
+                name:
+                    prefix
+                    + "-verify-"
+                    + route.label
+            )
+        }
+
+        try save(
+            try observe(workers),
+            prefix + "-idle.json"
+        )
+
+        for route in routes {
+            let warm = try spawn(
+                clientBinaries.appendingPathComponent(
+                    "whitethroated-benchmark-client"
+                ),
+                environment:
+                    clientEnvironment(
+                        port:
+                            configuration.basePort,
+                        method: "GET",
+                        path: route.path,
+                        connections: 8,
+                        requests:
+                            configuration
+                            .warmupRequests
+                    ),
+                log:
+                    prefix
+                    + "-warm-"
+                    + route.label
+                    + ".log"
+            )
+            try wait(
+                [warm],
+                timeout: 30
+            )
+        }
+
+        for route in routes {
+            for concurrency in
+                concurrencies
+            {
+                for mode in [
+                    "throughput",
+                    "latency",
+                    "resource",
+                ] {
+                    let id =
                         prefix
-                        + "-warm-"
+                        + "-"
                         + route.label
-                        + ".log"
-                )
-                try wait(
-                    [warm],
-                    timeout: 30
-                )
-            }
+                        + "-c\(concurrency)-"
+                        + mode
 
-            for route in routes {
-                for concurrency in
-                    concurrencies
-                {
-                    for mode in [
-                        "throughput",
-                        "latency",
-                        "resource",
-                    ] {
-                        let id =
-                            prefix
-                            + "-"
-                            + route.label
-                            + "-c\(concurrency)-"
-                            + mode
-
-                        try runCell(
-                            workers: workers,
-                            method: "GET",
-                            path: route.path,
-                            concurrency:
-                                concurrency,
-                            mode: mode,
-                            id: id,
-                            shards:
-                                configuration.shards
-                        )
-                    }
+                    try runCell(
+                        workers: workers,
+                        method: "GET",
+                        path: route.path,
+                        concurrency:
+                            concurrency,
+                        mode: mode,
+                        id: id,
+                        shards:
+                            configuration.shards
+                    )
                 }
             }
         }
+    }
+
+    func runResponseStreamProfile() throws {
+        for round in 1...configuration.rounds {
+            try runResponseStreamRound(round)
+        }
+    }
+
+    func campaignPlan() -> [String: Int] {
+        let topologyCount =
+            configuration.profile == .responseStream ? 1 : 2
+        let routeCount =
+            configuration.profile == .responseStream ? 5 : 3
+
+        return [
+            "rounds": configuration.rounds,
+            "shards": configuration.shards,
+            "serverLoops": configuration.serverLoops,
+            "clientThreadsPerShard": 1,
+            "requestsPerShard": configuration.requestsPerShard,
+            "warmupRequestsPerWorkerRoute":
+                configuration.warmupRequests,
+            "cellCount":
+                configuration.rounds
+                * topologyCount
+                * routeCount
+                * configuration.concurrencies.count
+                * 3,
+        ]
+    }
+
+    func captureVariant(
+        name: String,
+        root: String,
+        directory: URL
+    ) throws -> CampaignVariant {
+        let standardizedRoot = URL(
+            fileURLWithPath: root,
+            isDirectory: true
+        ).standardizedFileURL.path
+
+        guard FileManager.default.fileExists(
+            atPath: standardizedRoot
+        ) else {
+            throw CampaignError.invalid(
+                "Campaign root does not exist: \(standardizedRoot)"
+            )
+        }
+
+        let head = try capture(
+            "/usr/bin/git",
+            [
+                "-C",
+                standardizedRoot,
+                "rev-parse",
+                "HEAD",
+            ]
+        ).trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        let worktreeStatus = try capture(
+            "/usr/bin/git",
+            [
+                "-C",
+                standardizedRoot,
+                "status",
+                "--porcelain",
+            ]
+        )
+        let diff = try capture(
+            "/usr/bin/git",
+            [
+                "-C",
+                standardizedRoot,
+                "diff",
+                "HEAD",
+            ]
+        )
+        let worktreeDiff =
+            worktreeStatus.isEmpty
+            ? ""
+            : worktreeStatus
+                + "\n"
+                + diff
+        let packageResolved = try String(
+            contentsOfFile:
+                standardizedRoot
+                + "/Package.resolved",
+            encoding: .utf8
+        )
+
+        return CampaignVariant(
+            name: name,
+            root: standardizedRoot,
+            directory: directory,
+            binaries: URL(
+                fileURLWithPath: standardizedRoot,
+                isDirectory: true
+            ).appendingPathComponent(
+                ".build/release"
+            ),
+            head: head,
+            worktreeDiff: worktreeDiff,
+            packageResolved: packageResolved
+        )
+    }
+
+    func gitObject(
+        root: String,
+        path: String
+    ) throws -> String {
+        try capture(
+            "/usr/bin/git",
+            [
+                "-C",
+                root,
+                "rev-parse",
+                "HEAD:\(path)",
+            ]
+        ).trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+    }
+
+    func validatePairedHarness(
+        baselineVariant: CampaignVariant,
+        candidateVariant: CampaignVariant
+    ) throws {
+        guard
+            baselineVariant.worktreeDiff.isEmpty,
+            candidateVariant.worktreeDiff.isEmpty
+        else {
+            throw CampaignError.invalid(
+                "Paired A/B campaign roots must have clean worktrees"
+            )
+        }
+
+        guard
+            baselineVariant.packageResolved
+                == candidateVariant.packageResolved
+        else {
+            throw CampaignError.invalid(
+                "Paired A/B campaign Package.resolved differs"
+            )
+        }
+
+        for path in [
+            "Package.swift",
+            "Benchmarks/BenchmarkCampaign",
+            "Benchmarks/BenchmarkResults",
+            "Benchmarks/WhiteThroatedBenchmarkClient",
+        ] {
+            guard
+                try gitObject(
+                    root: baselineVariant.root,
+                    path: path
+                )
+                == gitObject(
+                    root: candidateVariant.root,
+                    path: path
+                )
+            else {
+                throw CampaignError.invalid(
+                    "Paired A/B harness differs at \(path)"
+                )
+            }
+        }
+    }
+
+    func writeVariantMetadata(
+        _ variant: CampaignVariant,
+        swiftVersion: String,
+        host: String
+    ) throws {
+        try FileManager.default.createDirectory(
+            at: variant.directory,
+            withIntermediateDirectories: true
+        )
+
+        activeVariant = variant
+
+        let scopedConfiguration =
+            CampaignConfiguration(
+                root: variant.root,
+                output: variant.directory.path,
+                serverProduct:
+                    configuration.serverProduct,
+                basePort: configuration.basePort,
+                smoke: configuration.smoke,
+                profile: configuration.profile
+            )
+
+        try save(
+            scopedConfiguration,
+            "configuration.json"
+        )
+        try save(
+            campaignPlan(),
+            "plan.json"
+        )
+        try saveText(
+            variant.head,
+            "head.txt"
+        )
+        try saveText(
+            variant.worktreeDiff,
+            "worktree.diff"
+        )
+        try saveText(
+            swiftVersion,
+            "swift-version.txt"
+        )
+        try saveText(
+            host,
+            "host.txt"
+        )
+        try saveText(
+            variant.packageResolved,
+            "Package.resolved.txt"
+        )
+    }
+
+    func runPairedResponseStreamCampaign(
+        peerRoot: String
+    ) throws {
+        guard configuration.profile == .responseStream else {
+            throw CampaignError.invalid(
+                "Paired A/B mode requires response-stream profile"
+            )
+        }
+
+        let baselineDirectory =
+            directory.appendingPathComponent(
+                "baseline",
+                isDirectory: true
+            )
+        let candidateDirectory =
+            directory.appendingPathComponent(
+                "candidate",
+                isDirectory: true
+            )
+
+        let baselineVariant = try captureVariant(
+            name: "baseline",
+            root: configuration.root,
+            directory: baselineDirectory
+        )
+        let candidateVariant = try captureVariant(
+            name: "candidate",
+            root: peerRoot,
+            directory: candidateDirectory
+        )
+
+        try validatePairedHarness(
+            baselineVariant: baselineVariant,
+            candidateVariant: candidateVariant
+        )
+
+        guard
+            configuration.smoke
+            || baselineVariant.head
+                != candidateVariant.head
+        else {
+            throw CampaignError.invalid(
+                "Non-smoke A/B campaign requires different commits"
+            )
+        }
+
+        let baselineServer =
+            baselineVariant.binaries
+                .appendingPathComponent(
+                    configuration.serverProduct
+                )
+        let candidateServer =
+            candidateVariant.binaries
+                .appendingPathComponent(
+                    configuration.serverProduct
+                )
+        let client =
+            baselineVariant.binaries
+                .appendingPathComponent(
+                    "whitethroated-benchmark-client"
+                )
+
+        for executable in [
+            baselineServer,
+            candidateServer,
+            client,
+        ] {
+            guard FileManager.default
+                .isExecutableFile(
+                    atPath: executable.path
+                )
+            else {
+                throw CampaignError.invalid(
+                    "Build release product before paired campaign: "
+                    + executable.path
+                )
+            }
+        }
+
+        let swiftVersion = try capture(
+            "/usr/bin/env",
+            ["swift", "--version"]
+        )
+        let host = try capture(
+            "/usr/bin/uname",
+            ["-a"]
+        )
+
+        pairedClientBinaries =
+            baselineVariant.binaries
+
+        defer {
+            activeVariant = nil
+            pairedClientBinaries = nil
+        }
+
+        try writeVariantMetadata(
+            baselineVariant,
+            swiftVersion: swiftVersion,
+            host: host
+        )
+        try writeVariantMetadata(
+            candidateVariant,
+            swiftVersion: swiftVersion,
+            host: host
+        )
+
+        activeVariant = baselineVariant
+        try gate("preflight")
+
+        var order: [String] = []
+
+        for round in 1...configuration.rounds {
+            let variants =
+                responseStreamABOrder(
+                    round: round
+                ).map { side in
+                    switch side {
+                    case .baseline:
+                        return baselineVariant
+                    case .candidate:
+                        return candidateVariant
+                    }
+                }
+
+            for variant in variants {
+                activeVariant = variant
+                order.append(
+                    "r\(round):\(variant.name)"
+                )
+                try runResponseStreamRound(round)
+            }
+        }
+
+        for variant in [
+            baselineVariant,
+            candidateVariant,
+        ] {
+            activeVariant = variant
+            try checkBaseline()
+            try saveText(
+                configuration.smoke
+                    ? "SMOKE ONLY — no performance claims\n"
+                    : "Complete; inspect variance and gates before claims\n",
+                "COMPLETE.txt"
+            )
+        }
+
+        activeVariant = nil
+
+        try saveText(
+            order.joined(separator: "\n")
+                + "\n",
+            "paired-order.txt",
+            to: directory
+        )
+        try save(
+            [
+                "baselineHead":
+                    baselineVariant.head,
+                "candidateHead":
+                    candidateVariant.head,
+                "serverProduct":
+                    configuration.serverProduct,
+            ],
+            "paired-heads.json",
+            to: directory
+        )
+        try saveText(
+            configuration.smoke
+                ? "SMOKE ONLY — paired orchestration only\n"
+                : "Complete paired response-stream A/B campaign\n",
+            "PAIRED_COMPLETE.txt",
+            to: directory
+        )
     }
 
     func run() throws {
@@ -608,25 +1086,23 @@ private final class Campaign {
         }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         outputCreated = true
-        try save(configuration, "configuration.json")
-        let topologyCount =
-            configuration.profile == .responseStream ? 1 : 2
-        let routeCount =
-            configuration.profile == .responseStream ? 5 : 3
-        try save([
-            "rounds": configuration.rounds,
-            "shards": configuration.shards,
-            "serverLoops": configuration.serverLoops,
-            "clientThreadsPerShard": 1,
-            "requestsPerShard": configuration.requestsPerShard,
-            "warmupRequestsPerWorkerRoute": configuration.warmupRequests,
-            "cellCount":
-                configuration.rounds
-                * topologyCount
-                * routeCount
-                * configuration.concurrencies.count
-                * 3
-        ], "plan.json")
+        if let peerRoot =
+            configuration.abPeerRoot
+        {
+            try runPairedResponseStreamCampaign(
+                peerRoot: peerRoot
+            )
+            return
+        }
+
+        try save(
+            configuration,
+            "configuration.json"
+        )
+        try save(
+            campaignPlan(),
+            "plan.json"
+        )
         baseline = try capture("/usr/bin/git", ["-C", configuration.root, "rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
         try saveText(baseline, "head.txt")
         try saveText(try capture("/usr/bin/git", ["-C", configuration.root, "diff", "HEAD"]), "worktree.diff")
@@ -635,7 +1111,7 @@ private final class Campaign {
         try saveText(try String(contentsOfFile: configuration.root + "/Package.resolved", encoding: .utf8), "Package.resolved.txt")
         try gate("preflight")
         for product in [configuration.serverProduct, "whitethroated-benchmark-client"] {
-            guard FileManager.default.isExecutableFile(atPath: binaries.appendingPathComponent(product).path) else {
+            guard FileManager.default.isExecutableFile(atPath: activeBinaries.appendingPathComponent(product).path) else {
                 throw CampaignError.invalid("Build release product before campaign: \(product)")
             }
         }
@@ -659,7 +1135,7 @@ private final class Campaign {
                 defer { stop(workers) }
                 for worker in 0..<workerCount { try requireFreePort(configuration.basePort + worker) }
                 for worker in 0..<workerCount {
-                    workers.append(try spawn(binaries.appendingPathComponent(configuration.serverProduct), environment: [
+                    workers.append(try spawn(activeBinaries.appendingPathComponent(configuration.serverProduct), environment: [
                         "WHITETHROATED_HOST": "127.0.0.1", "WHITETHROATED_PORT": String(configuration.basePort + worker),
                         "WHITETHROATED_THREADS": String(8 / workerCount)
                     ], log: prefix + "-worker-\(worker).log"))
@@ -673,7 +1149,7 @@ private final class Campaign {
                 try save(try observe(workers), prefix + "-idle.json")
                 for worker in 0..<workerCount {
                     for (method, path, label) in routes {
-                        let warm = try spawn(binaries.appendingPathComponent("whitethroated-benchmark-client"), environment:
+                        let warm = try spawn(clientBinaries.appendingPathComponent("whitethroated-benchmark-client"), environment:
                             clientEnvironment(port: configuration.basePort + worker, method: method, path: path,
                                               connections: 8, requests: configuration.warmupRequests),
                             log: prefix + "-warm-\(worker)-" + label + ".log")
