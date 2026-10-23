@@ -249,6 +249,10 @@ app.get(
 }
 ```
 
+Bearer failures include `WWW-Authenticate: Bearer`; API-key failures do not
+advertise Bearer. Nested authenticated-group policies are combined with AND,
+so child groups cannot weaken parent authorization.
+
 Sessions are loaded explicitly only on routes that need them. The default session
 cookie policy is `HttpOnly`, `Secure`, and `SameSite=Lax`; signed cookie
 verification supports key rotation. Identity backed by event-loop I/O uses

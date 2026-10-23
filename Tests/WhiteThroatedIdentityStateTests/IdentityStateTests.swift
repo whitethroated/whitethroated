@@ -180,6 +180,284 @@ final class IdentityStateTests:
         }
     }
 
+    func testNestedAuthenticatedGroupIntersectsPolicies() async throws {
+        let auth = Authenticator.bearer {
+            token,
+            _ in
+
+            switch token {
+            case "root":
+                return AuthPrincipal(
+                    id: "root",
+                    roles: ["admin", "user"]
+                )
+            case "member":
+                return AuthPrincipal(
+                    id: "member",
+                    roles: ["user"]
+                )
+            case "admin-only":
+                return AuthPrincipal(id: "admin-only", roles: ["admin"])
+            default:
+                return nil
+            }
+        }
+        let app = Application()
+
+        let api = app.authenticatedGroup(
+            "/api",
+            by: auth,
+            authorization: .role(
+                "admin"
+            )
+        )
+        api.get("/overview") {
+            _,
+            principal in
+
+            .text(principal.id)
+        }
+
+        // A nested group with a broader rule must never widen
+        // access past the enclosing group's restriction: the
+        // effective policy is the conjunction of both policies.
+        let reports = api.group(
+            "/reports",
+            authorization: .role("user")
+        )
+        reports.get("/summary") {
+            _,
+            principal in
+
+            .text(principal.id)
+        }
+        api.group("/inherited").get("/summary") { _, principal in
+            .text(principal.id)
+        }
+        app.authenticatedGroup("/members", by: auth)
+            .group("/only", authorization: .role("user"))
+            .get("/summary") { _, principal in .text(principal.id) }
+
+        func bearerHeaders(
+            _ token: String
+        ) -> HTTPHeaders {
+            var headers = HTTPHeaders()
+            headers.add(
+                name: "authorization",
+                value: "Bearer \(token)"
+            )
+            return headers
+        }
+
+        try await withEventLoop {
+            loop in
+
+            let rootSummary =
+                try await app.respond(
+                    to: makeRequest(
+                        path:
+                            "/api/reports/summary",
+                        headers:
+                            bearerHeaders(
+                                "root"
+                            )
+                    ),
+                    on: loop
+                ).get()
+            XCTAssertEqual(
+                rootSummary.status,
+                .ok
+            )
+            XCTAssertEqual(
+                bodyText(rootSummary),
+                "root"
+            )
+
+            // The member role satisfies only the nested group's
+            // broader rule and must still be rejected because the
+            // parent group requires the admin role.
+            let memberSummary =
+                try await app.respond(
+                    to: makeRequest(
+                        path:
+                            "/api/reports/summary",
+                        headers:
+                            bearerHeaders(
+                                "member"
+                            )
+                    ),
+                    on: loop
+                ).get()
+            XCTAssertEqual(
+                memberSummary.status,
+                .forbidden
+            )
+
+            let memberOverview =
+                try await app.respond(
+                    to: makeRequest(
+                        path: "/api/overview",
+                        headers:
+                            bearerHeaders(
+                                "member"
+                            )
+                    ),
+                    on: loop
+                ).get()
+            XCTAssertEqual(
+                memberOverview.status,
+                .forbidden
+            )
+
+            let rootOverview =
+                try await app.respond(
+                    to: makeRequest(
+                        path: "/api/overview",
+                        headers:
+                            bearerHeaders(
+                                "root"
+                            )
+                    ),
+                    on: loop
+                ).get()
+            XCTAssertEqual(
+                rootOverview.status,
+                .ok
+            )
+
+            let cases: [(String, String, HTTPResponseStatus)] = [
+                ("/api/reports/summary", "admin-only", .forbidden),
+                ("/api/inherited/summary", "admin-only", .ok),
+                ("/api/inherited/summary", "member", .forbidden),
+                ("/members/only/summary", "member", .ok),
+                ("/members/only/summary", "admin-only", .forbidden),
+            ]
+            for (path, token, status) in cases {
+                let response = try await app.respond(
+                    to: makeRequest(path: path, headers: bearerHeaders(token)),
+                    on: loop
+                ).get()
+                XCTAssertEqual(response.status, status, "\(path): \(token)")
+            }
+        }
+    }
+
+    func testUnauthorizedChallengeMatchesAuthenticatorScheme() async throws {
+        let bearer =
+            Authenticator.bearer {
+                _,
+                _ in
+
+                nil
+            }
+        let apiKey =
+            Authenticator.apiKey {
+                _,
+                _ in
+
+                nil
+            }
+        let custom = Authenticator(
+            extractor: { _ in nil },
+            resolver: { _, _ in nil }
+        )
+        let stated = Authenticator(
+            challenge:
+                "MyScheme realm=\"protected\"",
+            extractor: { _ in nil },
+            resolver: { _, _ in nil }
+        )
+
+        // A bearer authenticator maps to a standard HTTP
+        // authentication scheme and advertises its challenge.
+        XCTAssertEqual(
+            bearer
+                .unauthorizedResponse()
+                .headers
+                .first(
+                    name:
+                        "www-authenticate"
+                ),
+            "Bearer"
+        )
+
+        // An API key is not an authentication scheme, so the
+        // 401 must not advertise one, either for the factory or
+        // for custom authenticators without an explicit
+        // challenge.
+        XCTAssertNil(
+            apiKey
+                .unauthorizedResponse()
+                .headers
+                .first(
+                    name:
+                        "www-authenticate"
+                )
+        )
+        XCTAssertNil(
+            custom
+                .unauthorizedResponse()
+                .headers
+                .first(
+                    name:
+                        "www-authenticate"
+                )
+        )
+
+        // Authenticators that state a challenge explicitly pass
+        // it through verbatim.
+        XCTAssertEqual(
+            stated
+                .unauthorizedResponse()
+                .headers
+                .first(
+                    name:
+                        "www-authenticate"
+                ),
+            "MyScheme realm=\"protected\""
+        )
+
+        XCTAssertEqual(
+            bearer
+                .unauthorizedResponse()
+                .status,
+            .unauthorized
+        )
+
+        let app = Application()
+
+        app.get(
+            "/keyed",
+            authenticatedBy: apiKey
+        ) { _, principal in
+            .text(principal.id)
+        }
+
+        try await withEventLoop {
+            loop in
+
+            let response =
+                try await app.respond(
+                    to: makeRequest(
+                        path: "/keyed"
+                    ),
+                    on: loop
+                ).get()
+
+            XCTAssertEqual(
+                response.status,
+                .unauthorized
+            )
+            XCTAssertNil(
+                response.headers
+                    .first(
+                        name:
+                            "www-authenticate"
+                    )
+            )
+        }
+    }
+
     func testEventLoopAuthenticatorRouteAppliesAuthorizationAndPassesPrincipal() async throws {
         let store =
             MemorySessionStore()

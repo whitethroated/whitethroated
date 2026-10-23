@@ -249,6 +249,70 @@ final class CORSTests: XCTestCase {
         )
     }
 
+    func testWildcardWithCredentialsDeniesOpaqueNullOrigin() throws {
+        let cors = CORS(
+            configuration: .init(
+                allowedOrigins: .any,
+                allowCredentials: true
+            )
+        )
+
+        // "null" is the browser's opaque-origin marker for
+        // sandboxed frames and similar contexts. With credentials
+        // allowed, echoing it would bless credentialed requests
+        // from opaque origins, so the middleware must deny the
+        // request instead of returning
+        // `access-control-allow-origin: null`.
+        for method in [NIOHTTP1.HTTPMethod.GET, .OPTIONS] {
+            let response = try unwrap(cors.respond(
+                to: makeRequest(
+                    method: method,
+                    headers: [
+                        ("origin", "null"),
+                        ("access-control-request-method", "GET"),
+                    ]
+                ),
+                next: { _ in .response(.empty(status: .accepted)) }
+            ))
+            XCTAssertEqual(response.status, .forbidden)
+            XCTAssertNil(response.headers.first(name: "access-control-allow-origin"))
+            XCTAssertNil(response.headers.first(name: "access-control-allow-credentials"))
+        }
+    }
+
+    func testOpaqueOriginDenialPreservesPassThroughPolicy() throws {
+        let cors = CORS(configuration: .init(
+            allowedOrigins: .any,
+            allowCredentials: true,
+            deniedRequestBehavior: .passThrough
+        ))
+        let response = try unwrap(cors.respond(
+            to: makeRequest(headers: [("origin", "null")]),
+            next: { _ in .response(.empty(status: .accepted)) }
+        ))
+        XCTAssertEqual(response.status, .accepted)
+        XCTAssertNil(response.headers.first(name: "access-control-allow-origin"))
+        XCTAssertNil(response.headers.first(name: "access-control-allow-credentials"))
+    }
+
+    func testOpaqueOriginRemainsAvailableThroughExplicitPolicy() throws {
+        for policy in [CORSOriginPolicy.exact(["null"]), .custom({ $0 == "null" })] {
+            let cors = CORS(configuration: .init(
+                allowedOrigins: policy,
+                allowCredentials: true
+            ))
+            let response = try unwrap(cors.respond(
+                to: makeRequest(headers: [("origin", "null")]),
+                next: { _ in .response(.noContent()) }
+            ))
+            XCTAssertEqual(response.status, .noContent)
+            XCTAssertEqual(
+                response.headers.first(name: "access-control-allow-origin"),
+                "null"
+            )
+        }
+    }
+
     func testAllowedPreflightShortCircuits() throws {
         let cors = CORS(
             configuration: .init(

@@ -52,7 +52,18 @@ Three policies are available:
 
 When credentials are enabled, `.any` echoes the request origin rather than
 emitting `*`, because credentialed CORS responses cannot use wildcard
-allow-origin semantics.
+allow-origin semantics. One exception applies: the literal `null` origin —
+the browser's opaque-origin marker for sandboxed frames and similar
+contexts — is never echoed by `.any` when credentials are allowed. Such
+requests follow the configured denial behavior (`403 Forbidden` by default),
+since echoing
+`Access-Control-Allow-Origin: null` alongside
+`Access-Control-Allow-Credentials: true` would bless credentialed requests
+from opaque origins.
+
+Prefer an explicit origin allowlist for credentialed applications. `.exact`
+and `.custom` remain explicit policy decisions, including whether to permit
+an opaque origin; `.any` is not a substitute for CSRF protection.
 
 ## Denied requests
 
