@@ -248,6 +248,11 @@ public struct ValidationSchema: Sendable {
         self.fields = fields
     }
 
+    /// Validates every field in order. Query fields resolve through
+    /// `request.queryParameters` — the same request space handlers
+    /// read — so a duplicated key is judged as its last occurrence.
+    /// Path, header, and cookie fields resolve through the request's
+    /// lazy accessors.
     public func validate(
         _ request: Request
     ) -> ValidationResult {
@@ -258,10 +263,14 @@ public struct ValidationSchema: Sendable {
 
         var issues: [ValidationIssue] = []
 
+        var queryValues: [String: String]?
+
         for field in fields {
             let value = value(
                 for: field,
-                in: request
+                in: request,
+                queryValues:
+                    &queryValues
             )
 
             guard let value else {
@@ -302,14 +311,20 @@ public struct ValidationSchema: Sendable {
 
     private func value(
         for field: ValidationField,
-        in request: Request
+        in request: Request,
+        queryValues: inout [String: String]?
     ) -> String? {
         switch field.location {
         case .path:
             return request.parameter(field.name)
 
         case .query:
-            return request.query(field.name)
+            if queryValues == nil {
+                queryValues =
+                    request.queryParameters
+            }
+
+            return queryValues?[field.name]
 
         case .header:
             return request.header(field.name)

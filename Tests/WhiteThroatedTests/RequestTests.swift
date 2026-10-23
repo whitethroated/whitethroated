@@ -146,6 +146,25 @@ final class RequestTests: XCTestCase {
         )
     }
 
+    func testQueryDuplicateKeyUsesLastValueWhenMaterialized() {
+        // Query parameters materialize as a dictionary, where the last
+        // occurrence wins; the lazy accessor returns the first. Both
+        // levels of access are pinned, and validation resolves fields
+        // through the materialized space.
+        let request = makeRequest(
+            path: "/search?color=red&color=blue"
+        )
+
+        XCTAssertEqual(
+            request.query("color"),
+            "red"
+        )
+        XCTAssertEqual(
+            request.queryParameters["color"],
+            "blue"
+        )
+    }
+
     func testRouteParameterIsDecodedOnAccess() throws {
         let app = Application()
         let loop = EmbeddedEventLoop()
