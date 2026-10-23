@@ -334,6 +334,148 @@ final class WebSocketTests:
         )
     }
 
+    func testDeterministicBinaryFrameCorpusPreservesPayloads() throws {
+        for length in 0...64 {
+            let expected =
+                (0..<length).map {
+                    index in
+
+                    UInt8(
+                        truncatingIfNeeded:
+                            index &* 31
+                            &+ length
+                    )
+                }
+            let messages =
+                Box<[UInt8]>()
+            let (
+                channel,
+                _
+            ) = try makeFrameChannel(
+                handlers:
+                    WebSocketHandlers(
+                        onBinary: {
+                            _,
+                            payload in
+
+                            messages.append(
+                                Array(
+                                    payload
+                                        .readableBytesView
+                                )
+                            )
+                        }
+                    ),
+                maxMessageBytes: 64
+            )
+
+            var payload =
+                channel.allocator.buffer(
+                    capacity: length
+                )
+            payload.writeBytes(expected)
+
+            _ = try channel.writeInbound(
+                WebSocketFrame(
+                    fin: true,
+                    opcode: .binary,
+                    data: payload
+                )
+            )
+
+            XCTAssertEqual(
+                messages.values,
+                [expected],
+                "single-frame length \(length)"
+            )
+            XCTAssertNoThrow(
+                try channel.finish()
+            )
+        }
+
+        for length in 1...64 {
+            let expected =
+                (0..<length).map {
+                    index in
+
+                    UInt8(
+                        truncatingIfNeeded:
+                            index &* 17
+                            &+ length
+                    )
+                }
+            let split = length / 2
+            let firstBytes =
+                Array(
+                    expected[..<split]
+                )
+            let secondBytes =
+                Array(
+                    expected[split...]
+                )
+            let messages =
+                Box<[UInt8]>()
+            let (
+                channel,
+                _
+            ) = try makeFrameChannel(
+                handlers:
+                    WebSocketHandlers(
+                        onBinary: {
+                            _,
+                            payload in
+
+                            messages.append(
+                                Array(
+                                    payload
+                                        .readableBytesView
+                                )
+                            )
+                        }
+                    ),
+                maxMessageBytes: 64
+            )
+
+            var first =
+                channel.allocator.buffer(
+                    capacity:
+                        firstBytes.count
+                )
+            first.writeBytes(firstBytes)
+
+            var second =
+                channel.allocator.buffer(
+                    capacity:
+                        secondBytes.count
+                )
+            second.writeBytes(secondBytes)
+
+            _ = try channel.writeInbound(
+                WebSocketFrame(
+                    fin: false,
+                    opcode: .binary,
+                    data: first
+                )
+            )
+            _ = try channel.writeInbound(
+                WebSocketFrame(
+                    fin: true,
+                    opcode: .continuation,
+                    data: second
+                )
+            )
+
+            XCTAssertEqual(
+                messages.values,
+                [expected],
+                "fragmented length \(length)"
+            )
+            XCTAssertNoThrow(
+                try channel.finish()
+            )
+        }
+    }
+
     func testPingProducesPongWithSamePayload() throws {
         let (
             channel,

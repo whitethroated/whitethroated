@@ -769,6 +769,185 @@ final class ObservabilityLifecycleTests:
         )
     }
 
+    func testObservabilityModulesComposeOnApplication() throws {
+        let logEvents =
+            EventBox<HTTPRequestLogEvent>()
+        let traceEvents =
+            EventBox<TraceSpanEvent>()
+        let lifecycle =
+            LifecycleController()
+
+        let routeResolver:
+            @Sendable (Request) -> String? = {
+                request in
+
+                request.path.hasPrefix(
+                    "/users/"
+                )
+                ? "/users/:id"
+                : nil
+            }
+
+        let logger =
+            StructuredRequestLogger(
+                requestIDPolicy:
+                    RequestIDPolicy(
+                        generator: {
+                            "generated-integration-id"
+                        }
+                    ),
+                routeResolver:
+                    routeResolver,
+                clock: { 100 },
+                sink: {
+                    logEvents.append($0)
+                }
+            )
+
+        let metrics =
+            HTTPMetrics(
+                configuration:
+                    HTTPMetricsConfiguration(
+                        allowedRoutes: [
+                            "/users/:id",
+                        ],
+                        durationUpperBoundsNanoseconds:
+                            [100],
+                        clock: { 100 },
+                        routeClassifier:
+                            routeResolver
+                    )
+            )
+
+        let tracer =
+            ServerTracer(
+                sampler: { _ in true },
+                routeResolver:
+                    routeResolver,
+                identifiers:
+                    TraceIdentifierGenerator(
+                        traceID: {
+                            String(
+                                repeating: "a",
+                                count: 32
+                            )
+                        },
+                        spanID: {
+                            String(
+                                repeating: "b",
+                                count: 16
+                            )
+                        }
+                    ),
+                clock: { 100 },
+                sink: {
+                    traceEvents.append($0)
+                }
+            )
+
+        let app = Application()
+        app.use(
+            lifecycle: lifecycle,
+            readinessPath: "/ready"
+        )
+        app.use(
+            structuredLogger: logger
+        )
+        app.use(metrics: metrics)
+        app.use(tracer: tracer)
+        app.get(
+            "/users/:id",
+            response: .text("ok")
+        )
+
+        var headers = HTTPHeaders()
+        headers.add(
+            name: "x-request-id",
+            value: "integration-id"
+        )
+
+        try withEventLoop { loop in
+            let response =
+                try app.respond(
+                    to: makeRequest(
+                        path: "/users/42",
+                        headers: headers
+                    ),
+                    on: loop
+                ).wait()
+
+            XCTAssertEqual(
+                response.status,
+                .ok
+            )
+        }
+
+        XCTAssertEqual(
+            logEvents.values,
+            [
+                HTTPRequestLogEvent(
+                    requestID:
+                        "integration-id",
+                    method: "GET",
+                    route: "/users/:id",
+                    statusCode: 200,
+                    durationNanoseconds: 0,
+                    remoteAddress: nil
+                ),
+            ]
+        )
+
+        let metricKey =
+            HTTPMetricKey(
+                method: "GET",
+                route: "/users/:id",
+                statusClass: 2
+            )
+        let metric =
+            metrics.snapshot()
+                .values[metricKey]
+
+        XCTAssertEqual(
+            metric?.requests,
+            1
+        )
+        XCTAssertEqual(
+            metric?.knownResponseBytes,
+            2
+        )
+
+        XCTAssertEqual(
+            traceEvents.values,
+            [
+                TraceSpanEvent(
+                    traceID:
+                        String(
+                            repeating: "a",
+                            count: 32
+                        ),
+                    spanID:
+                        String(
+                            repeating: "b",
+                            count: 16
+                        ),
+                    parentSpanID: nil,
+                    method: "GET",
+                    route: "/users/:id",
+                    statusCode: 200,
+                    durationNanoseconds: 0
+                ),
+            ]
+        )
+
+        XCTAssertEqual(
+            lifecycle.snapshot(),
+            LifecycleSnapshot(
+                phase: .accepting,
+                activeRequests: 0
+            )
+        )
+    }
+
     private func makeRequest(
         method:
             NIOHTTP1.HTTPMethod = .GET,

@@ -440,6 +440,100 @@ final class OpenAPITests:
         )
     }
 
+    func testRegistrationOrderProducesByteStableDocuments() throws {
+        let validation =
+            ValidationSchema(
+                fields: [
+                    .path(
+                        "id",
+                        rules: [
+                            .nonEmpty,
+                        ]
+                    ),
+                ]
+            )
+        let info =
+            OpenAPIInfo(
+                title: "Deterministic API",
+                version: "1"
+            )
+
+        var forward =
+            OpenAPIRegistry(info: info)
+        try forward.register(
+            .get,
+            "/users/:id",
+            operation:
+                OpenAPIOperation(
+                    operationID: "getUser",
+                    validation: validation
+                )
+        )
+        try forward.register(
+            .post,
+            "/users",
+            operation:
+                OpenAPIOperation(
+                    operationID:
+                        "createUser"
+                )
+        )
+        try forward.register(
+            .get,
+            "/health",
+            operation:
+                OpenAPIOperation(
+                    operationID: "health"
+                )
+        )
+
+        var reverse =
+            OpenAPIRegistry(info: info)
+        try reverse.register(
+            .get,
+            "/health",
+            operation:
+                OpenAPIOperation(
+                    operationID: "health"
+                )
+        )
+        try reverse.register(
+            .post,
+            "/users",
+            operation:
+                OpenAPIOperation(
+                    operationID:
+                        "createUser"
+                )
+        )
+        try reverse.register(
+            .get,
+            "/users/:id",
+            operation:
+                OpenAPIOperation(
+                    operationID: "getUser",
+                    validation: validation
+                )
+        )
+
+        XCTAssertEqual(
+            try forward.jsonData(
+                prettyPrinted: false
+            ),
+            try reverse.jsonData(
+                prettyPrinted: false
+            )
+        )
+        XCTAssertEqual(
+            try forward.jsonData(),
+            try reverse.jsonData()
+        )
+        XCTAssertEqual(
+            try forward.yamlString(),
+            try reverse.yamlString()
+        )
+    }
+
     func testYAMLAndPreparedServiceAreBuiltAtSetup() throws {
         var registry =
             OpenAPIRegistry(
