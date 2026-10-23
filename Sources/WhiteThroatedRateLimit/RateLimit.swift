@@ -228,8 +228,11 @@ public final class FixedWindowRateLimiter:
             if state.buckets.count
                 >= configuration.maxKeys
             {
-                evictOldest(
-                    from: &state.buckets
+                Self.pruneOldest(
+                    buckets: &state.buckets,
+                    count: Self.evictionBatch(
+                        configuration.maxKeys
+                    )
                 )
             }
 
@@ -411,25 +414,132 @@ public final class FixedWindowRateLimiter:
         )
     }
 
-    private func evictOldest(
-        from buckets:
-            inout [String: Bucket]
+    static func evictionBatch(
+        _ maxKeys: Int
+    ) -> Int {
+        max(1, maxKeys / 8)
+    }
+
+    /// Amortized bounded-store eviction: capacity overflow prunes a small
+    /// batch of least-recently-touched buckets in one pass instead of
+    /// scanning the whole table per inserted key. The store stays bounded
+    /// by `maxKeys` — a full table pays one O(n·log batch) scan per batch
+    /// of fresh keys, so the per-insert cost stays constant between prunes.
+    private static func pruneOldest(
+        buckets: inout [String: Bucket],
+        count: Int
     ) {
-        guard
-            let oldestKey =
-                buckets.min(
-                    by: {
-                        $0.value.lastTouch
-                            < $1.value.lastTouch
-                    }
-                )?.key
-        else {
+        guard count > 0, buckets.count > 0 else {
             return
         }
 
-        buckets.removeValue(
-            forKey: oldestKey
-        )
+        var heap: [Victim] = []
+        heap.reserveCapacity(count)
+
+        for (key, bucket) in buckets {
+            let candidate = Victim(
+                key: key,
+                lastTouch: bucket.lastTouch
+            )
+
+            if heap.count < count {
+                heap.append(candidate)
+                heapifyUp(&heap, heap.count - 1)
+            } else if
+                candidate.lastTouch
+                    < heap[0].lastTouch
+            {
+                // Replace the worst retained victim;
+                // ties keep the incumbent.
+                heap[0] = candidate
+                heapifyDown(&heap, 0)
+            }
+        }
+
+        while !heap.isEmpty {
+            let victim = heap[0]
+
+            heap[0] = heap[
+                heap.count - 1
+            ]
+            heap.removeLast()
+
+            if !heap.isEmpty {
+                heapifyDown(&heap, 0)
+            }
+
+            buckets.removeValue(
+                forKey: victim.key
+            )
+        }
+    }
+
+    private struct Victim: Sendable {
+        let key: String
+        let lastTouch: UInt64
+    }
+
+    private static func heapifyUp(
+        _ heap: inout [Victim],
+        _ start: Int
+    ) {
+        var child = start
+
+        while child > 0 {
+            let parent = (child - 1) / 2
+
+            if
+                heap[child].lastTouch
+                    > heap[parent]
+                        .lastTouch
+            {
+                heap.swapAt(child, parent)
+                child = parent
+            } else {
+                break
+            }
+        }
+    }
+
+    private static func heapifyDown(
+        _ heap: inout [Victim],
+        _ start: Int
+    ) {
+        var parent = start
+
+        while true {
+            let left = parent * 2 + 1
+
+            guard left < heap.count else {
+                return
+            }
+
+            let right = left + 1
+            var largest = left
+
+            if
+                right < heap.count,
+                heap[right].lastTouch
+                    > heap[left]
+                        .lastTouch
+            {
+                largest = right
+            }
+
+            if
+                heap[largest].lastTouch
+                    > heap[parent]
+                        .lastTouch
+            {
+                heap.swapAt(
+                    parent,
+                    largest
+                )
+                parent = largest
+            } else {
+                return
+            }
+        }
     }
 
     private static func ceilSeconds(
