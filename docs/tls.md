@@ -35,6 +35,11 @@ The default minimum protocol version is TLS 1.2. TLS 1.3 can be required
 explicitly. Renegotiation is disabled. The default ALPN list contains only
 `http/1.1`, because the current WhiteThroated server transport is HTTP/1.1.
 
+Applications may not advertise other ALPN protocols: any entry other than
+`http/1.1` — most notably `h2` — is rejected by a setup-time precondition.
+Advertising a protocol the pipeline cannot serve would let negotiation select
+it and fail every such connection at serving time instead.
+
 Applications can also construct `DirectTLS` from already-loaded PEM bytes to
 keep secret-file ownership outside the framework.
 
