@@ -57,6 +57,15 @@ public final class Application: @unchecked Sendable {
         )
     }
 
+    @inline(__always)
+    internal func hasRequestDependentRoute(
+        for method: NIOHTTP1.HTTPMethod
+    ) -> Bool {
+        router.hasRequestDependentRoute(
+            for: method
+        )
+    }
+
     public init(
         configuration: ServerConfiguration = ServerConfiguration()
     ) {

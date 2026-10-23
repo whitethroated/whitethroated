@@ -41,6 +41,11 @@ extension Application {
                     for: method
                 )
             },
+            cachesRouteActions: { method in
+                !self.hasRequestDependentRoute(
+                    for: method
+                )
+            },
             lookup: { head in
                 self.lookupRuntimeAction(
                     head: head

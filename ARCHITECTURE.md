@@ -907,6 +907,9 @@ When a canonical short HTTP/1.1 response head is available, the dynamic writer d
 Repeated EventLoopFuture routes reuse the cached async action beside the generic route cache. On an exact method+URI hit, bodyless requests invoke that cached action directly with the per-connection remote address, avoiding router re-lookup as well as the middleware-pipeline bridge. URI or method changes refresh or clear the cached action before dispatch.
 
 
+Per-connection route caches store only request-independent lookup results. A lookup whose decision rides on the current request headers — conditional prepared responses resolve `If-None-Match` per request — is never stored: the framework bridge reports cacheability per method through a setup-frozen capability closure (`cachesRouteActions`), and a non-cacheable result re-resolves on that method's every request instead of pinning one 200/304 selection for the whole connection. Cached entries must stay provably request-independent; future request-dependent responder kinds follow the same bridge signal.
+
+
 Canonical short-response metadata also exposes the already-computed UTF-8 byte length from its compact cache index. The persistent HTTP/1.1 text writer uses that byte length for ByteBuffer capacity instead of scanning the String UTF-8 view a second time before serialization.
 
 
