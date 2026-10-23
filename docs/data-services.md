@@ -241,7 +241,9 @@ are applied in lexicographic order. Statements are split with support for
 quoted strings, quoted identifiers, line comments, nested block comments, and
 PostgreSQL dollar-quoted bodies. Unterminated strings, quoted identifiers, or
 comments are rejected when the file is loaded. Each migration runs in its own
-transaction and records a SHA-256 checksum in the tracking table.
+transaction and records a SHA-256 checksum in the tracking table. The full
+migration guide, including failure semantics and CLI usage, is in
+[docs/migrations.md](migrations.md).
 
 ```text
 Migrations/
