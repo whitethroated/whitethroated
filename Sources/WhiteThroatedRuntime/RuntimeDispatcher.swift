@@ -96,6 +96,14 @@ public struct RuntimeDispatcher: @unchecked Sendable {
     public var hasStreamingRoutes: Bool
     public var hasStreamingRoute:
         @Sendable (NIOHTTP1.HTTPMethod) -> Bool
+
+    /// Whether per-connection route caches may store lookup results
+    /// for this method. Framework-request-dependent lookups
+    /// (conditional prepared responses evaluate headers per request)
+    /// answer false so every request resolves against its own headers.
+    public var cachesRouteActions:
+        @Sendable (NIOHTTP1.HTTPMethod) -> Bool
+
     public var lookup:
         @Sendable (HTTPRequestHead) -> RuntimeRouteAction
     public var dispatchPipeline:
@@ -117,6 +125,9 @@ public struct RuntimeDispatcher: @unchecked Sendable {
         hasStreamingRoute: @escaping @Sendable (
             NIOHTTP1.HTTPMethod
         ) -> Bool,
+        cachesRouteActions: @escaping @Sendable (
+            NIOHTTP1.HTTPMethod
+        ) -> Bool = { _ in true },
         lookup: @escaping @Sendable (HTTPRequestHead)
             -> RuntimeRouteAction,
         dispatchPipeline: @escaping @Sendable (
@@ -136,6 +147,8 @@ public struct RuntimeDispatcher: @unchecked Sendable {
         self.hasMiddleware = hasMiddleware
         self.hasStreamingRoutes = hasStreamingRoutes
         self.hasStreamingRoute = hasStreamingRoute
+        self.cachesRouteActions =
+            cachesRouteActions
         self.lookup = lookup
         self.dispatchPipeline = dispatchPipeline
         self.mapError = mapError

@@ -518,6 +518,21 @@ final class Router: @unchecked Sendable {
     private var streamingTrace = false
     private var streamingOtherMethods: Set<String> = []
 
+    /// Request-dependent responders (conditional prepared responses) must
+    /// re-evaluate per request; their results are never eligible for
+    /// per-connection route caches.
+    private(set) var hasRequestDependentRoutes = false
+    private var conditionalGet = false
+    private var conditionalPost = false
+    private var conditionalPut = false
+    private var conditionalPatch = false
+    private var conditionalDelete = false
+    private var conditionalHead = false
+    private var conditionalOptions = false
+    private var conditionalConnect = false
+    private var conditionalTrace = false
+    private var conditionalOtherMethods: Set<String> = []
+
     private var getRoot: RouterNode?
     private var postRoot: RouterNode?
     private var putRoot: RouterNode?
@@ -619,6 +634,9 @@ final class Router: @unchecked Sendable {
             conditionalPreparedResponse
                 .etag(etag)
 
+        hasRequestDependentRoutes = true
+        markConditionalPrepared(method)
+
         insert(
             method: method,
             path: path,
@@ -629,6 +647,40 @@ final class Router: @unchecked Sendable {
                     tagged.notModifiedStorage
             )
         )
+    }
+
+    @inline(__always)
+    func hasRequestDependentRoute(
+        for method: NIOHTTP1.HTTPMethod
+    ) -> Bool {
+        switch method {
+        case .GET:
+            return conditionalGet
+        case .POST:
+            return conditionalPost
+        case .PUT:
+            return conditionalPut
+        case .PATCH:
+            return conditionalPatch
+        case .DELETE:
+            return conditionalDelete
+        case .HEAD:
+            return conditionalHead || conditionalGet
+        case .OPTIONS:
+            return conditionalOptions
+        case .CONNECT:
+            return conditionalConnect
+        case .TRACE:
+            return conditionalTrace
+        case .RAW(let value):
+            return conditionalOtherMethods.contains(
+                value
+            )
+        default:
+            return conditionalOtherMethods.contains(
+                String(describing: method)
+            )
+        }
     }
 
     @inline(__always)
@@ -661,6 +713,35 @@ final class Router: @unchecked Sendable {
         default:
             return streamingOtherMethods.contains(
                 String(describing: method)
+            )
+        }
+    }
+
+    private func markConditionalPrepared(
+        _ method: HTTPMethod
+    ) {
+        switch method {
+        case .get:
+            conditionalGet = true
+        case .post:
+            conditionalPost = true
+        case .put:
+            conditionalPut = true
+        case .patch:
+            conditionalPatch = true
+        case .delete:
+            conditionalDelete = true
+        case .head:
+            conditionalHead = true
+        case .options:
+            conditionalOptions = true
+        case .connect:
+            conditionalConnect = true
+        case .trace:
+            conditionalTrace = true
+        case .other(let value):
+            conditionalOtherMethods.insert(
+                value
             )
         }
     }

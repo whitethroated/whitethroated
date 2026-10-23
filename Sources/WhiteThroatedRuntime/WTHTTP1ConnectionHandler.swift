@@ -2479,11 +2479,19 @@ public final class WTHTTP1ConnectionHandler:
 
         let action = dispatcher.lookup(nioHead)
 
-        cachedRouteMethod = method
-        cachedRouteURI = uri
-        cachedRouteAction = action
-        cachedSealedResponse = nil
-        cachedSealedOwner = nil
+        // Request-dependent lookups (for example conditional prepared
+        // responses) must resolve every request against that request's
+        // own headers; storing them here would pin one header decision
+        // for the whole connection.
+        if dispatcher.cachesRouteActions(
+            nioHead.method
+        ) {
+            cachedRouteMethod = method
+            cachedRouteURI = uri
+            cachedRouteAction = action
+            cachedSealedResponse = nil
+            cachedSealedOwner = nil
+        }
 
         return action
     }

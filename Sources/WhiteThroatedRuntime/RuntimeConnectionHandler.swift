@@ -1298,9 +1298,17 @@ public final class RuntimeConnectionHandler:
 
         let action = dispatcher.lookup(head)
 
-        cachedRouteMethod = head.method
-        cachedRouteURI = head.uri
-        cachedRouteAction = action
+        // Request-dependent lookups (for example conditional prepared
+        // responses) must resolve every request against that request's
+        // own headers; storing them here would pin one header decision
+        // for the whole connection.
+        if dispatcher.cachesRouteActions(
+            head.method
+        ) {
+            cachedRouteMethod = head.method
+            cachedRouteURI = head.uri
+            cachedRouteAction = action
+        }
 
         return action
     }
