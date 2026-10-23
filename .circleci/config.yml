@@ -217,6 +217,23 @@ jobs:
           name: Build Swift topology campaign runner
           command: swift build -c release --product whitethroated-benchmark-campaign
 
+      - run:
+          name: Smoke response-stream campaign harness
+          command: |
+            set -eu
+
+            output=/tmp/whitethroated-response-stream-campaign-smoke
+            rm -rf "$output"
+
+            WHITETHROATED_CAMPAIGN_PROFILE=response-stream \
+            WHITETHROATED_CAMPAIGN_SMOKE=1 \
+            WHITETHROATED_CAMPAIGN_OUTPUT="$output" \
+              .build/release/whitethroated-benchmark-campaign
+
+            test -f "$output/COMPLETE.txt"
+            grep -q "SMOKE ONLY" "$output/COMPLETE.txt"
+          no_output_timeout: 20m
+
 workflows:
   ci:
     when: pipeline.event.name == "pull_request" or pipeline.git.branch == "main"

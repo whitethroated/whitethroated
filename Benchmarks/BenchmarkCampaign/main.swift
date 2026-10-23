@@ -256,18 +256,29 @@ private final class Campaign {
         }
     }
 
-    func runCell(workers: [Process], method: String, path: String, concurrency: Int, mode: String, id: String) throws {
+    func runCell(
+        workers: [Process],
+        method: String,
+        path: String,
+        concurrency: Int,
+        mode: String,
+        id: String,
+        shards: Int = 8
+    ) throws {
         guard workers.allSatisfy(\.isRunning) else { throw CampaignError.invalid("Campaign worker exited") }
         try gate(id + "-before")
         var observations: [ResourceObservation] = []
         if mode == "resource" { observations.append(try observe(workers)) }
         var clients: [Process] = []
         var files: [URL] = []
-        for shard in 0..<8 {
+        guard concurrency.isMultiple(of: shards) else {
+            throw CampaignError.invalid("Concurrency must divide evenly across shards")
+        }
+        for shard in 0..<shards {
             let file = directory.appendingPathComponent(id + "-shard-\(shard).json")
             files.append(file)
             var env = clientEnvironment(port: configuration.basePort + shard % workers.count, method: method, path: path,
-                                        connections: concurrency / 8, requests: configuration.requestsPerShard)
+                                        connections: concurrency / shards, requests: configuration.requestsPerShard)
             env["WHITETHROATED_BENCH_LATENCY"] = mode == "latency" ? "1" : "0"
             env["WHITETHROATED_BENCH_RUN_ID"] = id
             env["WHITETHROATED_BENCH_OUTPUT"] = file.path
@@ -288,7 +299,7 @@ private final class Campaign {
         try checkBaseline()
         let samples = try files.map { try JSONDecoder().decode(BenchmarkSample.self, from: Data(contentsOf: $0)) }
         let summary = try BenchmarkSummary(samples: samples)
-        guard summary.completed == configuration.requestsPerShard * 8, summary.connections == concurrency else {
+        guard summary.completed == configuration.requestsPerShard * shards, summary.connections == concurrency else {
             throw CampaignError.invalid("Unexpected aggregate request/connection count")
         }
         try save(summary, id + "-pooled.json")
@@ -303,6 +314,284 @@ private final class Campaign {
         fflush(nil)
     }
 
+    func verifyResponseStream(
+        worker: Process,
+        port: Int,
+        path: String,
+        chunked: Bool,
+        name: String
+    ) throws {
+        let body = directory.appendingPathComponent(
+            name + "-body.txt"
+        )
+        let headers = directory.appendingPathComponent(
+            name + "-headers.txt"
+        )
+        let arguments = [
+            "--http1.1",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "3",
+            "--request",
+            "GET",
+            "--output",
+            body.path,
+            "--dump-header",
+            headers.path,
+            "--write-out",
+            "%{http_code}",
+            "http://127.0.0.1:\(port)\(path)",
+        ]
+        let deadline = Date().addingTimeInterval(30)
+        var status: String
+
+        while true {
+            guard
+                !cancellation.cancelled,
+                worker.isRunning
+            else {
+                throw CampaignError.invalid(
+                    "Worker exited/interrupted during readiness"
+                )
+            }
+
+            do {
+                status = try capture(
+                    "/usr/bin/curl",
+                    arguments
+                )
+                break
+            } catch let error as CommandFailure {
+                guard
+                    error.status == 7,
+                    Date() < deadline
+                else {
+                    throw error
+                }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+
+        guard
+            status == "200",
+            try Data(contentsOf: body)
+                == Data("Hello, World!".utf8)
+        else {
+            throw CampaignError.invalid(
+                "Response status/body contract mismatch"
+            )
+        }
+
+        let text = try String(
+            contentsOf: headers,
+            encoding: .utf8
+        )
+        let fields = text
+            .components(separatedBy: "\r\n")
+            .compactMap {
+                line -> (String, String)? in
+                guard
+                    let colon = line.firstIndex(of: ":")
+                else {
+                    return nil
+                }
+                return (
+                    line[..<colon].lowercased(),
+                    line[
+                        line.index(after: colon)...
+                    ].trimmingCharacters(
+                        in: .whitespaces
+                    )
+                )
+            }
+        let lengths = fields
+            .filter { $0.0 == "content-length" }
+            .map(\.1)
+        let transfers = fields
+            .filter { $0.0 == "transfer-encoding" }
+            .map { $0.1.lowercased() }
+        let contentTypes = fields
+            .filter { $0.0 == "content-type" }
+            .map(\.1)
+
+        guard
+            contentTypes
+                == ["text/plain; charset=utf-8"]
+        else {
+            throw CampaignError.invalid(
+                "Response content-type contract mismatch"
+            )
+        }
+
+        if chunked {
+            guard
+                lengths.isEmpty,
+                transfers == ["chunked"]
+            else {
+                throw CampaignError.invalid(
+                    "Response chunked framing mismatch"
+                )
+            }
+        } else {
+            guard
+                lengths == ["13"],
+                transfers.isEmpty
+            else {
+                throw CampaignError.invalid(
+                    "Response content-length framing mismatch"
+                )
+            }
+        }
+    }
+
+    func runResponseStreamProfile() throws {
+        typealias Route = (
+            path: String,
+            label: String,
+            chunked: Bool
+        )
+
+        let baseRoutes: [Route] = [
+            (
+                "/response-stream-known",
+                "stream-known",
+                false
+            ),
+            (
+                "/response-stream",
+                "stream-chunked",
+                true
+            ),
+            (
+                "/response-stream-flush",
+                "stream-flush",
+                true
+            ),
+        ]
+
+        for round in 1...configuration.rounds {
+            let offset =
+                (round - 1) % baseRoutes.count
+            let routes =
+                Array(baseRoutes[offset...])
+                + Array(baseRoutes[..<offset])
+            let concurrencies =
+                round.isMultiple(of: 2)
+                ? Array(
+                    configuration
+                        .concurrencies
+                        .reversed()
+                )
+                : configuration.concurrencies
+            let prefix = "r\(round)-1x2"
+
+            try gate(prefix)
+            try requireFreePort(
+                configuration.basePort
+            )
+
+            let worker = try spawn(
+                binaries.appendingPathComponent(
+                    configuration.serverProduct
+                ),
+                environment: [
+                    "WHITETHROATED_HOST":
+                        "127.0.0.1",
+                    "WHITETHROATED_PORT":
+                        String(
+                            configuration.basePort
+                        ),
+                    "WHITETHROATED_THREADS": "2",
+                    "WHITETHROATED_RESPONSE_STREAM_BENCHMARKS":
+                        "1",
+                ],
+                log: prefix + "-worker-0.log"
+            )
+            var workers = [worker]
+            defer {
+                stop(workers)
+            }
+
+            for route in routes {
+                try verifyResponseStream(
+                    worker: worker,
+                    port: configuration.basePort,
+                    path: route.path,
+                    chunked: route.chunked,
+                    name:
+                        prefix
+                        + "-verify-"
+                        + route.label
+                )
+            }
+
+            try save(
+                try observe(workers),
+                prefix + "-idle.json"
+            )
+
+            for route in routes {
+                let warm = try spawn(
+                    binaries.appendingPathComponent(
+                        "whitethroated-benchmark-client"
+                    ),
+                    environment:
+                        clientEnvironment(
+                            port:
+                                configuration.basePort,
+                            method: "GET",
+                            path: route.path,
+                            connections: 8,
+                            requests:
+                                configuration
+                                .warmupRequests
+                        ),
+                    log:
+                        prefix
+                        + "-warm-"
+                        + route.label
+                        + ".log"
+                )
+                try wait(
+                    [warm],
+                    timeout: 30
+                )
+            }
+
+            for route in routes {
+                for concurrency in
+                    concurrencies
+                {
+                    for mode in [
+                        "throughput",
+                        "latency",
+                        "resource",
+                    ] {
+                        let id =
+                            prefix
+                            + "-"
+                            + route.label
+                            + "-c\(concurrency)-"
+                            + mode
+
+                        try runCell(
+                            workers: workers,
+                            method: "GET",
+                            path: route.path,
+                            concurrency:
+                                concurrency,
+                            mode: mode,
+                            id: id,
+                            shards:
+                                configuration.shards
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     func run() throws {
         guard !FileManager.default.fileExists(atPath: directory.path) else {
             throw CampaignError.invalid("Campaign output already exists; use a fresh directory")
@@ -310,11 +599,21 @@ private final class Campaign {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         outputCreated = true
         try save(configuration, "configuration.json")
+        let topologyCount =
+            configuration.profile == .responseStream ? 1 : 2
         try save([
-            "rounds": configuration.rounds, "shards": 8, "serverLoops": 8,
-            "clientThreadsPerShard": 1, "requestsPerShard": configuration.requestsPerShard,
+            "rounds": configuration.rounds,
+            "shards": configuration.shards,
+            "serverLoops": configuration.serverLoops,
+            "clientThreadsPerShard": 1,
+            "requestsPerShard": configuration.requestsPerShard,
             "warmupRequestsPerWorkerRoute": configuration.warmupRequests,
-            "cellCount": configuration.rounds * 2 * 3 * configuration.concurrencies.count * 3
+            "cellCount":
+                configuration.rounds
+                * topologyCount
+                * 3
+                * configuration.concurrencies.count
+                * 3
         ], "plan.json")
         baseline = try capture("/usr/bin/git", ["-C", configuration.root, "rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
         try saveText(baseline, "head.txt")
@@ -328,6 +627,17 @@ private final class Campaign {
                 throw CampaignError.invalid("Build release product before campaign: \(product)")
             }
         }
+        if configuration.profile == .responseStream {
+            try runResponseStreamProfile()
+            try saveText(
+                configuration.smoke
+                    ? "SMOKE ONLY — no performance claims\n"
+                    : "Complete; inspect variance and gates before claims\n",
+                "COMPLETE.txt"
+            )
+            return
+        }
+
         let routes = [("GET", "/", "root"), ("GET", "/user/42", "parameter"), ("POST", "/user", "post")]
         for round in 1...configuration.rounds {
             for workerCount in (round.isMultiple(of: 2) ? [4, 1] : [1, 4]) {

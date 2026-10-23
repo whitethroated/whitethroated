@@ -4,15 +4,44 @@ import XCTest
 final class CampaignSupportTests: XCTestCase {
     func testConfigurationKeepsFullMatrixAndExplicitSmoke() throws {
         let config = try CampaignConfiguration(environment: ["WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/new"], currentDirectory: "/project")
+        XCTAssertEqual(config.profile, .rest)
         XCTAssertEqual(config.rounds, 5)
         XCTAssertEqual(config.concurrencies, [64, 256, 512])
-        XCTAssertEqual(config.requestsPerShard * 8, 1_000_000)
+        XCTAssertEqual(config.shards, 8)
+        XCTAssertEqual(config.serverLoops, 8)
+        XCTAssertEqual(
+            config.requestsPerShard * config.shards,
+            1_000_000
+        )
+
+        let stream = try CampaignConfiguration(
+            environment: [
+                "WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/stream",
+                "WHITETHROATED_CAMPAIGN_PROFILE": "response-stream",
+            ],
+            currentDirectory: "/project"
+        )
+        XCTAssertEqual(stream.profile, .responseStream)
+        XCTAssertEqual(stream.rounds, 3)
+        XCTAssertEqual(stream.concurrencies, [64, 512])
+        XCTAssertEqual(stream.shards, 4)
+        XCTAssertEqual(stream.serverLoops, 2)
+        XCTAssertEqual(
+            stream.requestsPerShard * stream.shards,
+            500_000
+        )
+
         let smoke = try CampaignConfiguration(environment: ["WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/smoke", "WHITETHROATED_CAMPAIGN_SMOKE": "1"], currentDirectory: "/project")
         XCTAssertEqual(smoke.rounds, 1)
         XCTAssertEqual(smoke.concurrencies, [64])
         XCTAssertThrowsError(try CampaignConfiguration(environment: [:], currentDirectory: "/project"))
         XCTAssertThrowsError(try CampaignConfiguration(environment: ["WHITETHROATED_CAMPAIGN_OUTPUT": "relative"], currentDirectory: "/project"))
-        for (key, value) in [("WHITETHROATED_CAMPAIGN_SERVER", "unknown"), ("WHITETHROATED_CAMPAIGN_PORT", "65535"), ("WHITETHROATED_CAMPAIGN_SMOKE", "true")] {
+        for (key, value) in [
+            ("WHITETHROATED_CAMPAIGN_SERVER", "unknown"),
+            ("WHITETHROATED_CAMPAIGN_PORT", "65535"),
+            ("WHITETHROATED_CAMPAIGN_SMOKE", "true"),
+            ("WHITETHROATED_CAMPAIGN_PROFILE", "unknown"),
+        ] {
             XCTAssertThrowsError(try CampaignConfiguration(environment: ["WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/new", key: value], currentDirectory: "/project"))
         }
     }

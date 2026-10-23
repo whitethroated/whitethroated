@@ -7,16 +7,53 @@ public enum CampaignError: Error, CustomStringConvertible {
     }
 }
 
+
+public enum CampaignProfile: String, Codable, Sendable, Equatable {
+    case rest
+    case responseStream = "response-stream"
+}
+
 public struct CampaignConfiguration: Codable, Sendable {
     public let root: String
     public let output: String
     public let serverProduct: String
     public let basePort: Int
     public let smoke: Bool
-    public var rounds: Int { smoke ? 1 : 5 }
-    public var concurrencies: [Int] { smoke ? [64] : [64, 256, 512] }
-    public var requestsPerShard: Int { smoke ? 8_000 : 125_000 }
-    public var warmupRequests: Int { smoke ? 1_000 : 10_000 }
+    public let profile: CampaignProfile
+
+    public var rounds: Int {
+        if smoke {
+            return 1
+        }
+
+        return profile == .responseStream ? 3 : 5
+    }
+
+    public var concurrencies: [Int] {
+        if smoke {
+            return [64]
+        }
+
+        return profile == .responseStream
+            ? [64, 512]
+            : [64, 256, 512]
+    }
+
+    public var requestsPerShard: Int {
+        smoke ? 8_000 : 125_000
+    }
+
+    public var warmupRequests: Int {
+        smoke ? 1_000 : 10_000
+    }
+
+    public var shards: Int {
+        profile == .responseStream ? 4 : 8
+    }
+
+    public var serverLoops: Int {
+        profile == .responseStream ? 2 : 8
+    }
 
     public init(environment: [String: String], currentDirectory: String) throws {
         root = environment["WHITETHROATED_CAMPAIGN_ROOT"] ?? currentDirectory
@@ -39,6 +76,16 @@ public struct CampaignConfiguration: Codable, Sendable {
             throw CampaignError.invalid("SMOKE must be 0 or 1")
         }
         smoke = smokeText == "1"
+
+        let profileText =
+            environment["WHITETHROATED_CAMPAIGN_PROFILE"]
+            ?? CampaignProfile.rest.rawValue
+        guard let profile = CampaignProfile(rawValue: profileText) else {
+            throw CampaignError.invalid(
+                "PROFILE must be rest or response-stream"
+            )
+        }
+        self.profile = profile
     }
 }
 
