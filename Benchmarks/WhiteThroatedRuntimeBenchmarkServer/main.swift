@@ -223,6 +223,26 @@ private let dispatcher = RuntimeDispatcher(
                         }
                     )
 
+                case "/response-stream-ab-known":
+                    return .sync(
+                        RuntimeSyncAction { _ in
+                            streamResponse(
+                                knownLength: true,
+                                flushFirstChunk: false
+                            )
+                        }
+                    )
+
+                case "/response-stream-ab":
+                    return .sync(
+                        RuntimeSyncAction { _ in
+                            streamResponse(
+                                knownLength: false,
+                                flushFirstChunk: false
+                            )
+                        }
+                    )
+
                 case "/response-stream-flush":
                     return .sync(
                         RuntimeSyncAction { _ in
