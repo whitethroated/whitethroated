@@ -631,6 +631,46 @@ final class ObservabilityLifecycleTests:
         )
     }
 
+    func testShutdownRunsCleanupsAtMostOnce() async throws {
+        let order = EventBox<Int>()
+        let controller =
+            LifecycleController()
+        let application =
+            Application()
+
+        controller.registerCleanup {
+            order.append(1)
+        }
+        controller.registerCleanup {
+            order.append(2)
+        }
+
+        try await controller.shutdown(
+            application: application,
+            drainTimeoutNanoseconds: 0
+        )
+
+        // A second shutdown must not run the teardown cleanups
+        // again (nor call `Application.shutdown` a second time):
+        // shutdown is at-most-once and the second call returns
+        // without further teardown work.
+        try await controller.shutdown(
+            application: application,
+            drainTimeoutNanoseconds: 0
+        )
+
+        XCTAssertEqual(
+            order.values,
+            [2, 1]
+        )
+        XCTAssertEqual(
+            controller
+                .snapshot()
+                .phase,
+            .stopped
+        )
+    }
+
     private func makeRequest(
         method:
             NIOHTTP1.HTTPMethod = .GET,

@@ -267,13 +267,28 @@ public struct MigrationRunner:
                         ($0.id, $0)
                     }
             )
-        let appliedByID =
-            Dictionary(
-                uniqueKeysWithValues:
-                    applied.map {
-                        ($0.id, $0)
-                    }
-            )
+        // The applied history comes from the database, so duplicate
+        // records for one identifier are a possible corrupt
+        // history condition; detect them instead of crashing in
+        // the unique-dictionary initializer.
+        var appliedByID:
+            [String: AppliedMigration] = [:]
+        appliedByID.reserveCapacity(
+            applied.count
+        )
+
+        for record in applied {
+            guard appliedByID[record.id]
+                == nil
+            else {
+                throw MigrationError
+                    .duplicateAppliedMigration(
+                        record.id
+                    )
+            }
+
+            appliedByID[record.id] = record
+        }
 
         for record in applied {
             guard let migration =
@@ -318,6 +333,13 @@ public struct MigrationRunner:
                     migration
                 )
             }
+        }
+
+        // Apply pending migrations in ascending identifier
+        // order regardless of how the caller ordered the
+        // input, so the recorded history is deterministic.
+        pending.sort {
+            $0.id < $1.id
         }
 
         return (

@@ -53,6 +53,11 @@ public final class LifecycleController:
             LifecyclePhase = .accepting
         var activeRequests = 0
         var cleanups: [CleanupEntry] = []
+        /// Owned by the single shutdown call that takes the
+        /// cleanups snapshot; makes shutdown at-most-once so
+        /// second (or concurrent) calls cannot run teardown
+        /// cleanups twice.
+        var shutdownStarted = false
     }
 
     private let state =
@@ -192,12 +197,33 @@ public final class LifecycleController:
             )
         }
 
+        // Take at-most-once ownership of the teardown: the call
+        // that atomically claims the cleanups snapshot runs it;
+        // second (or concurrent) shutdown calls return without
+        // running cleanups and without calling
+        // `application.shutdown()` twice. Return does not imply
+        // that another call's teardown has finished yet.
         let cleanups =
             state.withLockedValue {
-                Array(
-                    $0.cleanups.reversed()
+                state -> [CleanupEntry]? in
+
+                guard !state.shutdownStarted
+                else {
+                    return nil
+                }
+
+                state.shutdownStarted = true
+
+                return Array(
+                    state.cleanups.reversed()
                 )
             }
+
+        guard
+            let cleanups
+        else {
+            return
+        }
 
         var firstError: Error?
 

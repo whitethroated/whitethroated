@@ -8,6 +8,7 @@ public enum DatabaseRepositoryError:
     case emptyColumns
     case duplicateColumn(String)
     case primaryKeyNotInColumns(String)
+    case invalidIdentifier(String)
     case missingModelValue(String)
     case noMutableColumns
 }
@@ -62,6 +63,21 @@ public struct DatabaseRepository<Model: DatabaseModel>:
                 .primaryKeyNotInColumns(
                     primaryKey
                 )
+        }
+
+        // Validate identifiers before quoting: quoting
+        // precondition-fails on empty or NUL-bearing values,
+        // and setup-time schema mistakes must surface as
+        // catchable errors instead of aborting the process.
+        try Self.ensureValidIdentifier(
+            Model.tableName
+        )
+        try Self.ensureValidIdentifier(
+            primaryKey
+        )
+        for column in columns {
+            try Self
+                .ensureValidIdentifier(column)
         }
 
         let mutable =
@@ -243,6 +259,18 @@ public struct DatabaseRepository<Model: DatabaseModel>:
                 ]
             )
         )
+    }
+
+    private static func ensureValidIdentifier(
+        _ identifier: String
+    ) throws {
+        guard
+            !identifier.isEmpty,
+            !identifier.utf8.contains(0)
+        else {
+            throw DatabaseRepositoryError
+                .invalidIdentifier(identifier)
+        }
     }
 
     private static func placeholders(
