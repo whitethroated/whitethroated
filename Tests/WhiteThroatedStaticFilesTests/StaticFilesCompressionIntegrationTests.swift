@@ -150,7 +150,7 @@ final class StaticFilesCompressionIntegrationTests:
     }
 
     private func makeRequest(
-        method: HTTPMethod,
+        method: NIOHTTP1.HTTPMethod,
         path: String,
         headers: HTTPHeaders
     ) -> Request {
