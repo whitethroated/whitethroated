@@ -34,3 +34,14 @@ api-ergonomics + routing-request-path + testing-regression; add benchmark-valida
 
 Streaming work:
 swiftnio-http-runtime + http-correctness-security + runtime-performance + benchmark-validation + testing-regression.
+
+## Repository integration
+
+For branch creation, commits, pull requests, CI triage, merge readiness, and
+parallel-agent coordination, use:
+
+- `skills/agentic-git-workflow/SKILL.md`
+
+This skill applies whenever repository state changes, in addition to the
+task-specific implementation skills above.
+
