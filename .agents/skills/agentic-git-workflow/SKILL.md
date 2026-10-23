@@ -217,6 +217,36 @@ When CI fails:
 
 A green CI run on an old PR head is not evidence for a newer head.
 
+## CI provider fallback
+
+GitHub Actions is not the only valid CI provider when GitHub-hosted execution is
+blocked by account billing, usage limits, or a verified infrastructure outage.
+
+The current automatic fallback is CircleCI, configured in
+`.circleci/config.yml`.
+
+CircleCI may satisfy the current-head CI merge gate when:
+
+- it runs the repository's equivalent release validation contract;
+- it validates the exact PR head being reviewed;
+- its required validation job is green;
+- integration freshness has been checked;
+- no task-specific gate is omitted.
+
+A GitHub Actions run that fails before runner assignment because account usage
+or billing prevents execution is an infrastructure failure. Classify it as such;
+do not treat it as a code failure and do not repeatedly rerun it hoping for a
+different result.
+
+An infrastructure failure is also not a green check. Merge only after the
+equivalent configured fallback provider validates the current head.
+
+When multiple CI providers are available, do not require duplicate hosted runs
+unless repository policy explicitly calls for both. Prefer one authoritative
+current-head validation plus task-specific evidence.
+
+See `docs/circleci.md` for setup, parity, and credit-discipline rules.
+
 ## Performance-sensitive changes
 
 Any request-time, transport, routing, allocation, serialization, middleware,
