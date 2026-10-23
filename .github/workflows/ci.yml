@@ -177,5 +177,8 @@ jobs:
       - name: Build Swift benchmark merger
         run: swift build -c release --product whitethroated-benchmark-merge
 
+      - name: Build Swift A/B comparator
+        run: swift build -c release --product whitethroated-benchmark-ab-compare
+
       - name: Build Swift topology campaign runner
         run: swift build -c release --product whitethroated-benchmark-campaign

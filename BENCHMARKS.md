@@ -297,6 +297,29 @@ implementation while preserving path, headers, body, write count, flush
 placement, threads, and client settings. This makes before/after measurements
 comparable without changing request-target bytes.
 
+Compare two complete non-smoke response-stream campaign directories with the
+Swift-only A/B comparator:
+
+```bash
+swift build -c release --product whitethroated-benchmark-ab-compare
+
+.build/release/whitethroated-benchmark-ab-compare \
+  /absolute/path/to/baseline-campaign \
+  /absolute/path/to/candidate-campaign \
+  > /absolute/path/to/comparison.json
+```
+
+The comparator rejects smoke runs and incompatible campaign configurations. It
+pairs rounds by route and concurrency, then reports baseline median, candidate
+median, and the median paired percent change for throughput, p50/p90/p99,
+p99.999, maximum latency, requests per CPU-second, and sampled peak aggregate
+RSS. Positive throughput/CPU-efficiency deltas favor the candidate; negative
+latency/RSS deltas favor the candidate. Retained async routes are labeled
+`control` and the two `/response-stream-ab*` routes are labeled `candidate`.
+The tool deliberately does not impose a noisy pass/fail threshold; interpret
+candidate movement only when the unchanged controls show an acceptably quiet
+host and the effect exceeds ordinary run-to-run variance.
+
 The `whitethroated-runtime-benchmark-server` exposes the same five routes
 under the same flag. Use the three-way raw/runtime/framework matrix to locate
 the gap: runtime minus raw covers the Tier 1 transport and runtime response

@@ -16,6 +16,10 @@ let package = Package(
             name: "whitethroated-benchmark-merge",
             targets: ["BenchmarkResultMerge"]
         ),
+        .executable(
+            name: "whitethroated-benchmark-ab-compare",
+            targets: ["BenchmarkABCompare"]
+        ),
         .library(
             name: "WhiteThroated",
             targets: ["WhiteThroated"]
@@ -174,6 +178,11 @@ let package = Package(
             name: "BenchmarkResultMerge",
             dependencies: ["BenchmarkResults"],
             path: "Benchmarks/BenchmarkResultMerge"
+        ),
+        .executableTarget(
+            name: "BenchmarkABCompare",
+            dependencies: ["BenchmarkResults"],
+            path: "Benchmarks/BenchmarkABCompare"
         ),
         .testTarget(name: "BenchmarkResultsTests", dependencies: ["BenchmarkResults"]),
         .testTarget(
