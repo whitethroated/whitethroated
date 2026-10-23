@@ -402,6 +402,110 @@ final class MigrationRunnerTests: XCTestCase {
         }
     }
 
+    func testDuplicateAppliedHistoryRowsAreRejected()
+        async throws
+    {
+        // Duplicate rows for one identifier in the database
+        // history (a corrupt history state, e.g. from a lost
+        // unique constraint) must surface as an explicit
+        // migration error instead of crashing the unique-
+        // dictionary initializer.
+        let migration =
+            Migration(
+                id: "001",
+                statements: ["SELECT 1"]
+            )
+        let database =
+            makeHistoryDatabase(
+                rows: [
+                    [
+                        "id": .string("001"),
+                        "checksum":
+                            .string(
+                                migration
+                                    .checksum
+                            ),
+                    ],
+                    [
+                        "id": .string("001"),
+                        "checksum":
+                            .string(
+                                migration
+                                    .checksum
+                            ),
+                    ],
+                ]
+            )
+        let runner = try MigrationRunner(
+            database: database
+        )
+
+        do {
+            _ = try await runner.migrate([
+                migration
+            ])
+            XCTFail(
+                "Expected duplicate applied error"
+            )
+        } catch {
+            XCTAssertEqual(
+                error as? MigrationError,
+                .duplicateAppliedMigration(
+                    "001"
+                )
+            )
+        }
+    }
+
+    func testPendingAppliesInAscendingIdentifierOrder()
+        async throws
+    {
+        let store =
+            MigrationStore()
+        let database =
+            makeDatabase(store: store)
+        let runner = try MigrationRunner(
+            database: database,
+            clock: { 1_000 }
+        )
+        let migrations = [
+            Migration(
+                id: "003",
+                statements: ["SELECT 3"]
+            ),
+            Migration(
+                id: "001",
+                statements: ["SELECT 1"]
+            ),
+            Migration(
+                id: "002",
+                statements: ["SELECT 2"]
+            ),
+        ]
+
+        let status = try await runner.status(migrations)
+        XCTAssertEqual(status.pending, ["001", "002", "003"])
+        let dryRun = try await runner.migrate(migrations, dryRun: true)
+        XCTAssertEqual(dryRun.applied, ["001", "002", "003"])
+        XCTAssertFalse(database.recordedQueries.contains { $0.sql == "BEGIN" })
+
+        let report =
+            try await runner.migrate(migrations)
+
+        // Pending migrations apply deterministically in
+        // ascending identifier order regardless of the caller's
+        // input ordering.
+        XCTAssertEqual(
+            report.applied,
+            ["001", "002", "003"]
+        )
+        XCTAssertEqual(report.skipped, [])
+        XCTAssertEqual(
+            database.recordedQueries.map(\.sql).filter { $0.hasPrefix("SELECT ") && !$0.contains("\"id\"") },
+            ["SELECT 1", "SELECT 2", "SELECT 3"]
+        )
+    }
+
     private func makeDatabase(
         store: MigrationStore
     ) -> ScriptedDatabase {
@@ -450,6 +554,23 @@ final class MigrationRunnerTests: XCTestCase {
             if query.sql.contains("FAIL") {
                 throw TestDatabaseError
                     .statementFailed
+            }
+
+            return .empty
+        }
+    }
+
+    private func makeHistoryDatabase(
+        rows: [DatabaseRow]
+    ) -> ScriptedDatabase {
+        ScriptedDatabase { query in
+
+            if query.sql.hasPrefix(
+                "SELECT \"id\""
+            ) {
+                return DatabaseQueryResult(
+                    rows: rows
+                )
             }
 
             return .empty

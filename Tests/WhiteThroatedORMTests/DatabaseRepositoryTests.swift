@@ -138,6 +138,42 @@ private struct ImmutableModel: DatabaseModel {
     }
 }
 
+private struct EmptyColumnNameModel: DatabaseModel {
+    typealias ID = Int
+
+    static let tableName = "quoted"
+    static let primaryKeyColumn = "id"
+    static let columns = ["id", ""]
+
+    var id: Int { 0 }
+
+    init(databaseRow: DatabaseRow) throws {}
+
+    func databaseValues() throws
+        -> [String: DatabaseValue]
+    {
+        ["id": .int(0)]
+    }
+}
+
+private struct NulTableNameModel: DatabaseModel {
+    typealias ID = Int
+
+    static let tableName = "null-byte\u{0}table"
+    static let primaryKeyColumn = "id"
+    static let columns = ["id", "name"]
+
+    var id: Int { 0 }
+
+    init(databaseRow: DatabaseRow) throws {}
+
+    func databaseValues() throws
+        -> [String: DatabaseValue]
+    {
+        ["id": .int(0)]
+    }
+}
+
 final class DatabaseRepositoryTests: XCTestCase {
     func testSelectAllUsesPrecomputedQuotedSQL()
         async throws
@@ -424,6 +460,35 @@ final class DatabaseRepositoryTests: XCTestCase {
             XCTAssertEqual(
                 $0 as? DatabaseRepositoryError,
                 .noMutableColumns
+            )
+        }
+
+        // Identifier mistakes surface as catchable errors
+        // before quoting, which would otherwise
+        // precondition-fail and abort the process.
+        XCTAssertThrowsError(
+            try DatabaseRepository(
+                connection: database,
+                model: EmptyColumnNameModel.self
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? DatabaseRepositoryError,
+                .invalidIdentifier("")
+            )
+        }
+
+        XCTAssertThrowsError(
+            try DatabaseRepository(
+                connection: database,
+                model: NulTableNameModel.self
+            )
+        ) {
+            XCTAssertEqual(
+                $0 as? DatabaseRepositoryError,
+                .invalidIdentifier(
+                    "null-byte\u{0}table"
+                )
             )
         }
     }

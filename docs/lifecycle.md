@@ -37,6 +37,11 @@ for the active count to reach zero or for the configured drain timeout to
 expire, then runs cleanup callbacks in reverse registration order and invokes
 the application's existing shutdown path.
 
+Cleanup and application teardown run at most once per controller, including
+concurrent shutdown calls. A subsequent call skips teardown; it does not join
+or certify completion of another call's cleanup. The owner runs all callbacks
+and rethrows the first cleanup error after application teardown.
+
 The drain wait is shutdown-only work and does not create per-request
 `Task`/future hops. Request accounting uses a small lock-protected counter.
 

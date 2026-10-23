@@ -134,6 +134,7 @@ public enum MigrationError:
     Equatable
 {
     case duplicateID(String)
+    case duplicateAppliedMigration(String)
     case checksumMismatch(
         id: String,
         recorded: String,
