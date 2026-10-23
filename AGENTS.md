@@ -31,6 +31,7 @@ Before modifying runtime code, read:
 - the relevant source files
 - nearby tests
 - the relevant skill under `.agents/skills/`
+- `.agents/DOMAIN-SKILLS.md` when optional modules, persistence, identity/state, platform portability, or external protocol contracts are involved
 
 Before modifying performance-sensitive code, also read:
 
