@@ -1586,6 +1586,185 @@ final class IdentityStateTests:
         }
     }
 
+    func testAuthRateLimitPassesUnauthenticatedRequestsThroughByDefault() {
+        // The wrapper binds limiter keys to authenticated principals; a
+        // request that fails or omits authentication belongs to the
+        // authenticator stack, not to this limiter. The default key-failure
+        // behavior therefore passes it through instead of answering with a
+        // limiter 429 before the real 401/403 flow can run.
+        let auth =
+            Authenticator.bearer {
+                token,
+                _ in
+
+                guard
+                    token == "secret-token"
+                else {
+                    return nil
+                }
+
+                return AuthPrincipal(
+                    id: "user-42"
+                )
+            }
+        let limiter =
+            AuthRateLimit
+                .fixedWindow(
+                    authenticator: auth,
+                    keyDeriver:
+                        AuthRateLimitKeyDeriver(
+                            secret: secretB
+                        ),
+                    configuration:
+                        FixedWindowRateLimitConfiguration(
+                            limit: 1,
+                            windowSeconds:
+                                60,
+                            emitHeaders:
+                                false
+                        ),
+                    clock:
+                        RateLimitClock(
+                            nowNanoseconds: {
+                                1
+                            }
+                        )
+                )
+        let request =
+            makeRequest()
+
+        XCTAssertNil(
+            limiter.decision(
+                for: request
+            )
+        )
+
+        guard
+            case .response(
+                let response
+            ) = limiter.respond(
+                to: request,
+                next: { _ in
+                    .response(
+                        .text(
+                            "passed-through"
+                        )
+                    )
+                }
+            )
+        else {
+            return XCTFail(
+                "Expected terminal response"
+            )
+        }
+
+        XCTAssertEqual(
+            response.status,
+            .ok
+        )
+
+        guard
+            case .text(
+                let body
+            ) = response.body
+        else {
+            return XCTFail(
+                "Expected text body"
+            )
+        }
+
+        XCTAssertEqual(
+            body,
+            "passed-through"
+        )
+    }
+
+    func testAuthRateLimitRejectsWhenExplicitlyFailClosed() {
+        // The opt-in keeps the fail-closed shape: keyless requests get the
+        // limiter 429 and the wrapped next handler never runs.
+        let auth =
+            Authenticator.bearer {
+                token,
+                _ in
+
+                guard
+                    token == "secret-token"
+                else {
+                    return nil
+                }
+
+                return AuthPrincipal(
+                    id: "user-42"
+                )
+            }
+        let limiter =
+            AuthRateLimit
+                .fixedWindow(
+                    authenticator: auth,
+                    keyDeriver:
+                        AuthRateLimitKeyDeriver(
+                            secret: secretB
+                        ),
+                    configuration:
+                        FixedWindowRateLimitConfiguration(
+                            limit: 1,
+                            windowSeconds:
+                                60,
+                            emitHeaders:
+                                false
+                        ),
+                    keyFailureBehavior:
+                        .reject,
+                    clock:
+                        RateLimitClock(
+                            nowNanoseconds: {
+                                1
+                            }
+                        )
+                )
+        let request =
+            makeRequest()
+
+        guard
+            case .response(
+                let response
+            ) = limiter.respond(
+                to: request,
+                next: { _ in
+                    .response(
+                        .text(
+                            "should-not-run"
+                        )
+                    )
+                }
+            )
+        else {
+            return XCTFail(
+                "Expected terminal response"
+            )
+        }
+
+        XCTAssertEqual(
+            response.status,
+            .tooManyRequests
+        )
+
+        guard
+            case .text(
+                let body
+            ) = response.body
+        else {
+            return XCTFail(
+                "Expected text body"
+            )
+        }
+
+        XCTAssertNotEqual(
+            body,
+            "should-not-run"
+        )
+    }
+
     private func withEventLoop(
         _ body:
             (EventLoop) async throws
