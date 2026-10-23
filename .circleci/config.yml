@@ -222,7 +222,7 @@ jobs:
           command: swift build -c release --product whitethroated-benchmark-campaign
 
       - run:
-          name: Smoke response-stream campaign harness
+          name: Smoke interleaved response-stream A/B harness
           command: |
             set -eu
 
@@ -231,11 +231,16 @@ jobs:
 
             WHITETHROATED_CAMPAIGN_PROFILE=response-stream \
             WHITETHROATED_CAMPAIGN_SMOKE=1 \
+            WHITETHROATED_CAMPAIGN_AB_PEER_ROOT="$PWD" \
             WHITETHROATED_CAMPAIGN_OUTPUT="$output" \
               .build/release/whitethroated-benchmark-campaign
 
-            test -f "$output/COMPLETE.txt"
-            grep -q "SMOKE ONLY" "$output/COMPLETE.txt"
+            test -f "$output/baseline/COMPLETE.txt"
+            test -f "$output/candidate/COMPLETE.txt"
+            test -f "$output/PAIRED_COMPLETE.txt"
+            grep -q "SMOKE ONLY" "$output/baseline/COMPLETE.txt"
+            grep -q "SMOKE ONLY" "$output/candidate/COMPLETE.txt"
+            grep -q "SMOKE ONLY" "$output/PAIRED_COMPLETE.txt"
           no_output_timeout: 20m
 
 workflows:
