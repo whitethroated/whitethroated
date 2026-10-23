@@ -234,6 +234,105 @@ final class ByteRangeTransportTests: XCTestCase {
         }
     }
 
+    func testParserOverflowEdgesStayInSafeDirection() throws {
+        // Overflowed/boundary decimal syntax must never wrap around
+        // into a wrong satisfiable range and must never crash. The
+        // parser is bounds-checked, so values beyond Int.max are
+        // rejected as malformed; consumers map .malformed to the
+        // "ignore the Range header" direction (full representation).
+        func result(
+            _ range: String,
+            _ totalLength: Int
+        ) -> ByteRangeResult {
+            var head = HTTPRequestHead(
+                version: .http1_1,
+                method: .GET,
+                uri: "/file"
+            )
+            head.headers.add(
+                name: "range",
+                value: range
+            )
+            let request = Request(
+                head: head,
+                body: ByteBufferAllocator()
+                    .buffer(capacity: 0)
+            )
+
+            return request.byteRange(
+                totalLength: totalLength
+            )
+        }
+
+        // Decimal overflow: rejected, no wraparound.
+        XCTAssertEqual(
+            result("bytes=99999999999999999999999999-0", 1_000),
+            .malformed
+        )
+        XCTAssertEqual(
+            result("bytes=0-99999999999999999999999999", 1_000),
+            .malformed
+        )
+        XCTAssertEqual(
+            result("bytes=-99999999999999999999999999", 1_000),
+            .malformed
+        )
+
+        // Non-digital garbage stays malformed.
+        XCTAssertEqual(
+            result("bytes=+0-100", 1_000),
+            .malformed
+        )
+
+        // A suffix within Int range that exceeds the
+        // representation saturates to the whole representation.
+        XCTAssertEqual(
+            result("bytes=-9223372036854775807", 1_000),
+            .satisfiable(0..<1_000)
+        )
+
+        // A first position that cannot occur (with or without a
+        // last position) is unsatisfiable before any last-position
+        // logic runs.
+        XCTAssertEqual(
+            result("bytes=9223372036854775806-", 1_000),
+            .unsatisfiable
+        )
+        XCTAssertEqual(
+            result("bytes=1000-0", 1_000),
+            .unsatisfiable
+        )
+
+        // A last position within Int range saturates at the
+        // representation end and never overflows the upper bound.
+        XCTAssertEqual(
+            result("bytes=0-9223372036854775807", 1_000),
+            .satisfiable(0..<1_000)
+        )
+        XCTAssertEqual(
+            result("bytes=999-999", 1_000),
+            .satisfiable(999..<1_000)
+        )
+
+        // Suffix zero is empty: treated as malformed so the
+        // transport ignores the header instead of building a
+        // zero-length 206.
+        XCTAssertEqual(
+            result("bytes=-0", 1_000),
+            .malformed
+        )
+
+        // A zero-length representation is never satisfiable.
+        XCTAssertEqual(
+            result("bytes=0-", 0),
+            .unsatisfiable
+        )
+        XCTAssertEqual(
+            result("bytes=-5", 0),
+            .unsatisfiable
+        )
+    }
+
     private func makeApp(
         region: FileRegion
     ) -> Application {
