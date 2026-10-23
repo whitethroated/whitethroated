@@ -52,10 +52,11 @@ public struct PairedBenchmarkMetricComparison:
 
         pairedMedianPercentChange = Self.median(
             zip(baseline, candidate).map {
-                base,
-                value in
+                pair in
 
-                (value / base - 1) * 100
+                let (base, value) = pair
+
+                return (value / base - 1) * 100
             }
         )
     }
