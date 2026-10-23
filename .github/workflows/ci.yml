@@ -1,10 +1,11 @@
 name: CI
 
+# Automatic GitHub-hosted execution is temporarily disabled while the account
+# is blocked by GitHub Actions usage/billing limits. CircleCI mirrors this
+# validation automatically. Keep this workflow for manual parity validation
+# after GitHub-hosted capacity becomes available again.
 on:
-  push:
-    branches:
-      - main
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
