@@ -320,6 +320,70 @@ The tool deliberately does not impose a noisy pass/fail threshold; interpret
 candidate movement only when the unchanged controls show an acceptably quiet
 host and the effect exceeds ordinary run-to-run variance.
 
+For performance-sensitive A/B work, prefer the interleaved paired mode over
+running one complete baseline campaign followed by one complete candidate
+campaign. Prepare two clean worktrees on the same host, build the same campaign
+and client harness plus the selected server product in both roots, then launch
+the runner from the baseline worktree with the candidate root supplied
+explicitly:
+
+```bash
+# Baseline worktree: exact accepted baseline commit.
+cd /absolute/path/to/baseline
+swift build -c release --product whitethroated-benchmark-server
+swift build -c release --product whitethroated-benchmark-client
+swift build -c release --product whitethroated-benchmark-campaign
+
+# Candidate worktree: exact candidate commit.
+cd /absolute/path/to/candidate
+swift build -c release --product whitethroated-benchmark-server
+
+# Run from the baseline worktree.
+cd /absolute/path/to/baseline
+WHITETHROATED_CAMPAIGN_PROFILE=response-stream \
+WHITETHROATED_CAMPAIGN_AB_PEER_ROOT=/absolute/path/to/candidate \
+WHITETHROATED_CAMPAIGN_OUTPUT=/tmp/wt-stream-ab-framework \
+  .build/release/whitethroated-benchmark-campaign
+```
+
+Non-smoke paired mode requires distinct commits and rejects dirty worktrees,
+different `Package.resolved` files, or changes to `Package.swift`, the
+campaign runner, benchmark result support, or the benchmark client. Those
+surfaces are apparatus and must remain identical. Only the selected server-side
+treatment may differ.
+
+The paired runner creates comparator-compatible directories:
+
+```text
+/tmp/wt-stream-ab-framework/
+  baseline/
+  candidate/
+  paired-order.txt
+  paired-heads.json
+  PAIRED_COMPLETE.txt
+```
+
+Measured round order alternates baseline/candidate to reduce campaign-level
+drift: round 1 baseline -> candidate, round 2 candidate -> baseline, round 3
+baseline -> candidate. Every side still uses the normal rotated route and
+concurrency order inside its round. Run framework, runtime, and raw-NIO as
+separate paired campaigns by setting `WHITETHROATED_CAMPAIGN_SERVER` to the
+matching product. For runtime/raw runs, build that selected server product in
+both roots before launching the paired campaign.
+
+Compare the generated subdirectories directly:
+
+```bash
+.build/release/whitethroated-benchmark-ab-compare \
+  /tmp/wt-stream-ab-framework/baseline \
+  /tmp/wt-stream-ab-framework/candidate \
+  > /tmp/wt-stream-ab-framework-comparison.json
+```
+
+CircleCI uses paired same-root smoke mode only to exercise orchestration,
+framing, cleanup, and output generation. Same-root execution is accepted only
+when `WHITETHROATED_CAMPAIGN_SMOKE=1`; it is never performance evidence.
+
 The `whitethroated-runtime-benchmark-server` exposes the same five routes
 under the same flag. Use the three-way raw/runtime/framework matrix to locate
 the gap: runtime minus raw covers the Tier 1 transport and runtime response
