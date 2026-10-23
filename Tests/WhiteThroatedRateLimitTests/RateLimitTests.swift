@@ -240,6 +240,146 @@ final class RateLimitTests: XCTestCase {
         )
     }
 
+    func testCapacityOverflowPrunesABatchOfOldestKeys() {
+        let clock = ManualClock()
+        let limiter =
+            FixedWindowRateLimiter(
+                configuration:
+                    FixedWindowRateLimitConfiguration(
+                        limit: 10,
+                        windowSeconds: 60,
+                        maxKeys: 24
+                    ),
+                clock: RateLimitClock {
+                    clock.now
+                },
+                keyResolver: {
+                    $0.header("x-key")
+                }
+            )
+
+        for index in 0..<24 {
+            clock.advance(seconds: 1)
+            _ = limiter.decision(
+                for: makeRequest(
+                    key: "k\(index)"
+                )
+            )!
+        }
+
+        XCTAssertEqual(
+            limiter.storedKeyCount,
+            24
+        )
+
+        // The first overflow insert prunes a batch
+        // (maxKeys/8 = 3) of least-recently-touched
+        // keys in one pass per batch instead of
+        // scanning the whole table per key.
+        clock.advance(seconds: 1)
+        _ = limiter.decision(
+            for: makeRequest(
+                key: "k24"
+            )
+        )!
+
+        XCTAssertEqual(
+            limiter.storedKeyCount,
+            22
+        )
+
+        // k1 and k2 were pruned together with k0:
+        // a fresh-key read for them starts a new
+        // window instead of carrying one earlier
+        // request (pre-fix behavior evicted only k0
+        // and kept k1/k2 counting toward 8 remaining).
+        clock.advance(seconds: 1)
+        let k1 =
+            limiter.decision(
+                for: makeRequest(
+                    key: "k1"
+                )
+            )!
+
+        XCTAssertEqual(
+            limiter.storedKeyCount,
+            23
+        )
+        XCTAssertTrue(k1.allowed)
+        XCTAssertEqual(
+            k1.remaining,
+            9
+        )
+
+        clock.advance(seconds: 1)
+        let k2 =
+            limiter.decision(
+                for: makeRequest(
+                    key: "k2"
+                )
+            )!
+
+        XCTAssertEqual(
+            limiter.storedKeyCount,
+            24
+        )
+        XCTAssertTrue(k2.allowed)
+        XCTAssertEqual(
+            k2.remaining,
+            9
+        )
+
+        // An untouched key keeps carrying its window;
+        // hit-path reads never trigger pruning.
+        let survivor =
+            limiter.decision(
+                for: makeRequest(
+                    key: "k3"
+                )
+            )!
+
+        XCTAssertTrue(
+            survivor.allowed
+        )
+        XCTAssertEqual(
+            survivor.remaining,
+            8
+        )
+    }
+
+    func testStoredKeysStayBoundedUnderKeyFlood() {
+        let clock = ManualClock()
+        let limiter =
+            FixedWindowRateLimiter(
+                configuration:
+                    FixedWindowRateLimitConfiguration(
+                        limit: 1,
+                        windowSeconds: 60,
+                        maxKeys: 8
+                    ),
+                clock: RateLimitClock {
+                    clock.now
+                },
+                keyResolver: {
+                    $0.header("x-key")
+                }
+            )
+
+        for index in 0..<200 {
+            clock.advance(seconds: 1)
+            _ = limiter.decision(
+                for: makeRequest(
+                    key: "k\(index)"
+                )
+            )!
+
+            XCTAssertLessThanOrEqual(
+                limiter.storedKeyCount,
+                8
+            )
+        }
+    }
+
     func testMissingKeyRejectsByDefaultWithoutCallingNext() {
         let nextCalls = Counter()
 
