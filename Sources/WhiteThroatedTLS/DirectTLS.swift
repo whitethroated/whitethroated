@@ -25,6 +25,11 @@ public enum DirectTLSMinimumVersion:
 /// The expensive `NIOSSLContext` is created before the server starts.
 /// Accepted connections only allocate one `NIOSSLServerHandler` before
 /// the HTTP pipeline is installed.
+///
+/// The runtime serves HTTP/1.1 only, so `applicationProtocols` may
+/// advertise `http/1.1` exclusively; any other ALPN identifier — most
+/// notably `h2` — is rejected during setup instead of being negotiated
+/// into connections the pipeline cannot serve.
 public struct DirectTLS: Sendable {
     public let context: NIOSSLContext
 
@@ -185,6 +190,10 @@ public struct DirectTLS: Sendable {
                     $0.isASCII
                 },
                 "TLS ALPN identifiers must be ASCII"
+            )
+            precondition(
+                value == "http/1.1",
+                "TLS ALPN identifier '\(value)' cannot be served: the runtime speaks HTTP/1.1 only"
             )
         }
     }
