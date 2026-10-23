@@ -599,6 +599,7 @@ let package = Package(
             name: "WhiteThroatedStaticFilesTests",
             dependencies: [
                 "WhiteThroatedStaticFiles",
+                "WhiteThroatedCompression",
                 "WhiteThroated",
                 .product(
                     name: "NIOCore",
