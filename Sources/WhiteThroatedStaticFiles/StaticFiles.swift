@@ -366,50 +366,100 @@ public final class StaticFiles: @unchecked Sendable {
                 )
             )
 
+            // The directory walk is complete: release every
+            // directory descriptor now on both success and
+            // failure paths.
             for directory in
                 openedDirectories.reversed()
             {
-                try? await directory.close()
-            }
-
-            let info = try await file.info()
-
-            guard info.type == .regular else {
-                try? await file.close()
-                throw StaticFileOpenError.notRegular
-            }
-
-            guard
-                info.size >= 0,
-                let length = Int(
-                    exactly: info.size
+                Self.releaseSynchronously(
+                    directory.fileHandle
                 )
-            else {
-                try? await file.close()
-                throw StaticFileOpenError.fileTooLarge
             }
 
-            let descriptor =
-                try file.detachUnsafeFileDescriptor()
-            let handle = NIOFileHandle(
-                _deprecatedTakingOwnershipOfDescriptor:
-                    descriptor.rawValue
+            openedDirectories.removeAll(
+                keepingCapacity: false
             )
 
-            return OpenedStaticFile(
-                handle: handle,
-                info: info,
-                length: length
-            )
+            do {
+                let info = try await file
+                    .info()
+
+                guard info.type == .regular
+                else {
+                    throw
+                        StaticFileOpenError
+                            .notRegular
+                }
+
+                guard
+                    info.size >= 0,
+                    let length = Int(
+                        exactly: info.size
+                    )
+                else {
+                    throw
+                        StaticFileOpenError
+                            .fileTooLarge
+                }
+
+                let descriptor =
+                    try file.detachUnsafeFileDescriptor()
+                let handle = NIOFileHandle(
+                    _deprecatedTakingOwnershipOfDescriptor:
+                        descriptor.rawValue
+                )
+
+                return OpenedStaticFile(
+                    handle: handle,
+                    info: info,
+                    length: length
+                )
+            } catch {
+                Self.releaseSynchronously(
+                    file.fileHandle
+                )
+                throw error
+            }
         } catch {
             for directory in
                 openedDirectories.reversed()
             {
-                try? await directory.close()
+                Self.releaseSynchronously(
+                    directory.fileHandle
+                )
             }
 
             throw error
         }
+    }
+
+    /// Releases the underlying descriptor without relying on the
+    /// cooperative-pool close path.
+    ///
+    /// ``SystemFileHandle.close()`` runs on the shared thread pool and is
+    /// skipped entirely when the surrounding task is cancelled, which
+    /// would leave the handle open; its `deinit` then fatal-crashes with
+    /// "Leaking file descriptor". Detaching and closing synchronously
+    /// is not cancellation-sensitive. These are read-only, request-owned
+    /// handles with no outstanding operation or delayed materialization;
+    /// detach transfers ownership before the single close syscall on the
+    /// async executor (never an event loop). Do not use this on the shared
+    /// root handle or a handle with pending I/O.
+    internal static func releaseSynchronously(
+        _ handle: NIOFileSystem.FileHandle
+    ) {
+        guard
+            let descriptor = try?
+                handle
+                    .detachUnsafeFileDescriptor()
+        else {
+            return
+        }
+
+        // Do not retry close: after an interrupted syscall a descriptor
+        // number may already have been reused by another thread.
+        try? descriptor.close()
     }
 
     private func response(

@@ -495,6 +495,45 @@ final class OpenAPITests:
         )
     }
 
+    func testYAMLRendersEmptyObjectAsFlowMapping() throws {
+        // An empty object must survive the sorted-key
+        // rendering: without the flow-mapping case the
+        // dictionary renders as an empty string and corrupts
+        // the document.
+        let yaml = try OpenAPIYAML.encode(
+            Data(
+                #"{"meta":{},"tags":["a"]}"#
+                    .utf8
+            )
+        )
+
+        XCTAssertTrue(
+            yaml.contains(
+                "\"meta\":\n  {}"
+            )
+        )
+        XCTAssertTrue(
+            yaml.contains(
+                "\"tags\":\n  - \"a\""
+            )
+        )
+        XCTAssertEqual(try OpenAPIYAML.encode(Data("{}".utf8)), "{}\n")
+        XCTAssertEqual(
+            try OpenAPIYAML.encode(Data("[{}]".utf8)),
+            "-\n  {}\n"
+        )
+    }
+
+    func testYAMLPreservesNumericAndBooleanTypes() throws {
+        let yaml = try OpenAPIYAML.encode(
+            Data(#"{"zero":0,"one":1,"two":2,"truth":true,"falsehood":false}"#.utf8)
+        )
+        XCTAssertEqual(
+            yaml,
+            "\"falsehood\": false\n\"one\": 1\n\"truth\": true\n\"two\": 2\n\"zero\": 0\n"
+        )
+    }
+
     private func jsonObject(
         _ data: Data
     ) throws -> [String: Any] {
