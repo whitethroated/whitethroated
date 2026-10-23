@@ -178,6 +178,18 @@ The CSRF token is random 256-bit material stored in the server-side session.
 Do not treat CORS as a replacement for CSRF protection when browser cookies are
 used for authentication.
 
+### Token reuse policy
+
+`CSRFProtection` implements the synchronizer-token pattern. `ensureToken(in:)`
+returns the token already stored in the session and `validate(request:session:)`
+compares it without consuming it, so a token stays valid for every unsafe
+request made by the session that owns it — it is not single-use. This is the
+standard synchronizer-token tradeoff: no per-request token bookkeeping, and a
+token matches every form rendered while the session lives. Applications that
+need to invalidate a token rotate it explicitly by removing the session key
+(or regenerating the session) and issuing a replacement with `ensureToken(in:)`,
+typically at authentication boundaries.
+
 ## Auth-related rate limiting
 
 `WhiteThroatedAuthRateLimit` can derive a fixed-size HMAC key from an
