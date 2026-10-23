@@ -8,7 +8,7 @@ public enum CampaignError: Error, CustomStringConvertible {
 }
 
 
-public enum CampaignProfile: String, Codable, Sendable {
+public enum CampaignProfile: String, Codable, Sendable, Equatable {
     case rest
     case responseStream = "response-stream"
 }
