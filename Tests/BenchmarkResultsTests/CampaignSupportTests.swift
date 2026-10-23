@@ -104,6 +104,21 @@ final class CampaignSupportTests: XCTestCase {
         }
     }
 
+    func testResponseStreamABOrderAlternatesByRound() {
+        XCTAssertEqual(
+            responseStreamABOrder(round: 1),
+            [.baseline, .candidate]
+        )
+        XCTAssertEqual(
+            responseStreamABOrder(round: 2),
+            [.candidate, .baseline]
+        )
+        XCTAssertEqual(
+            responseStreamABOrder(round: 3),
+            [.baseline, .candidate]
+        )
+    }
+
     func testParsesMacAndLinuxCumulativeCPU() throws {
         let values = try WorkerObservation.parse(" 123 1024 1:02.34\n456 2048 2-03:04:05\n")
         XCTAssertEqual(values.map(\.pid), [123, 456])
