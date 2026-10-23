@@ -1,0 +1,136 @@
+version: 2.1
+
+jobs:
+  validate:
+    docker:
+      - image: swift:6.4.0-noble
+      - image: postgres:16
+        environment:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+    resource_class: medium+
+    working_directory: ~/project
+    environment:
+      WHITETHROATED_POSTGRES_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+
+    steps:
+      - run:
+          name: Install system dependencies
+          command: |
+            apt-get update
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              git \
+              libpq-dev \
+              pkg-config \
+              postgresql-client \
+              zlib1g-dev
+            rm -rf /var/lib/apt/lists/*
+
+      - checkout
+
+      - run:
+          name: Swift version
+          command: swift --version
+
+      - run:
+          name: Wait for PostgreSQL
+          command: |
+            for attempt in $(seq 1 30); do
+              if pg_isready -h 127.0.0.1 -p 5432 -U postgres; then
+                exit 0
+              fi
+              sleep 1
+            done
+
+            echo "PostgreSQL did not become ready in time." >&2
+            exit 1
+
+      - restore_cache:
+          keys:
+            - swiftpm-v1-6.4.0-{{ checksum "Package.resolved" }}
+            - swiftpm-v1-6.4.0-
+
+      - run:
+          name: Resolve pinned dependencies
+          command: swift package resolve
+
+      - save_cache:
+          key: swiftpm-v1-6.4.0-{{ checksum "Package.resolved" }}
+          paths:
+            - .build/checkouts
+            - .build/repositories
+
+      - run:
+          name: Test release build
+          command: swift test -c release
+          no_output_timeout: 20m
+
+      - run:
+          name: Smoke diagnostic benchmark harness
+          command: |
+            WHITETHROATED_CORE_BENCHMARK=1 \
+            WHITETHROATED_CORE_ITERATIONS=10000 \
+            WHITETHROATED_ROUTER_CORE_BENCHMARK=1 \
+            WHITETHROATED_ROUTER_CORE_ITERATIONS=10000 \
+            WHITETHROATED_MIDDLEWARE_BENCHMARK=1 \
+            WHITETHROATED_MIDDLEWARE_ITERATIONS=10000 \
+            WHITETHROATED_TRANSPORT_BENCHMARK=1 \
+            WHITETHROATED_TRANSPORT_ITERATIONS=50000 \
+            swift test -c release --filter CoreBenchmarkTests
+          no_output_timeout: 20m
+
+      - run:
+          name: Smoke HTTP/1 pipeline diagnostic
+          command: |
+            WHITETHROATED_HTTP1_BENCHMARK=1 \
+            WHITETHROATED_HTTP1_ITERATIONS=1000 \
+            swift test -c release \
+              --filter RuntimeServerPipelineTests/testHTTP1PipelineBenchmark
+          no_output_timeout: 20m
+
+      - run:
+          name: Build example
+          command: swift build -c release --product whitethroated-example
+
+      - run:
+          name: Build migration CLI
+          command: swift build -c release --product whitethroated-migrate
+
+      - run:
+          name: Build WhiteThroated benchmark server
+          command: swift build -c release --product whitethroated-benchmark-server
+
+      - run:
+          name: Build raw NIO benchmark server
+          command: swift build -c release --product raw-nio-benchmark-server
+
+      - run:
+          name: Build WhiteThroated runtime benchmark server
+          command: swift build -c release --product whitethroated-runtime-benchmark-server
+
+      - run:
+          name: Build Swift benchmark client
+          command: swift build -c release --product whitethroated-benchmark-client
+
+      - run:
+          name: Build WebSocket benchmark server
+          command: swift build -c release --product whitethroated-websocket-benchmark-server
+
+      - run:
+          name: Build WebSocket benchmark client
+          command: swift build -c release --product whitethroated-websocket-benchmark-client
+
+      - run:
+          name: Build Swift benchmark merger
+          command: swift build -c release --product whitethroated-benchmark-merge
+
+      - run:
+          name: Build Swift topology campaign runner
+          command: swift build -c release --product whitethroated-benchmark-campaign
+
+workflows:
+  ci:
+    when: pipeline.event.name == "pull_request" or pipeline.git.branch == "main"
+    jobs:
+      - validate
