@@ -2,6 +2,8 @@
 
 The root `AGENTS.md` is the canonical instruction set. Skills in this directory are task-specific playbooks.
 
+For optional modules, persistence, identity/state, platform portability, and external protocol work, use the domain router in `.agents/DOMAIN-SKILLS.md`.
+
 Agents should load only the skills relevant to the files and risk surface being changed.
 
 ## Skill routing
