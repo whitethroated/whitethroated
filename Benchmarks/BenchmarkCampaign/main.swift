@@ -741,7 +741,16 @@ private final class Campaign {
         ).trimmingCharacters(
             in: .whitespacesAndNewlines
         )
-        let worktreeDiff = try capture(
+        let worktreeStatus = try capture(
+            "/usr/bin/git",
+            [
+                "-C",
+                standardizedRoot,
+                "status",
+                "--porcelain",
+            ]
+        )
+        let diff = try capture(
             "/usr/bin/git",
             [
                 "-C",
@@ -750,6 +759,12 @@ private final class Campaign {
                 "HEAD",
             ]
         )
+        let worktreeDiff =
+            worktreeStatus.isEmpty
+            ? ""
+            : worktreeStatus
+                + "\n"
+                + diff
         let packageResolved = try String(
             contentsOfFile:
                 standardizedRoot
