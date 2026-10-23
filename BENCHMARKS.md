@@ -283,13 +283,21 @@ swift run -c release whitethroated-benchmark-server
 
 The raw SwiftNIO server exposes matching HTTP/1.1 response-stream controls
 under the same opt-in flag. It recognizes `/response-stream-known`,
-`/response-stream`, and `/response-stream-flush`, emits the same 13-byte body
-in two writes, and flushes after the first write only for the flush route. Use
-these routes as a strict transport lower bound; the raw control uses cached
-heads and chunks and intentionally performs no framework routing. Verify exact
-wire headers and body before every campaign.
+`/response-stream`, `/response-stream-ab-known`, `/response-stream-ab`,
+and `/response-stream-flush`, emits the same 13-byte body in two writes, and
+flushes after the first write only for the flush route. Use these routes as a
+strict transport lower bound; the raw control uses cached heads and chunks and
+intentionally performs no framework routing. Verify exact wire headers and body
+before every campaign.
 
-The `whitethroated-runtime-benchmark-server` exposes the same three routes
+The two `/response-stream-ab*` paths are stable A/B slots, not implementation
+claims. On baseline `main` they use the same future-based producer as the
+retained async controls. A performance candidate may replace only the A/B-slot
+implementation while preserving path, headers, body, write count, flush
+placement, threads, and client settings. This makes before/after measurements
+comparable without changing request-target bytes.
+
+The `whitethroated-runtime-benchmark-server` exposes the same five routes
 under the same flag. Use the three-way raw/runtime/framework matrix to locate
 the gap: runtime minus raw covers the Tier 1 transport and runtime response
 orchestration; framework minus runtime covers Application routing, public
@@ -642,18 +650,24 @@ four one-thread client shards, three measured rounds, c64/c512, and 125000
 requests per shard (500000 requests per cell). It validates and measures the
 existing matched routes:
 
-- `GET /response-stream-known` — 13-byte known-length stream;
-- `GET /response-stream` — the same body with HTTP/1.1 chunked framing;
-- `GET /response-stream-flush` — the same chunked body with an explicit first
-  flush.
+- `GET /response-stream-known` — retained async known-length control;
+- `GET /response-stream` — retained async chunked control;
+- `GET /response-stream-ab-known` — stable known-length A/B slot;
+- `GET /response-stream-ab` — stable chunked A/B slot;
+- `GET /response-stream-flush` — retained chunked explicit-first-flush control.
+
+Baseline `main` serves both A/B slots with the same future-based response
+producer as the retained async controls. Candidate branches may change only the
+A/B-slot implementation. The raw-NIO A/B slots remain identical before and
+after and therefore expose apparatus/path noise. A full response-stream campaign
+has 90 cells: 3 rounds × 5 routes × 2 concurrencies × 3 modes.
 
 The route order rotates each round and the concurrency order reverses on even
 rounds to reduce fixed-order drift. The runner automatically enables
 `WHITETHROATED_RESPONSE_STREAM_BENCHMARKS=1` only for this profile. Run the
 profile separately with `WHITETHROATED_CAMPAIGN_SERVER` set to framework,
-runtime, and raw-NIO products when all three layers are needed. Candidate-only
-routes must be added as explicit matched controls; do not silently replace one of
-these retained baseline routes.
+runtime, and raw-NIO products when all three layers are needed. Candidate implementations must use the stable
+`/response-stream-ab*` slots; do not silently replace a retained async control.
 
 The response-stream smoke profile uses one round, c64, four shards, and 8000
 requests per shard. Hosted-CI smoke proves only that orchestration, framing

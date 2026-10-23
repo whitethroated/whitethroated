@@ -216,6 +216,24 @@ private final class RawBenchmarkHandler: ChannelInboundHandler, @unchecked Senda
                     )
                     return
 
+                case "/response-stream-ab-known":
+                    writeResponseStream(
+                        requestHead: requestHead,
+                        head: streamHTTP11Head,
+                        flushFirstChunk: false,
+                        context: context
+                    )
+                    return
+
+                case "/response-stream-ab":
+                    writeResponseStream(
+                        requestHead: requestHead,
+                        head: streamChunkedHTTP11Head,
+                        flushFirstChunk: false,
+                        context: context
+                    )
+                    return
+
                 case "/response-stream-flush":
                     writeResponseStream(
                         requestHead: requestHead,
