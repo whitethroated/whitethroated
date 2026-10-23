@@ -28,6 +28,21 @@ private struct CommandFailure: Error, CustomStringConvertible {
     let description: String
 }
 
+
+private enum ExpectedFraming {
+    case contentLength(Int)
+    case chunked
+}
+
+private struct CampaignRoute {
+    let method: String
+    let path: String
+    let label: String
+    let body: String
+    let contentType: String?
+    let framing: ExpectedFraming
+}
+
 private final class Campaign {
     let configuration: CampaignConfiguration
     let cancellation: Cancellation
@@ -219,156 +234,703 @@ private final class Campaign {
          "WHITETHROATED_BENCH_THREADS": "1", "WHITETHROATED_BENCH_TCP_NODELAY": "1"]
     }
 
-    func verify(worker: Process, port: Int, method: String, path: String, name: String) throws {
-        let body = directory.appendingPathComponent(name + "-body.txt")
-        let headers = directory.appendingPathComponent(name + "-headers.txt")
-        let arguments = ["--http1.1", "--silent", "--show-error", "--max-time", "3",
-            "--request", method, "--output", body.path, "--dump-header", headers.path, "--write-out", "%{http_code}",
-            "http://127.0.0.1:\(port)\(path)"]
-        let deadline = Date().addingTimeInterval(30)
-        var status: String
-        while true {
-            guard !cancellation.cancelled, worker.isRunning else { throw CampaignError.invalid("Worker exited/interrupted during readiness") }
-            do {
-                status = try capture("/usr/bin/curl", arguments)
-                break
-            } catch let error as CommandFailure {
-                // Only connection-refused startup retries; never retry a bad
-                // HTTP status, payload, framing or a response timeout.
-                guard error.status == 7, Date() < deadline else { throw error }
-                Thread.sleep(forTimeInterval: 0.1)
+    func routes(for round: Int) -> [CampaignRoute] {
+        switch configuration.profile {
+        case .rest:
+            return [
+                CampaignRoute(
+                    method: "GET",
+                    path: "/",
+                    label: "root",
+                    body: "",
+                    contentType: nil,
+                    framing: .contentLength(0)
+                ),
+                CampaignRoute(
+                    method: "GET",
+                    path: "/user/42",
+                    label: "parameter",
+                    body: "42",
+                    contentType: "text/plain; charset=utf-8",
+                    framing: .contentLength(2)
+                ),
+                CampaignRoute(
+                    method: "POST",
+                    path: "/user",
+                    label: "post",
+                    body: "",
+                    contentType: nil,
+                    framing: .contentLength(0)
+                ),
+            ]
+
+        case .responseStream:
+            let base = [
+                CampaignRoute(
+                    method: "GET",
+                    path: "/response-stream-known",
+                    label: "stream-known",
+                    body: "Hello, World!",
+                    contentType: "text/plain; charset=utf-8",
+                    framing: .contentLength(13)
+                ),
+                CampaignRoute(
+                    method: "GET",
+                    path: "/response-stream",
+                    label: "stream-chunked",
+                    body: "Hello, World!",
+                    contentType: "text/plain; charset=utf-8",
+                    framing: .chunked
+                ),
+                CampaignRoute(
+                    method: "GET",
+                    path: "/response-stream-flush",
+                    label: "stream-flush",
+                    body: "Hello, World!",
+                    contentType: "text/plain; charset=utf-8",
+                    framing: .chunked
+                ),
+            ]
+
+            switch (round - 1) % base.count {
+            case 1:
+                return [base[1], base[2], base[0]]
+            case 2:
+                return [base[2], base[0], base[1]]
+            default:
+                return base
             }
-        }
-        let expected = path == "/user/42" ? "42" : ""
-        guard status == "200", try Data(contentsOf: body) == Data(expected.utf8) else {
-            throw CampaignError.invalid("Response status/body contract mismatch")
-        }
-        let text = try String(contentsOf: headers, encoding: .utf8)
-        let fields = text.components(separatedBy: "\r\n").compactMap { line -> (String, String)? in
-            guard let colon = line.firstIndex(of: ":") else { return nil }
-            return (line[..<colon].lowercased(), line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces))
-        }
-        let lengths = fields.filter { $0.0 == "content-length" }.map(\.1)
-        guard lengths == [String(expected.utf8.count)],
-              !fields.contains(where: { $0.0 == "transfer-encoding" }),
-              (expected.isEmpty || fields.filter { $0.0 == "content-type" }.map(\.1) == ["text/plain; charset=utf-8"]) else {
-            throw CampaignError.invalid("Response framing/content-type contract mismatch")
         }
     }
 
-    func runCell(workers: [Process], method: String, path: String, concurrency: Int, mode: String, id: String) throws {
-        guard workers.allSatisfy(\.isRunning) else { throw CampaignError.invalid("Campaign worker exited") }
-        try gate(id + "-before")
-        var observations: [ResourceObservation] = []
-        if mode == "resource" { observations.append(try observe(workers)) }
-        var clients: [Process] = []
-        var files: [URL] = []
-        for shard in 0..<8 {
-            let file = directory.appendingPathComponent(id + "-shard-\(shard).json")
-            files.append(file)
-            var env = clientEnvironment(port: configuration.basePort + shard % workers.count, method: method, path: path,
-                                        connections: concurrency / 8, requests: configuration.requestsPerShard)
-            env["WHITETHROATED_BENCH_LATENCY"] = mode == "latency" ? "1" : "0"
-            env["WHITETHROATED_BENCH_RUN_ID"] = id
-            env["WHITETHROATED_BENCH_OUTPUT"] = file.path
-            clients.append(try spawn(binaries.appendingPathComponent("whitethroated-benchmark-client"),
-                                    environment: env, log: id + "-shard-\(shard).log"))
+    func workerConfigurations(
+        for round: Int
+    ) -> [(workers: Int, loops: Int)] {
+        if configuration.profile == .responseStream {
+            return [(workers: 1, loops: 2)]
         }
-        if mode == "resource" {
-            let deadline = Date().addingTimeInterval(120)
-            while clients.contains(where: \.isRunning) {
-                guard !cancellation.cancelled, Date() < deadline else { throw CampaignError.invalid("Resource cell timeout/interruption") }
-                observations.append(try observe(workers))
-                Thread.sleep(forTimeInterval: 0.25)
+
+        if round.isMultiple(of: 2) {
+            return [
+                (workers: 4, loops: 2),
+                (workers: 1, loops: 8),
+            ]
+        }
+
+        return [
+            (workers: 1, loops: 8),
+            (workers: 4, loops: 2),
+        ]
+    }
+
+    func serverEnvironment(
+        port: Int,
+        loops: Int
+    ) -> [String: String] {
+        var environment = [
+            "WHITETHROATED_HOST": "127.0.0.1",
+            "WHITETHROATED_PORT": String(port),
+            "WHITETHROATED_THREADS": String(loops),
+        ]
+
+        if configuration.profile == .responseStream {
+            environment[
+                "WHITETHROATED_RESPONSE_STREAM_BENCHMARKS"
+            ] = "1"
+        }
+
+        return environment
+    }
+
+    func verify(
+        worker: Process,
+        port: Int,
+        route: CampaignRoute,
+        name: String
+    ) throws {
+        let body = directory.appendingPathComponent(
+            name + "-body.txt"
+        )
+        let headers = directory.appendingPathComponent(
+            name + "-headers.txt"
+        )
+        let arguments = [
+            "--http1.1",
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "3",
+            "--request",
+            route.method,
+            "--output",
+            body.path,
+            "--dump-header",
+            headers.path,
+            "--write-out",
+            "%{http_code}",
+            "http://127.0.0.1:\(port)\(route.path)",
+        ]
+        let deadline = Date().addingTimeInterval(30)
+        var status: String
+
+        while true {
+            guard
+                !cancellation.cancelled,
+                worker.isRunning
+            else {
+                throw CampaignError.invalid(
+                    "Worker exited/interrupted during readiness"
+                )
+            }
+
+            do {
+                status = try capture(
+                    "/usr/bin/curl",
+                    arguments
+                )
+                break
+            } catch let error as CommandFailure {
+                guard
+                    error.status == 7,
+                    Date() < deadline
+                else {
+                    throw error
+                }
+
+                Thread.sleep(
+                    forTimeInterval: 0.1
+                )
             }
         }
-        try wait(clients)
-        guard workers.allSatisfy(\.isRunning) else { throw CampaignError.invalid("Campaign worker exited during load") }
-        if mode == "resource" { observations.append(try observe(workers)) }
-        try checkBaseline()
-        let samples = try files.map { try JSONDecoder().decode(BenchmarkSample.self, from: Data(contentsOf: $0)) }
-        let summary = try BenchmarkSummary(samples: samples)
-        guard summary.completed == configuration.requestsPerShard * 8, summary.connections == concurrency else {
-            throw CampaignError.invalid("Unexpected aggregate request/connection count")
+
+        guard
+            status == "200",
+            try Data(contentsOf: body)
+                == Data(route.body.utf8)
+        else {
+            throw CampaignError.invalid(
+                "Response status/body contract mismatch"
+            )
         }
-        try save(summary, id + "-pooled.json")
+
+        let text = try String(
+            contentsOf: headers,
+            encoding: .utf8
+        )
+        let fields = text
+            .components(separatedBy: "\r\n")
+            .compactMap {
+                line -> (String, String)? in
+
+                guard
+                    let colon = line.firstIndex(of: ":")
+                else {
+                    return nil
+                }
+
+                return (
+                    line[..<colon].lowercased(),
+                    line[
+                        line.index(after: colon)...
+                    ].trimmingCharacters(
+                        in: .whitespaces
+                    )
+                )
+            }
+
+        let lengths = fields
+            .filter { $0.0 == "content-length" }
+            .map(\.1)
+        let transferEncodings = fields
+            .filter { $0.0 == "transfer-encoding" }
+            .map { $0.1.lowercased() }
+
+        switch route.framing {
+        case .contentLength(let length):
+            guard
+                lengths == [String(length)],
+                transferEncodings.isEmpty
+            else {
+                throw CampaignError.invalid(
+                    "Response content-length framing mismatch"
+                )
+            }
+
+        case .chunked:
+            guard
+                lengths.isEmpty,
+                transferEncodings == ["chunked"]
+            else {
+                throw CampaignError.invalid(
+                    "Response chunked framing mismatch"
+                )
+            }
+        }
+
+        let contentTypes = fields
+            .filter { $0.0 == "content-type" }
+            .map(\.1)
+
+        if let expected = route.contentType {
+            guard contentTypes == [expected] else {
+                throw CampaignError.invalid(
+                    "Response content-type contract mismatch"
+                )
+            }
+        } else if !contentTypes.isEmpty {
+            throw CampaignError.invalid(
+                "Unexpected response content-type"
+            )
+        }
+    }
+
+    func runCell(
+        workers: [Process],
+        route: CampaignRoute,
+        concurrency: Int,
+        mode: String,
+        id: String
+    ) throws {
+        guard
+            workers.allSatisfy(\.isRunning),
+            concurrency.isMultiple(
+                of: configuration.shards
+            )
+        else {
+            throw CampaignError.invalid(
+                "Invalid worker or shard configuration"
+            )
+        }
+
+        try gate(id + "-before")
+        var observations: [ResourceObservation] = []
+
         if mode == "resource" {
-            try save(observations, id + "-observations.json")
-            try save(ResourceSummary(observations: observations, completed: summary.completed), id + "-resources.json")
+            observations.append(
+                try observe(workers)
+            )
         }
-        // Check host only after *all* clients have exited, including export work.
+
+        var clients: [Process] = []
+        var files: [URL] = []
+
+        for shard in 0..<configuration.shards {
+            let file = directory.appendingPathComponent(
+                id + "-shard-\(shard).json"
+            )
+            files.append(file)
+
+            var environment = clientEnvironment(
+                port:
+                    configuration.basePort
+                    + shard % workers.count,
+                method: route.method,
+                path: route.path,
+                connections:
+                    concurrency
+                    / configuration.shards,
+                requests:
+                    configuration.requestsPerShard
+            )
+            environment[
+                "WHITETHROATED_BENCH_LATENCY"
+            ] = mode == "latency" ? "1" : "0"
+            environment[
+                "WHITETHROATED_BENCH_RUN_ID"
+            ] = id
+            environment[
+                "WHITETHROATED_BENCH_OUTPUT"
+            ] = file.path
+
+            clients.append(
+                try spawn(
+                    binaries.appendingPathComponent(
+                        "whitethroated-benchmark-client"
+                    ),
+                    environment: environment,
+                    log:
+                        id
+                        + "-shard-\(shard).log"
+                )
+            )
+        }
+
+        if mode == "resource" {
+            let deadline =
+                Date().addingTimeInterval(120)
+
+            while clients.contains(where: \.isRunning) {
+                guard
+                    !cancellation.cancelled,
+                    Date() < deadline
+                else {
+                    throw CampaignError.invalid(
+                        "Resource cell timeout/interruption"
+                    )
+                }
+
+                observations.append(
+                    try observe(workers)
+                )
+                Thread.sleep(
+                    forTimeInterval: 0.25
+                )
+            }
+        }
+
+        try wait(clients)
+
+        guard workers.allSatisfy(\.isRunning) else {
+            throw CampaignError.invalid(
+                "Campaign worker exited during load"
+            )
+        }
+
+        if mode == "resource" {
+            observations.append(
+                try observe(workers)
+            )
+        }
+
+        try checkBaseline()
+
+        let samples = try files.map {
+            try JSONDecoder().decode(
+                BenchmarkSample.self,
+                from: Data(contentsOf: $0)
+            )
+        }
+        let summary =
+            try BenchmarkSummary(samples: samples)
+
+        guard
+            summary.completed
+                == configuration.requestsPerShard
+                    * configuration.shards,
+            summary.connections == concurrency
+        else {
+            throw CampaignError.invalid(
+                "Unexpected aggregate request/connection count"
+            )
+        }
+
+        try save(
+            summary,
+            id + "-pooled.json"
+        )
+
+        if mode == "resource" {
+            try save(
+                observations,
+                id + "-observations.json"
+            )
+            try save(
+                ResourceSummary(
+                    observations: observations,
+                    completed: summary.completed
+                ),
+                id + "-resources.json"
+            )
+        }
+
         try gate(id + "-after")
         print("completed \(id)")
-        // Flush progress without accessing Glibc's mutable stdout global.
         fflush(nil)
     }
 
     func run() throws {
-        guard !FileManager.default.fileExists(atPath: directory.path) else {
-            throw CampaignError.invalid("Campaign output already exists; use a fresh directory")
+        guard
+            !FileManager.default.fileExists(
+                atPath: directory.path
+            )
+        else {
+            throw CampaignError.invalid(
+                "Campaign output already exists; use a fresh directory"
+            )
         }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
         outputCreated = true
-        try save(configuration, "configuration.json")
-        try save([
-            "rounds": configuration.rounds, "shards": 8, "serverLoops": 8,
-            "clientThreadsPerShard": 1, "requestsPerShard": configuration.requestsPerShard,
-            "warmupRequestsPerWorkerRoute": configuration.warmupRequests,
-            "cellCount": configuration.rounds * 2 * 3 * configuration.concurrencies.count * 3
-        ], "plan.json")
-        baseline = try capture("/usr/bin/git", ["-C", configuration.root, "rev-parse", "HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
-        try saveText(baseline, "head.txt")
-        try saveText(try capture("/usr/bin/git", ["-C", configuration.root, "diff", "HEAD"]), "worktree.diff")
-        try saveText(try capture("/usr/bin/env", ["swift", "--version"]), "swift-version.txt")
-        try saveText(try capture("/usr/bin/uname", ["-a"]), "host.txt")
-        try saveText(try String(contentsOfFile: configuration.root + "/Package.resolved", encoding: .utf8), "Package.resolved.txt")
+
+        let topologyCount =
+            configuration.profile == .responseStream
+            ? 1
+            : 2
+        let routeCount =
+            routes(for: 1).count
+
+        try save(
+            configuration,
+            "configuration.json"
+        )
+        try save(
+            [
+                "rounds": configuration.rounds,
+                "shards": configuration.shards,
+                "serverLoops":
+                    configuration.serverLoops,
+                "clientThreadsPerShard": 1,
+                "requestsPerShard":
+                    configuration.requestsPerShard,
+                "warmupRequestsPerWorkerRoute":
+                    configuration.warmupRequests,
+                "cellCount":
+                    configuration.rounds
+                    * topologyCount
+                    * routeCount
+                    * configuration
+                        .concurrencies.count
+                    * 3,
+            ],
+            "plan.json"
+        )
+
+        baseline = try capture(
+            "/usr/bin/git",
+            [
+                "-C",
+                configuration.root,
+                "rev-parse",
+                "HEAD",
+            ]
+        ).trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+
+        try saveText(
+            baseline,
+            "head.txt"
+        )
+        try saveText(
+            try capture(
+                "/usr/bin/git",
+                [
+                    "-C",
+                    configuration.root,
+                    "diff",
+                    "HEAD",
+                ]
+            ),
+            "worktree.diff"
+        )
+        try saveText(
+            try capture(
+                "/usr/bin/env",
+                ["swift", "--version"]
+            ),
+            "swift-version.txt"
+        )
+        try saveText(
+            try capture(
+                "/usr/bin/uname",
+                ["-a"]
+            ),
+            "host.txt"
+        )
+        try saveText(
+            try String(
+                contentsOfFile:
+                    configuration.root
+                    + "/Package.resolved",
+                encoding: .utf8
+            ),
+            "Package.resolved.txt"
+        )
+
         try gate("preflight")
-        for product in [configuration.serverProduct, "whitethroated-benchmark-client"] {
-            guard FileManager.default.isExecutableFile(atPath: binaries.appendingPathComponent(product).path) else {
-                throw CampaignError.invalid("Build release product before campaign: \(product)")
+
+        for product in [
+            configuration.serverProduct,
+            "whitethroated-benchmark-client",
+        ] {
+            guard
+                FileManager.default
+                    .isExecutableFile(
+                        atPath:
+                            binaries
+                            .appendingPathComponent(
+                                product
+                            ).path
+                    )
+            else {
+                throw CampaignError.invalid(
+                    "Build release product before campaign: \(product)"
+                )
             }
         }
-        let routes = [("GET", "/", "root"), ("GET", "/user/42", "parameter"), ("POST", "/user", "post")]
+
         for round in 1...configuration.rounds {
-            for workerCount in (round.isMultiple(of: 2) ? [4, 1] : [1, 4]) {
-                let prefix = "r\(round)-\(workerCount)x\(8 / workerCount)"
+            let routes =
+                routes(for: round)
+            let concurrencies: [Int]
+
+            if
+                configuration.profile
+                    == .responseStream,
+                round.isMultiple(of: 2)
+            {
+                concurrencies =
+                    configuration
+                    .concurrencies
+                    .reversed()
+            } else {
+                concurrencies =
+                    configuration
+                    .concurrencies
+            }
+
+            for topology in
+                workerConfigurations(
+                    for: round
+                )
+            {
+                let prefix =
+                    "r\(round)-"
+                    + "\(topology.workers)x"
+                    + "\(topology.loops)"
+
                 try gate(prefix)
                 var workers: [Process] = []
-                defer { stop(workers) }
-                for worker in 0..<workerCount { try requireFreePort(configuration.basePort + worker) }
-                for worker in 0..<workerCount {
-                    workers.append(try spawn(binaries.appendingPathComponent(configuration.serverProduct), environment: [
-                        "WHITETHROATED_HOST": "127.0.0.1", "WHITETHROATED_PORT": String(configuration.basePort + worker),
-                        "WHITETHROATED_THREADS": String(8 / workerCount)
-                    ], log: prefix + "-worker-\(worker).log"))
+                defer {
+                    stop(workers)
                 }
-                for worker in 0..<workerCount {
-                    for (method, path, label) in routes {
-                        try verify(worker: workers[worker], port: configuration.basePort + worker, method: method, path: path,
-                                   name: prefix + "-verify-\(worker)-" + label)
+
+                for worker in
+                    0..<topology.workers
+                {
+                    try requireFreePort(
+                        configuration.basePort
+                        + worker
+                    )
+                }
+
+                for worker in
+                    0..<topology.workers
+                {
+                    workers.append(
+                        try spawn(
+                            binaries
+                                .appendingPathComponent(
+                                    configuration
+                                        .serverProduct
+                                ),
+                            environment:
+                                serverEnvironment(
+                                    port:
+                                        configuration
+                                        .basePort
+                                        + worker,
+                                    loops:
+                                        topology.loops
+                                ),
+                            log:
+                                prefix
+                                + "-worker-\(worker).log"
+                        )
+                    )
+                }
+
+                for worker in
+                    0..<topology.workers
+                {
+                    for route in routes {
+                        try verify(
+                            worker: workers[worker],
+                            port:
+                                configuration
+                                .basePort
+                                + worker,
+                            route: route,
+                            name:
+                                prefix
+                                + "-verify-\(worker)-"
+                                + route.label
+                        )
                     }
                 }
-                try save(try observe(workers), prefix + "-idle.json")
-                for worker in 0..<workerCount {
-                    for (method, path, label) in routes {
-                        let warm = try spawn(binaries.appendingPathComponent("whitethroated-benchmark-client"), environment:
-                            clientEnvironment(port: configuration.basePort + worker, method: method, path: path,
-                                              connections: 8, requests: configuration.warmupRequests),
-                            log: prefix + "-warm-\(worker)-" + label + ".log")
-                        try wait([warm], timeout: 30)
+
+                try save(
+                    try observe(workers),
+                    prefix + "-idle.json"
+                )
+
+                for worker in
+                    0..<topology.workers
+                {
+                    for route in routes {
+                        let warm = try spawn(
+                            binaries
+                                .appendingPathComponent(
+                                    "whitethroated-benchmark-client"
+                                ),
+                            environment:
+                                clientEnvironment(
+                                    port:
+                                        configuration
+                                        .basePort
+                                        + worker,
+                                    method:
+                                        route.method,
+                                    path:
+                                        route.path,
+                                    connections: 8,
+                                    requests:
+                                        configuration
+                                        .warmupRequests
+                                ),
+                            log:
+                                prefix
+                                + "-warm-\(worker)-"
+                                + route.label
+                                + ".log"
+                        )
+
+                        try wait(
+                            [warm],
+                            timeout: 30
+                        )
                     }
                 }
-                for (method, path, label) in routes {
-                    for concurrency in configuration.concurrencies {
-                        for mode in ["throughput", "latency", "resource"] {
-                            let id = prefix + "-\(label)-c\(concurrency)-" + mode
-                            try runCell(workers: workers, method: method, path: path, concurrency: concurrency, mode: mode, id: id)
+
+                for route in routes {
+                    for concurrency in
+                        concurrencies
+                    {
+                        for mode in [
+                            "throughput",
+                            "latency",
+                            "resource",
+                        ] {
+                            let id =
+                                prefix
+                                + "-"
+                                + route.label
+                                + "-c\(concurrency)-"
+                                + mode
+
+                            try runCell(
+                                workers: workers,
+                                route: route,
+                                concurrency:
+                                    concurrency,
+                                mode: mode,
+                                id: id
+                            )
                         }
                     }
                 }
             }
         }
-        try saveText(configuration.smoke ? "SMOKE ONLY — no performance claims\n" : "Complete; inspect variance and gates before claims\n", "COMPLETE.txt")
+
+        try saveText(
+            configuration.smoke
+                ? "SMOKE ONLY — no performance claims\n"
+                : "Complete; inspect variance and gates before claims\n",
+            "COMPLETE.txt"
+        )
     }
 }
 
