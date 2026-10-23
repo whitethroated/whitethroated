@@ -26,9 +26,67 @@ final class CampaignSupportTests: XCTestCase {
         XCTAssertEqual(stream.concurrencies, [64, 512])
         XCTAssertEqual(stream.shards, 4)
         XCTAssertEqual(stream.serverLoops, 2)
+        XCTAssertNil(stream.abPeerRoot)
         XCTAssertEqual(
             stream.requestsPerShard * stream.shards,
             500_000
+        )
+
+        let paired = try CampaignConfiguration(
+            environment: [
+                "WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/paired",
+                "WHITETHROATED_CAMPAIGN_PROFILE": "response-stream",
+                "WHITETHROATED_CAMPAIGN_AB_PEER_ROOT": "/candidate",
+            ],
+            currentDirectory: "/project"
+        )
+        XCTAssertEqual(
+            paired.abPeerRoot,
+            "/candidate"
+        )
+
+        let pairedSmokeSameRoot = try CampaignConfiguration(
+            environment: [
+                "WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/paired-smoke",
+                "WHITETHROATED_CAMPAIGN_PROFILE": "response-stream",
+                "WHITETHROATED_CAMPAIGN_SMOKE": "1",
+                "WHITETHROATED_CAMPAIGN_AB_PEER_ROOT": "/project",
+            ],
+            currentDirectory: "/project"
+        )
+        XCTAssertEqual(
+            pairedSmokeSameRoot.abPeerRoot,
+            "/project"
+        )
+
+        XCTAssertThrowsError(
+            try CampaignConfiguration(
+                environment: [
+                    "WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/paired-rest",
+                    "WHITETHROATED_CAMPAIGN_AB_PEER_ROOT": "/candidate",
+                ],
+                currentDirectory: "/project"
+            )
+        )
+        XCTAssertThrowsError(
+            try CampaignConfiguration(
+                environment: [
+                    "WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/paired-relative",
+                    "WHITETHROATED_CAMPAIGN_PROFILE": "response-stream",
+                    "WHITETHROATED_CAMPAIGN_AB_PEER_ROOT": "candidate",
+                ],
+                currentDirectory: "/project"
+            )
+        )
+        XCTAssertThrowsError(
+            try CampaignConfiguration(
+                environment: [
+                    "WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/paired-same",
+                    "WHITETHROATED_CAMPAIGN_PROFILE": "response-stream",
+                    "WHITETHROATED_CAMPAIGN_AB_PEER_ROOT": "/project",
+                ],
+                currentDirectory: "/project"
+            )
         )
 
         let smoke = try CampaignConfiguration(environment: ["WHITETHROATED_CAMPAIGN_OUTPUT": "/tmp/smoke", "WHITETHROATED_CAMPAIGN_SMOKE": "1"], currentDirectory: "/project")
