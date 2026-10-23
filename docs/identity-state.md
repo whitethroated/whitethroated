@@ -123,6 +123,10 @@ forwarded headers.
 Call `rotate` after login or any privilege elevation. Rotation deletes the old
 store entry before persisting the replacement identifier.
 
+`clearCookie` repeats the configured cookie attributes (`HttpOnly`, `Secure`,
+`SameSite`, path) with an empty value and `Max-Age=0`, so the deletion matches
+the original cookie on the client.
+
 The bounded memory store is for development, tests, and single-process
 deployments where process-local sessions are acceptable. It enforces TTL,
 `maxSessions`, and least-recently-touched eviction.

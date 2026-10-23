@@ -670,9 +670,19 @@ public struct SessionManager:
         on response:
             inout Response
     ) {
-        response.clearCookie(
+        // Deletion parity: the clearing cookie repeats the exact
+        // attributes of the session cookie (path, HttpOnly, Secure,
+        // SameSite) with an empty value and Max-Age=0, so the
+        // browser matches and expires the original instead of
+        // storing a second attribute set.
+        var deletionOptions =
+            cookie.options
+        deletionOptions.maxAgeSeconds = 0
+
+        response.setCookie(
             cookie.name,
-            path: cookie.path
+            value: "",
+            options: deletionOptions
         )
     }
 }
