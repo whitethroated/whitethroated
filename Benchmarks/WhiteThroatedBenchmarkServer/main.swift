@@ -158,6 +158,31 @@ if environment["WHITETHROATED_RESPONSE_STREAM_BENCHMARKS"] == "1" {
             .header("date", benchmarkDate)
     }
 
+    app.get("/response-stream-ab-known") { _ in
+        Response
+            .stream(
+                contentType: "text/plain; charset=utf-8",
+                contentLength: 13
+            ) { writer in
+                writer.writeString("Hello, ").flatMap {
+                    writer.writeString("World!")
+                }
+            }
+            .header("date", benchmarkDate)
+    }
+
+    app.get("/response-stream-ab") { _ in
+        Response
+            .stream(
+                contentType: "text/plain; charset=utf-8"
+            ) { writer in
+                writer.writeString("Hello, ").flatMap {
+                    writer.writeString("World!")
+                }
+            }
+            .header("date", benchmarkDate)
+    }
+
     app.get("/response-stream-flush") { _ in
         Response
             .stream(

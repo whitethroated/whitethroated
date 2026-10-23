@@ -464,6 +464,16 @@ private final class Campaign {
                 true
             ),
             (
+                "/response-stream-ab-known",
+                "stream-ab-known",
+                false
+            ),
+            (
+                "/response-stream-ab",
+                "stream-ab-chunked",
+                true
+            ),
+            (
                 "/response-stream-flush",
                 "stream-flush",
                 true
@@ -601,6 +611,8 @@ private final class Campaign {
         try save(configuration, "configuration.json")
         let topologyCount =
             configuration.profile == .responseStream ? 1 : 2
+        let routeCount =
+            configuration.profile == .responseStream ? 5 : 3
         try save([
             "rounds": configuration.rounds,
             "shards": configuration.shards,
@@ -611,7 +623,7 @@ private final class Campaign {
             "cellCount":
                 configuration.rounds
                 * topologyCount
-                * 3
+                * routeCount
                 * configuration.concurrencies.count
                 * 3
         ], "plan.json")
