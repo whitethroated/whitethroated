@@ -419,6 +419,7 @@ Read only the skills relevant to the task, but do not skip the benchmark skill f
 - `.agents/skills/api-ergonomics/SKILL.md` — Express-inspired Swift API without hidden runtime tax.
 - `.agents/skills/http-correctness-security/SKILL.md` — HTTP framing, validation, smuggling resistance, proxy trust.
 - `.agents/skills/testing-regression/SKILL.md` — correctness and regression strategy.
+- `.agents/skills/english-artifacts/SKILL.md` — English-only generated artifacts: code, file and folder names, commits, and docs, regardless of prompt language. Always applies.
 
 When more than one skill applies, use all of them. Performance work commonly requires at least runtime-performance + benchmark-validation, and transport work normally also requires swiftnio-http-runtime + http-correctness-security.
 
