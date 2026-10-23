@@ -1492,6 +1492,100 @@ final class IdentityStateTests:
         return nil
     }
 
+    func testCapacitySavePrunesABatchOfLeastRecentlyTouchedSessions() async throws {
+        let store =
+            MemorySessionStore(
+                maxSessions: 24,
+                clock: SessionClock {
+                    1_000
+                }
+            )
+
+        try await withEventLoop {
+            loop in
+
+            for index in 0..<24 {
+                try await store
+                    .save(
+                        Session(
+                            id: "s\(index)",
+                            createdAtSeconds: 1_000,
+                            lastAccessAtSeconds: 1_000
+                        ),
+                        ttlSeconds: 3_600,
+                        on: loop
+                    ).get()
+            }
+
+            XCTAssertEqual(
+                store.count,
+                24
+            )
+
+            // The next new-key save prunes a batch
+            // (maxSessions/8 = 3) of least-recently-
+            // touched sessions in one pass instead of
+            // scanning the whole table per save.
+            try await store
+                .save(
+                    Session(
+                        id: "s24",
+                        createdAtSeconds: 1_000,
+                        lastAccessAtSeconds: 1_000
+                    ),
+                    ttlSeconds: 3_600,
+                    on: loop
+                ).get()
+
+            XCTAssertEqual(
+                store.count,
+                22
+            )
+
+            let pruned = try await store
+                .load(id: "s1", on: loop).get()
+
+            XCTAssertNil(pruned)
+
+            let survivor = try await store
+                .load(id: "s3", on: loop).get()
+
+            XCTAssertNotNil(survivor)
+        }
+    }
+
+    func testSavedSessionsStayBoundedUnderSaveFlood() async throws {
+        let store =
+            MemorySessionStore(
+                maxSessions: 8,
+                clock: SessionClock {
+                    1_000
+                }
+            )
+
+        try await withEventLoop {
+            loop in
+
+            for index in 0..<200 {
+                try await store
+                    .save(
+                        Session(
+                            id: "flood-\(index)",
+                            createdAtSeconds: 1_000,
+                            lastAccessAtSeconds: 1_000
+                        ),
+                        ttlSeconds: 3_600,
+                        on: loop
+                    ).get()
+
+                XCTAssertLessThanOrEqual(
+                    store.count,
+                    8
+                )
+            }
+        }
+    }
+
     private func withEventLoop(
         _ body:
             (EventLoop) async throws
