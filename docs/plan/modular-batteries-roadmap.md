@@ -1,6 +1,12 @@
 # WhiteThroated Optional Modules Plan
 
-Status: proposal
+Status: implemented (experimental)
+
+Phases 0–6 are implemented in the modular monorepo. This status closes the
+implementation roadmap; it does **not** promote any module from experimental to
+preview/stable, and it does not claim that WhiteThroated's broader external
+performance goals are complete. Module promotion still follows the release
+gates in section 10.
 
 This document plans application facilities on top of `WhiteThroated` without
 putting them into the core hot path. The product names and example APIs below
@@ -584,6 +590,18 @@ Inter-module dependencies should be as few as possible. In particular:
 
 ## 6. Implementation order
 
+### Implementation status
+
+| Phase | Status | Primary evidence |
+| --- | --- | --- |
+| 0 — Contracts and package skeleton | Implemented | Separate SwiftPM products/targets, one-way core/runtime dependency direction, release CI, shared test support, and documented architecture/benchmark baselines. |
+| 1 — Independent HTTP modules | Implemented, experimental | `WhiteThroatedCORS`, `WhiteThroatedStaticFiles`, `WhiteThroatedValidation`, and `WhiteThroatedRateLimit` with module tests and documentation. |
+| 2 — Observability and lifecycle | Implemented, experimental | Logging, metrics, tracing, and lifecycle products plus application-level composition coverage in `WhiteThroatedObservabilityTests`. |
+| 3 — Identity and state | Implemented, experimental | Auth, authorization, sessions, Redis session adapter, CSRF, and auth-aware rate limiting covered by `WhiteThroatedIdentityStateTests`. |
+| 4 — Data and services | Implemented, experimental | Services, database contract, system-libpq PostgreSQL adapter, migrations CLI, minimum ORM, and database/services composition coverage. |
+| 5 — Production HTTP | Implemented, experimental | Buffered/streaming compression, direct TLS, and the lifecycle-aware `whitethroated-deployment-example` validated by Linux CI; see `docs/deployment.md`. |
+| 6 — WebSocket and OpenAPI | Implemented, experimental | Stock-pipeline WebSocket lifecycle/auth/telemetry coverage, shared Validation/OpenAPI contracts, deterministic WebSocket corpus tests, and registration-order differential OpenAPI tests. |
+
 ### Phase 0 — Contracts and package skeleton
 
 Deliverables:
@@ -654,7 +672,7 @@ Implement:
 Do not design the ORM first and then force the database contract to follow
 the ORM.
 
-Current Phase 4 implementation status is experimental: the database
+Phase 4 remains experimental: the database
 contract, the system-libpq adapter, the migrations CLI, and the minimum
 ORM are available with unit and integration test coverage. Migrations are
 still forward-only; the ORM has no relationships or lazy loading yet.
@@ -940,3 +958,24 @@ The roadmap counts as realized when:
 - the README does not call WhiteThroated "batteries included" without
   explaining the modules, their maturity status, and the features that are
   actually available.
+
+### Closure evidence
+
+| Gate | Evidence |
+| --- | --- |
+| Independent capability selection | `Package.swift` publishes each official capability as a separate library product. There is no umbrella product that activates modules automatically. |
+| Core/runtime isolation | Optional products depend toward `WhiteThroated`; `WhiteThroated` depends on `WhiteThroatedRuntime`, which depends on `WhiteThroatedHTTP1`/SwiftNIO. Runtime targets do not depend on optional application modules. |
+| Correctness and release gates | Module-specific Swift test targets run under the full `swift test -c release` CI gate. Section 9 defines the common benchmark gate; section 10 keeps benchmark records mandatory for preview/stable promotion rather than inventing CI timing claims. |
+| Auth/session/CSRF composition | `Tests/WhiteThroatedIdentityStateTests/IdentityStateTests.swift` covers authentication, authorization, sessions, CSRF, and auth-aware rate limiting. |
+| Validation/OpenAPI composition | `Tests/WhiteThroatedOpenAPITests/OpenAPITests.swift` consumes the same `ValidationSchema` contract used at runtime and includes deterministic registration-order differential coverage. |
+| Static/compression composition | `Tests/WhiteThroatedStaticFilesTests/StaticFilesCompressionIntegrationTests.swift` proves full and range static responses preserve their representation semantics with compression middleware installed. |
+| Database/services composition | `Tests/WhiteThroatedDataServicesTests/DatabaseServicesIntegrationTests.swift` proves typed database resolution, query execution, result decoding, and shutdown ownership through the service registry. |
+| Observability composition | `Tests/WhiteThroatedObservabilityTests/ObservabilityLifecycleTests.swift` installs lifecycle, logging, metrics, and tracing on one application and verifies one request crosses all observers without leaking active lifecycle state. |
+| WebSocket hardening | `Tests/WhiteThroatedWebSocketTests/WebSocketTests.swift` covers handshake/auth, protocol violations, limits, close semantics, lifecycle telemetry, and a deterministic masked binary frame corpus. |
+| Deployment validation | CircleCI builds and starts `whitethroated-deployment-example` on Linux, verifies readiness/health/application responses over a real TCP listener, sends `SIGTERM`, and requires clean process exit. The same contract is retained in the manual GitHub Actions parity workflow. See `docs/deployment.md`. |
+| Maturity disclosure | The root README identifies WhiteThroated as pre-alpha and labels optional module phases experimental. No preview/stable promotion is implied by roadmap closure. |
+
+Roadmap closure means the planned modular capability slices and their integration
+evidence exist. It does not supersede module-specific preview/stable gates,
+Linux performance campaigns, external framework comparisons, or the broader
+goal of reducing the remaining gap to the fastest Rust frameworks.
