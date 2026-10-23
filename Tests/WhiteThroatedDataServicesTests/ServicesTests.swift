@@ -46,6 +46,67 @@ final class ServicesTests: XCTestCase {
         }
     }
 
+    func testReentrantShutdownHookDoesNotDeadlock() async throws {
+        // A hook that calls container.shutdown() is re-entering the
+        // operation it is already part of; awaiting itself again must
+        // never happen. The re-entrant call returns immediately and the
+        // original caller completes the shutdown.
+        let registry =
+            ServiceRegistry()
+
+        try registry.register(
+            "value",
+            for: ServiceKey<String>(
+                "services.test.reentrant"
+            )
+        )
+
+        let heldHookContainer =
+            NIOLockedValueBox<ServiceContainer?>(nil)
+        let rootShutdownStarted =
+            NIOLockedValueBox(false)
+        let rootShutdownCompleted =
+            NIOLockedValueBox(false)
+
+        try registry.onShutdown {
+            rootShutdownStarted.withLockedValue {
+                $0 = true
+            }
+
+            let heldContainer =
+                heldHookContainer.withLockedValue {
+                    $0
+                }
+
+            if let heldContainer {
+                try await heldContainer
+                    .shutdown()
+            }
+
+            rootShutdownCompleted.withLockedValue {
+                $0 = true
+            }
+        }
+
+        let container = try registry.start()
+        heldHookContainer.withLockedValue {
+            $0 = container
+        }
+
+        try await container.shutdown()
+
+        XCTAssertTrue(
+            rootShutdownStarted.withLockedValue {
+                $0
+            }
+        )
+        XCTAssertTrue(
+            rootShutdownCompleted.withLockedValue {
+                $0
+            }
+        )
+    }
+
     func testValuesCanBeRegisteredDirectly() throws {
         let key =
             ServiceKey<String>("services.test.direct")

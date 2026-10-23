@@ -218,6 +218,15 @@ public final class ServiceContainer:
         NIOLockedValueBox<Task<Void, Error>?>(
             nil
         )
+    private struct HookRunState:
+        Sendable
+    {
+        var inProgress = false
+    }
+    private let hookRunState =
+        NIOLockedValueBox(
+            HookRunState()
+        )
 
     init(
         services: [String: any Sendable],
@@ -247,9 +256,21 @@ public final class ServiceContainer:
 
     /// Run all shutdown hooks once, in reverse registration order.
     ///
-    /// Concurrent and repeated calls await the same shutdown operation. The
-    /// first error is rethrown after every hook has had a chance to run.
+    /// Concurrent and repeated calls await the same shutdown operation. A
+    /// call made from inside a running hook is part of that operation and
+    /// returns immediately instead of awaiting its own completion — the
+    /// original caller observes every hook run and the first hook error is
+    /// rethrown.
     public func shutdown() async throws {
+        let inProgress =
+            hookRunState.withLockedValue {
+                $0.inProgress
+            }
+
+        guard !inProgress else {
+            return
+        }
+
         let task =
             shutdownTask.withLockedValue {
                 task in
@@ -261,6 +282,18 @@ public final class ServiceContainer:
                 let hooks =
                     shutdownHooks
                 let newTask = Task {
+                    hookRunState.withLockedValue {
+                        $0.inProgress = true
+                    }
+
+                    defer {
+                        hookRunState
+                            .withLockedValue {
+                                $0.inProgress =
+                                    false
+                            }
+                    }
+
                     var firstError: Error?
 
                     for hook in hooks {
