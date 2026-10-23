@@ -20,7 +20,7 @@ The job uses:
 - Swift 6.4.0 on the official `swift:6.4.0-noble` image;
 - PostgreSQL 16 as a secondary service container;
 - `medium+` Docker resources;
-- `libpq-dev`, `pkg-config`, `postgresql-client`, and `zlib1g-dev`;
+- `curl`, `libpq-dev`, `pkg-config`, `postgresql-client`, and `zlib1g-dev`;
 - SwiftPM dependency caching keyed by `Package.resolved`.
 
 PostgreSQL is reachable from the primary container at `127.0.0.1:5432`.
@@ -56,6 +56,8 @@ swift test -c release
 swift test -c release --filter CoreBenchmarkTests
 swift test -c release --filter RuntimeServerPipelineTests/testHTTP1PipelineBenchmark
 swift build -c release --product whitethroated-example
+swift build -c release --product whitethroated-deployment-example
+# deployment smoke: /ready, /health, /, then SIGTERM and clean exit
 swift build -c release --product whitethroated-migrate
 swift build -c release --product whitethroated-benchmark-server
 swift build -c release --product raw-nio-benchmark-server
@@ -69,6 +71,12 @@ swift build -c release --product whitethroated-benchmark-campaign
 
 The diagnostic benchmark steps are smoke validation only. CircleCI-hosted
 timing is not publishable performance evidence.
+
+The deployment smoke is a correctness/lifecycle check. It starts the release
+`whitethroated-deployment-example` on a real loopback TCP listener, verifies
+`/ready`, `/health`, and the root response, sends `SIGTERM`, and requires a
+clean process exit. See `docs/deployment.md` for the scope and limits of this
+evidence.
 
 ## Merge gate while GitHub Actions is blocked
 

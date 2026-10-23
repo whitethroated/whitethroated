@@ -453,6 +453,29 @@ OpenAPI metadata is setup-only and opt-in. The registry consumes the same
 `ValidationSchema` values used at runtime, rejects operation/route collisions,
 and prepares JSON/YAML/UI responses once during setup. See `docs/openapi.md`.
 
+## Production deployment
+
+WhiteThroated includes a lifecycle-aware deployment example that is validated
+through a real Linux TCP listener in CI:
+
+```text
+swift build -c release --product whitethroated-deployment-example
+
+WHITETHROATED_HOST=0.0.0.0 \
+WHITETHROATED_PORT=3000 \
+WHITETHROATED_DRAIN_TIMEOUT_SECONDS=30 \
+  .build/release/whitethroated-deployment-example
+```
+
+The example exposes `/health` and `/ready`, owns `SIGTERM`/`SIGINT` at
+the application layer, drains through `WhiteThroatedLifecycle`, and then
+shuts down the listener. CircleCI validates startup, readiness, real HTTP
+responses, SIGTERM handling, and clean process exit on Linux.
+
+See `docs/deployment.md` for the operational checklist, migration sequencing,
+reverse-proxy/direct-TLS boundaries, secrets, rollout, rollback, and the exact
+limits of the CI evidence.
+
 ## HTTP/1 transport
 
 The default transport uses WhiteThroated's Tier 1 HTTP/1 parser and response
