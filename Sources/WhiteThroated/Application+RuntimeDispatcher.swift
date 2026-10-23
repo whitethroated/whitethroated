@@ -18,7 +18,9 @@ extension Application {
             acceptedChannelInitializer:
                 acceptedChannelInitializer,
             httpServerUpgrade:
-                httpServerUpgrade
+                httpServerUpgrade,
+            upgradeErrorFilter:
+                upgradeErrorFilter
         )
     }
 

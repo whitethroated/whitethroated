@@ -50,12 +50,25 @@ SwiftNIO's stock server upgrade handler only attempts an upgrade on the first
 HTTP request of a connection. WebSocket clients should therefore establish the
 upgrade on a fresh connection, which is the normal browser/client behavior.
 
+A refused or invalid handshake is re-delivered to ordinary HTTP routing rather
+than closed without a status. A failed `onFuture` acceptance check is treated
+as a refusal too. The normal HTTP route determines the response (for example,
+404 for a route miss); refusal does not itself synthesize an authentication
+response. Protect any corresponding HTTP route separately.
+
+The fallback response carries `Connection: close` and the connection closes
+after flushing. This also applies when no supported Upgrade protocol matches:
+NIO's decoder stops parsing after an upgrade-flagged request, even when no
+upgrade occurs. Keeping that connection alive would strand later requests.
+
 ## Message and control-frame behavior
 
 - Frame size is bounded by `maxFrameBytes` in SwiftNIO's decoder.
 - Fragmented text/binary messages are reassembled only up to
   `maxMessageBytes`.
 - Invalid continuation ordering closes with protocol error.
+- Unmasked client frames or nonzero RSV bits close with 1002; no extensions
+  that authorize those reserved bits are negotiated.
 - Invalid UTF-8 text closes with the WebSocket inconsistent-data code.
 - Oversized messages close with 1009.
 - Ping is answered with Pong carrying the same payload.

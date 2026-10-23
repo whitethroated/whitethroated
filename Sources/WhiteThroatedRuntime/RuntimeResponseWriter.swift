@@ -414,6 +414,14 @@ public struct RuntimeResponseWriter: @unchecked Sendable {
             return
         }
 
+        // Framing parity with the Tier-1 writer: once the response
+        // head keys off a declared content length, transfer framing
+        // is server-owned. A user-supplied Transfer-Encoding value
+        // must never reach the wire next to the tracked length.
+        if lengthTracker != nil {
+            headers.remove(name: "transfer-encoding")
+        }
+
         let hasKnownLength =
             lengthTracker != nil
         let streamKeepAlive =
