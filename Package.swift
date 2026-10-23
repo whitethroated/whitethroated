@@ -113,6 +113,10 @@ let package = Package(
             targets: ["WhiteThroatedExample"]
         ),
         .executable(
+            name: "whitethroated-deployment-example",
+            targets: ["WhiteThroatedDeploymentExample"]
+        ),
+        .executable(
             name: "whitethroated-migrate",
             targets: ["WhiteThroatedMigrationCLI"]
         ),
@@ -500,6 +504,13 @@ let package = Package(
         .executableTarget(
             name: "WhiteThroatedExample",
             dependencies: ["WhiteThroated"]
+        ),
+        .executableTarget(
+            name: "WhiteThroatedDeploymentExample",
+            dependencies: [
+                "WhiteThroated",
+                "WhiteThroatedLifecycle",
+            ]
         ),
         .executableTarget(
             name: "WhiteThroatedBenchmarkServer",
