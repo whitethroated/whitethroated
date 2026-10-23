@@ -13,6 +13,24 @@ public enum CampaignProfile: String, Codable, Sendable, Equatable {
     case responseStream = "response-stream"
 }
 
+package enum CampaignABSide: String, Sendable, Equatable {
+    case baseline
+    case candidate
+}
+
+package func responseStreamABOrder(
+    round: Int
+) -> [CampaignABSide] {
+    precondition(
+        round > 0,
+        "A/B campaign round must be positive"
+    )
+
+    return round.isMultiple(of: 2)
+        ? [.candidate, .baseline]
+        : [.baseline, .candidate]
+}
+
 public struct CampaignConfiguration: Codable, Sendable {
     public let root: String
     public let output: String
