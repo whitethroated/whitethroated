@@ -360,7 +360,7 @@ private final class Campaign {
             env["WHITETHROATED_BENCH_LATENCY"] = mode == "latency" ? "1" : "0"
             env["WHITETHROATED_BENCH_RUN_ID"] = id
             env["WHITETHROATED_BENCH_OUTPUT"] = file.path
-            clients.append(try spawn(activeBinaries.appendingPathComponent("whitethroated-benchmark-client"),
+            clients.append(try spawn(clientBinaries.appendingPathComponent("whitethroated-benchmark-client"),
                                     environment: env, log: id + "-shard-\(shard).log"))
         }
         if mode == "resource" {
@@ -523,14 +523,14 @@ private final class Campaign {
         }
     }
 
-    func runResponseStreamProfile() throws {
-        typealias Route = (
-            path: String,
-            label: String,
-            chunked: Bool
-        )
+    typealias ResponseStreamRoute = (
+        path: String,
+        label: String,
+        chunked: Bool
+    )
 
-        let baseRoutes: [Route] = [
+    private var responseStreamRoutes: [ResponseStreamRoute] {
+        [
             (
                 "/response-stream-known",
                 "stream-known",
@@ -557,126 +557,135 @@ private final class Campaign {
                 true
             ),
         ]
+    }
 
-        for round in 1...configuration.rounds {
-            let offset =
-                (round - 1) % baseRoutes.count
-            let routes =
-                Array(baseRoutes[offset...])
-                + Array(baseRoutes[..<offset])
-            let concurrencies =
-                round.isMultiple(of: 2)
-                ? Array(
-                    configuration
-                        .concurrencies
-                        .reversed()
-                )
-                : configuration.concurrencies
-            let prefix = "r\(round)-1x2"
-
-            try gate(prefix)
-            try requireFreePort(
-                configuration.basePort
+    func runResponseStreamRound(
+        _ round: Int
+    ) throws {
+        let baseRoutes = responseStreamRoutes
+        let offset =
+            (round - 1) % baseRoutes.count
+        let routes =
+            Array(baseRoutes[offset...])
+            + Array(baseRoutes[..<offset])
+        let concurrencies =
+            round.isMultiple(of: 2)
+            ? Array(
+                configuration
+                    .concurrencies
+                    .reversed()
             )
+            : configuration.concurrencies
+        let prefix = "r\(round)-1x2"
 
-            let worker = try spawn(
-                activeBinaries.appendingPathComponent(
-                    configuration.serverProduct
-                ),
-                environment: [
-                    "WHITETHROATED_HOST":
-                        "127.0.0.1",
-                    "WHITETHROATED_PORT":
-                        String(
-                            configuration.basePort
-                        ),
-                    "WHITETHROATED_THREADS": "2",
-                    "WHITETHROATED_RESPONSE_STREAM_BENCHMARKS":
-                        "1",
-                ],
-                log: prefix + "-worker-0.log"
-            )
-            var workers = [worker]
-            defer {
-                stop(workers)
-            }
+        try gate(prefix)
+        try requireFreePort(
+            configuration.basePort
+        )
 
-            for route in routes {
-                try verifyResponseStream(
-                    worker: worker,
-                    port: configuration.basePort,
-                    path: route.path,
-                    chunked: route.chunked,
-                    name:
-                        prefix
-                        + "-verify-"
-                        + route.label
-                )
-            }
-
-            try save(
-                try observe(workers),
-                prefix + "-idle.json"
-            )
-
-            for route in routes {
-                let warm = try spawn(
-                    activeBinaries.appendingPathComponent(
-                        "whitethroated-benchmark-client"
+        let worker = try spawn(
+            activeBinaries.appendingPathComponent(
+                configuration.serverProduct
+            ),
+            environment: [
+                "WHITETHROATED_HOST":
+                    "127.0.0.1",
+                "WHITETHROATED_PORT":
+                    String(
+                        configuration.basePort
                     ),
-                    environment:
-                        clientEnvironment(
-                            port:
-                                configuration.basePort,
-                            method: "GET",
-                            path: route.path,
-                            connections: 8,
-                            requests:
-                                configuration
-                                .warmupRequests
-                        ),
-                    log:
+                "WHITETHROATED_THREADS": "2",
+                "WHITETHROATED_RESPONSE_STREAM_BENCHMARKS":
+                    "1",
+            ],
+            log: prefix + "-worker-0.log"
+        )
+        let workers = [worker]
+        defer {
+            stop(workers)
+        }
+
+        for route in routes {
+            try verifyResponseStream(
+                worker: worker,
+                port: configuration.basePort,
+                path: route.path,
+                chunked: route.chunked,
+                name:
+                    prefix
+                    + "-verify-"
+                    + route.label
+            )
+        }
+
+        try save(
+            try observe(workers),
+            prefix + "-idle.json"
+        )
+
+        for route in routes {
+            let warm = try spawn(
+                clientBinaries.appendingPathComponent(
+                    "whitethroated-benchmark-client"
+                ),
+                environment:
+                    clientEnvironment(
+                        port:
+                            configuration.basePort,
+                        method: "GET",
+                        path: route.path,
+                        connections: 8,
+                        requests:
+                            configuration
+                            .warmupRequests
+                    ),
+                log:
+                    prefix
+                    + "-warm-"
+                    + route.label
+                    + ".log"
+            )
+            try wait(
+                [warm],
+                timeout: 30
+            )
+        }
+
+        for route in routes {
+            for concurrency in
+                concurrencies
+            {
+                for mode in [
+                    "throughput",
+                    "latency",
+                    "resource",
+                ] {
+                    let id =
                         prefix
-                        + "-warm-"
+                        + "-"
                         + route.label
-                        + ".log"
-                )
-                try wait(
-                    [warm],
-                    timeout: 30
-                )
-            }
+                        + "-c\(concurrency)-"
+                        + mode
 
-            for route in routes {
-                for concurrency in
-                    concurrencies
-                {
-                    for mode in [
-                        "throughput",
-                        "latency",
-                        "resource",
-                    ] {
-                        let id =
-                            prefix
-                            + "-"
-                            + route.label
-                            + "-c\(concurrency)-"
-                            + mode
-
-                        try runCell(
-                            workers: workers,
-                            method: "GET",
-                            path: route.path,
-                            concurrency:
-                                concurrency,
-                            mode: mode,
-                            id: id,
-                            shards:
-                                configuration.shards
-                        )
-                    }
+                    try runCell(
+                        workers: workers,
+                        method: "GET",
+                        path: route.path,
+                        concurrency:
+                            concurrency,
+                        mode: mode,
+                        id: id,
+                        shards:
+                            configuration.shards
+                    )
                 }
             }
+        }
+    }
+
+    func runResponseStreamProfile() throws {
+        for round in 1...configuration.rounds {
+            try runResponseStreamRound(round)
         }
     }
 
@@ -751,7 +760,7 @@ private final class Campaign {
                 try save(try observe(workers), prefix + "-idle.json")
                 for worker in 0..<workerCount {
                     for (method, path, label) in routes {
-                        let warm = try spawn(activeBinaries.appendingPathComponent("whitethroated-benchmark-client"), environment:
+                        let warm = try spawn(clientBinaries.appendingPathComponent("whitethroated-benchmark-client"), environment:
                             clientEnvironment(port: configuration.basePort + worker, method: method, path: path,
                                               connections: 8, requests: configuration.warmupRequests),
                             log: prefix + "-warm-\(worker)-" + label + ".log")
