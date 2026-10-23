@@ -45,6 +45,19 @@ event-loop-native I/O use `EventLoopAuthenticator` instead of hiding a
 Authentication failure returns 401. Authorization denial after successful
 authentication returns 403.
 
+Bearer authentication emits `WWW-Authenticate: Bearer`. API-key and custom
+authenticators without a configured challenge do not advertise a Bearer
+scheme. A custom synchronous authenticator can supply `challenge:` and use
+`unauthorizedResponse()` for the same response as its route/middleware helpers.
+The scheme-agnostic `EventLoopAuthenticator` emits no challenge by default;
+applications using an HTTP authentication scheme on that tier must supply an
+appropriate challenge in their response policy. A challenge-less 401 is not a
+claim of full HTTP authentication-scheme compliance.
+
+Nested authenticated groups combine parent and child authorization with AND.
+A child policy cannot replace or weaken the parent's policy; omitting a child
+policy preserves the parent restriction.
+
 ## Sessions
 
 ```swift
@@ -102,12 +115,21 @@ The cookie contains an opaque session ID plus an HMAC-SHA256 signature. The
 first signing key is used for new cookies; older keys remain valid for
 verification during key rotation.
 
+`Secure` is a configuration flag, not automatic HTTPS detection. Keep it enabled
+in production, including behind a TLS-terminating proxy; local plain-HTTP tests
+must explicitly choose their cookie policy. Never infer security from untrusted
+forwarded headers.
+
 Call `rotate` after login or any privilege elevation. Rotation deletes the old
 store entry before persisting the replacement identifier.
 
 The bounded memory store is for development, tests, and single-process
 deployments where process-local sessions are acceptable. It enforces TTL,
 `maxSessions`, and least-recently-touched eviction.
+
+TTL currently runs from the last explicit save. Loading a session does not
+renew its TTL, and there is no separate idle-expiration policy or absolute
+maximum lifetime. Those roadmap capabilities remain unimplemented.
 
 ## Redis adapter
 

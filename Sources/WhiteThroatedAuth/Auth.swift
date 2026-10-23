@@ -50,13 +50,25 @@ public struct Authenticator: Sendable {
 
     public let extractor: Extractor
     public let resolver: Resolver
+    /// The challenge value for the `www-authenticate` response
+    /// header on 401 replies, when this authenticator maps to a
+    /// standard HTTP authentication scheme (`"Bearer"` for
+    /// bearer credentials). Authenticators driven by headers
+    /// that are not authentication schemes — for example API
+    /// keys — have `nil` so 401 replies do not advertise a
+    /// scheme that is not actually in use.
+    public let challenge: String?
 
     public init(
-        extractor: @escaping Extractor,
-        resolver: @escaping Resolver
+        challenge: String? = nil,
+        extractor:
+            @escaping Extractor,
+        resolver:
+            @escaping Resolver
     ) {
         self.extractor = extractor
         self.resolver = resolver
+        self.challenge = challenge
     }
 
     public func authenticate(
@@ -84,12 +96,47 @@ public struct Authenticator: Sendable {
                     != nil
             else {
                 return .response(
-                    Self.unauthorized()
+                    self
+                        .unauthorizedResponse()
                 )
             }
 
             return next(request)
         }
+    }
+
+    /// Builds the challenge-aware 401 response: the
+    /// `www-authenticate` header is present only when this
+    /// authenticator corresponds to a standard HTTP
+    /// authentication scheme.
+    public func unauthorizedResponse()
+        -> Response
+    {
+        let response = Response.text(
+            "Unauthorized",
+            status: .unauthorized
+        )
+
+        guard let challenge else {
+            return response
+        }
+
+        return response
+            .header(
+                "www-authenticate",
+                challenge
+            )
+    }
+
+    /// 401 response for authenticators that carry no challenge
+    /// information.
+    static func plainUnauthorized()
+        -> Response
+    {
+        Response.text(
+            "Unauthorized",
+            status: .unauthorized
+        )
     }
 
     public static func bearer(
@@ -100,6 +147,7 @@ public struct Authenticator: Sendable {
             ) -> AuthPrincipal?
     ) -> Authenticator {
         Authenticator(
+            challenge: "Bearer",
             extractor: {
                 request in
 
@@ -143,6 +191,8 @@ public struct Authenticator: Sendable {
                 Request
             ) -> AuthPrincipal?
     ) -> Authenticator {
+        // An API key header is not an HTTP authentication
+        // scheme, so the authenticator carries no 401 challenge.
         Authenticator(
             extractor: {
                 request in
@@ -206,19 +256,6 @@ public struct Authenticator: Sendable {
             ? nil
             : token
     }
-
-    static func unauthorized()
-        -> Response
-    {
-        Response.text(
-            "Unauthorized",
-            status: .unauthorized
-        )
-        .header(
-            "www-authenticate",
-            "Bearer"
-        )
-    }
 }
 
 public struct EventLoopAuthenticator:
@@ -270,7 +307,7 @@ public struct EventLoopAuthenticator:
                         .eventLoop
                         .makeSucceededFuture(
                             Authenticator
-                                .unauthorized()
+                                .plainUnauthorized()
                         )
                 }
 
@@ -387,8 +424,8 @@ public extension Application {
                             request
                         )
             else {
-                return Authenticator
-                    .unauthorized()
+                return authenticatedBy
+                    .unauthorizedResponse()
             }
 
             if
@@ -462,7 +499,7 @@ public extension Application {
                         return context.eventLoop
                             .makeSucceededFuture(
                                 Authenticator
-                                    .unauthorized()
+                                    .plainUnauthorized()
                             )
                     }
 
@@ -622,10 +659,50 @@ public struct AuthenticatedRouteGroup:
             prefix: joined(path),
             authenticator:
                 authenticator,
-            authorization:
-                authorization
-                ?? self.authorization
+            authorization: Self
+                .intersect(
+                    child:
+                        authorization,
+                    with:
+                        self
+                        .authorization
+                )
         )
+    }
+
+    /// Nesting an authenticated group never weakens the
+    /// enclosing group: the effective policy is the
+    /// conjunction of every policy between the root and the
+    /// route, so a child with a broader rule cannot widen
+    /// access that a parent restricts.
+    private static func intersect(
+        child: AuthorizationPolicy?,
+        with parent:
+            AuthorizationPolicy?
+    ) -> AuthorizationPolicy? {
+        guard let parent else {
+            return child
+        }
+
+        guard let child else {
+            return parent
+        }
+
+        return AuthorizationPolicy {
+            principal,
+            request in
+
+            parent.allows(
+                principal: principal,
+                request: request
+            )
+                && child.allows(
+                    principal:
+                        principal,
+                    request:
+                        request
+                )
+        }
     }
 
     public func get(

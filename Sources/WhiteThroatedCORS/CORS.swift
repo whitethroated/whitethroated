@@ -200,6 +200,15 @@ public struct CORS: Sendable {
         switch configuration.allowedOrigins {
         case .any:
             if configuration.allowCredentials {
+                // "null" is the browser's opaque-origin marker
+                // (sandboxed frames, some file:// and redirect
+                // flows). Echoing it with credentials allowed
+                // would bless credentialed requests from opaque
+                // origins, so such origins are denied outright.
+                guard origin != "null" else {
+                    return nil
+                }
+
                 return .echo(origin)
             }
 
