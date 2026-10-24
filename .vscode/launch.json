@@ -199,6 +199,66 @@
             "target": "whitethroated-websocket-benchmark-client",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release whitethroated-websocket-benchmark-client"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-benchmark-ab-compare",
+            "target": "whitethroated-benchmark-ab-compare",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-benchmark-ab-compare"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-benchmark-ab-compare",
+            "target": "whitethroated-benchmark-ab-compare",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-benchmark-ab-compare"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-response-stream-ab-driver",
+            "target": "whitethroated-response-stream-ab-driver",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-response-stream-ab-driver"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-response-stream-ab-driver",
+            "target": "whitethroated-response-stream-ab-driver",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-response-stream-ab-driver"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Debug whitethroated-deployment-example",
+            "target": "whitethroated-deployment-example",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug whitethroated-deployment-example"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:whitethroated}",
+            "name": "Release whitethroated-deployment-example",
+            "target": "whitethroated-deployment-example",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release whitethroated-deployment-example"
         }
     ]
 }
