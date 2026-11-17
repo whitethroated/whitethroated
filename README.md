@@ -1,5 +1,11 @@
 # WhiteThroated
 
+[![Swift 6.4](https://img.shields.io/badge/Swift-6.4-F05138?logo=swift&logoColor=white)](https://www.swift.org/)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)](#requirements)
+[![SwiftPM](https://img.shields.io/badge/SwiftPM-compatible-brightgreen)](https://www.swift.org/package-manager/)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue)](LICENSE)
+[![CircleCI](https://dl.circleci.com/status-badge/img/gh/whitethroated/whitethroated/tree/main.svg?style=shield)](https://dl.circleci.com/status-badge/redirect/gh/whitethroated/whitethroated/tree/main)
+
 WhiteThroated is an experimental high-performance web framework written entirely in Swift.
 
 The project has two non-negotiable goals:
@@ -16,6 +22,26 @@ WhiteThroated is pre-alpha. API compatibility is intentionally secondary to esta
 - SwiftNIO 2.104.0, pinned exactly for reproducible builds.
 - The optional PostgreSQL adapter requires the system `libpq` development
   library and `pkg-config`; the core framework does not.
+
+## Installation
+
+WhiteThroated is distributed as Swift packages. Add it to your
+`Package.swift`:
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/whitethroated/whitethroated.git",
+        from: "0.1.0"
+    ),
+],
+```
+
+then add `WhiteThroated` (and any optional modules you need, such as
+`WhiteThroatedCORS`) to your target's dependencies.
+
+WhiteThroated is pre-alpha: expect breaking changes before 1.0, and pin
+to an exact release in production.
 
 ## Quick start
 
@@ -1340,3 +1366,17 @@ See [BENCHMARKS.md](BENCHMARKS.md) for the benchmark protocol and [ARCHITECTURE.
 6. Measure aggregated versus streaming uploads with both throughput and peak-RSS runners.
 7. Measure known-length, chunked, and flush-heavy response streams independently.
 8. Compare the pinned Actix Web control only after WhiteThroated's raw-NIO framework overhead is measured and explained.
+
+## Contributing
+
+Contributions are welcome; start with [CONTRIBUTING.md](CONTRIBUTING.md).
+Be kind and follow the [Code of Conduct](CODE_OF_CONDUCT.md). Report
+suspected vulnerabilities privately per [SECURITY.md](SECURITY.md),
+never in a public issue.
+
+## License
+
+WhiteThroated is released under the Apache License, Version 2.0. See
+[LICENSE](LICENSE) for details.
+
+Copyright 2026 sanengineer

@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: WhiteThroated
+message: If you use this software, please cite it as below.
+type: software
+authors:
+  - alias: sanengineer
+repository-code: https://github.com/whitethroated/whitethroated
+url: https://github.com/whitethroated/whitethroated
+license: Apache-2.0

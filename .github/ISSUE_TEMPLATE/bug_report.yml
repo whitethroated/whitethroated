@@ -1,0 +1,31 @@
+name: Bug report
+description: Report incorrect behavior
+labels: [bug]
+body:
+  - type: input
+    id: commit
+    attributes:
+      label: Commit hash
+      placeholder: main @ a85e87e
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: swift --version plus OS
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      placeholder: Steps, code, or request that triggers the bug
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual behavior
+    validations:
+      required: true

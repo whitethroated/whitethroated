@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose an API or capability
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      placeholder: What can you not do cleanly today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed API or behavior
+      placeholder: Sketch the route, handler, or config shape
+    validations:
+      required: true
+  - type: textarea
+    id: cost
+    attributes:
+      label: Hot-path cost
+      placeholder: Which requests pay, and what do they pay? Unrelated routes must pay nothing.
