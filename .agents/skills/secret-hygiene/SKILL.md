@@ -71,8 +71,11 @@ must print an address ending in `@users.noreply.github.com`.
 Always-blocked patterns must print nothing:
 
 ```bash
-git diff --cached -U0 -- . | grep -nE 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|xox[bap]-[A-Za-z0-9-]+|sk-[A-Za-z0-9]{20,}|aws_secret_access_key|(password|passwd|api[_-]?key|client_secret)[[:space:]]*[:=][[:space:]]*["'"'"']'
+git diff --cached -U0 -- . ':(exclude).agents/skills/secret-hygiene/SKILL.md' | grep -nE 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|xox[bap]-[A-Za-z0-9-]+|sk-[A-Za-z0-9]{20,}|aws_secret_access_key|(password|passwd|api[_-]?key|client_secret)[[:space:]]*[:=][[:space:]]*["'"'"']'
 ```
+
+The skill's own file is excluded from the literal-pattern scan because
+it documents the patterns; review changes to it by eye instead.
 
 Key material is allowed only in labeled test fixtures and must print
 nothing:
@@ -118,7 +121,7 @@ case "$(git config user.email)" in
 *@users.noreply.github.com) ;;
 *) echo "BLOCKED: user.email is not the noreply identity" >&2; exit 1 ;;
 esac
-if git diff --cached -U0 -- . | grep -nE 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|xox[bap]-[A-Za-z0-9-]+|sk-[A-Za-z0-9]{20,}|aws_secret_access_key|(password|passwd|api[_-]?key|client_secret)[[:space:]]*[:=][[:space:]]*["'"'"']'; then
+if git diff --cached -U0 -- . ':(exclude).agents/skills/secret-hygiene/SKILL.md' | grep -nE 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|gho_[A-Za-z0-9]{36}|xox[bap]-[A-Za-z0-9-]+|sk-[A-Za-z0-9]{20,}|aws_secret_access_key|(password|passwd|api[_-]?key|client_secret)[[:space:]]*[:=][[:space:]]*["'"'"']'; then
   echo "BLOCKED: possible credential in staged diff" >&2; exit 1
 fi
 git diff --cached --name-only --diff-filter=ACM | while read f; do
