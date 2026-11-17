@@ -62,6 +62,7 @@ final class DirectTLSTests: XCTestCase {
         )
     }
 
+    // Test-only fixture. Never use in production.
     private static let certificatePEM =
         """
         -----BEGIN CERTIFICATE-----

@@ -24,6 +24,8 @@ Agents should load only the skills relevant to the files and risk surface being 
   - `skills/testing-regression/SKILL.md`
 - Language of generated artifacts (code, file/folder names, commits, docs):
   - `skills/english-artifacts/SKILL.md` — always applies, to every task.
+- Credentials, private keys, tokens, and personal identity in code or commits:
+  - `skills/secret-hygiene/SKILL.md` — always applies; checks run before every commit.
 
 ## Common combinations
 
@@ -47,5 +49,6 @@ parallel-agent coordination, use:
 - `skills/agentic-git-workflow/SKILL.md`
 
 This skill applies whenever repository state changes, in addition to the
-task-specific implementation skills above.
+task-specific implementation skills above. Run the
+`skills/secret-hygiene/SKILL.md` checks before every commit.
 
