@@ -585,6 +585,9 @@ When comparing against Actix:
 2. Match the response body and relevant headers.
 3. Disable unrelated features such as compression and HTTP/2 when comparing the HTTP/1.1 plaintext path.
 4. Use the same physical machine and load settings.
+5. Record the external control's source location (repository URL and commit) so others can rebuild it, and archive raw samples with the record.
+
+See [docs/benchmark-whitethroated-actix-rama-2026-10-16.md](docs/benchmark-whitethroated-actix-rama-2026-10-16.md) for the concrete pinned setup (actix-web 4.8.0, rama 0.4.0, 8 workers, release + thin LTO). Its per-run logs were kept in host-local scratch, not in the repository.
 5. Run WhiteThroated-to-raw-SwiftNIO first so Swift framework overhead is understood before interpreting Swift-vs-Rust results.
 
 Do not copy Rust source into this repository solely to make the comparison convenient.
