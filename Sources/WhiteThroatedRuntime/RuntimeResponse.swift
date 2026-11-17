@@ -47,8 +47,18 @@ public enum RuntimeResponseBody: @unchecked Sendable {
 /// Runtime-owned response stream: the producer receives a runtime
 /// stream writer bound to the connection event loop.
 public struct RuntimeResponseStream: @unchecked Sendable {
-    public var produce:
-        @Sendable (RuntimeStreamWriter) -> EventLoopFuture<Void>
+    package enum Producer: @unchecked Sendable {
+        case asynchronous(
+            @Sendable (RuntimeStreamWriter)
+                -> EventLoopFuture<Void>
+        )
+        case synchronous(
+            @Sendable (RuntimeStreamWriter) throws
+                -> Void
+        )
+    }
+
+    package var producer: Producer
     public var expectedContentLength: Int?
     public var onError:
         (@Sendable (Error) -> Void)?
@@ -61,7 +71,22 @@ public struct RuntimeResponseStream: @unchecked Sendable {
         onError:
             (@Sendable (Error) -> Void)? = nil
     ) {
-        self.produce = produce
+        self.producer = .asynchronous(produce)
+        self.expectedContentLength = expectedContentLength
+        self.onError = onError
+    }
+
+    package init(
+        produceSynchronously:
+            @escaping @Sendable (RuntimeStreamWriter) throws
+                -> Void,
+        expectedContentLength: Int? = nil,
+        onError:
+            (@Sendable (Error) -> Void)? = nil
+    ) {
+        self.producer = .synchronous(
+            produceSynchronously
+        )
         self.expectedContentLength = expectedContentLength
         self.onError = onError
     }

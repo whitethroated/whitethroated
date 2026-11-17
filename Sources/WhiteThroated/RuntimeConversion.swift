@@ -56,22 +56,40 @@ extension Response.Body {
 
 extension ResponseStream {
     internal var runtimeStream: RuntimeResponseStream {
-        let producer = producer
         let errorHandler = errorHandler
+        var runtimeStream: RuntimeResponseStream
 
-        var runtimeStream = RuntimeResponseStream(
-            produce: {
-                (runtimeWriter: RuntimeStreamWriter) in
-                producer(
-                    ResponseStreamWriter(
-                        runtimeWriter:
-                            runtimeWriter
+        switch producer {
+        case .asynchronous(let producer):
+            runtimeStream = RuntimeResponseStream(
+                produce: {
+                    (runtimeWriter: RuntimeStreamWriter) in
+                    producer(
+                        ResponseStreamWriter(
+                            runtimeWriter:
+                                runtimeWriter
+                        )
                     )
-                )
-            },
-            expectedContentLength:
-                expectedContentLength
-        )
+                },
+                expectedContentLength:
+                    expectedContentLength
+            )
+
+        case .synchronous(let producer):
+            runtimeStream = RuntimeResponseStream(
+                produceSynchronously: {
+                    (runtimeWriter: RuntimeStreamWriter) in
+                    try producer(
+                        SynchronousResponseStreamWriter(
+                            runtimeWriter:
+                                runtimeWriter
+                        )
+                    )
+                },
+                expectedContentLength:
+                    expectedContentLength
+            )
+        }
 
         if let errorHandler {
             runtimeStream.onError = { error in

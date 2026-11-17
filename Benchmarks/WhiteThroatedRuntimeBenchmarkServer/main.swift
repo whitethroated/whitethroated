@@ -167,6 +167,32 @@ private func streamResponse(
     )
 }
 
+private func synchronousStreamResponse(
+    knownLength: Bool
+) -> RuntimeResponse {
+    RuntimeResponse(
+        status: .ok,
+        headers: knownLength
+            ? streamKnownHeaders
+            : streamChunkedHeaders,
+        body: .stream(
+            RuntimeResponseStream(
+                produceSynchronously: { writer in
+                    try writer.writeStringSynchronously(
+                        "Hello, "
+                    )
+                    try writer.writeStringSynchronously(
+                        "World!"
+                    )
+                },
+                expectedContentLength:
+                    knownLength ? 13 : nil
+            )
+        ),
+        contentLengthIsNormalized: knownLength
+    )
+}
+
 private let userPrefix = "/user/"
 private let userPrefixLength = 6
 
@@ -226,9 +252,8 @@ private let dispatcher = RuntimeDispatcher(
                 case "/response-stream-ab-known":
                     return .sync(
                         RuntimeSyncAction { _ in
-                            streamResponse(
-                                knownLength: true,
-                                flushFirstChunk: false
+                            synchronousStreamResponse(
+                                knownLength: true
                             )
                         }
                     )
@@ -236,9 +261,8 @@ private let dispatcher = RuntimeDispatcher(
                 case "/response-stream-ab":
                     return .sync(
                         RuntimeSyncAction { _ in
-                            streamResponse(
-                                knownLength: false,
-                                flushFirstChunk: false
+                            synchronousStreamResponse(
+                                knownLength: false
                             )
                         }
                     )

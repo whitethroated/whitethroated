@@ -264,6 +264,59 @@ public struct Response: Sendable {
         )
     }
 
+    /// Creates a response stream whose producer completes
+    /// synchronously on the connection event loop.
+    ///
+    /// Use this variant for CPU-only or already-available chunks when
+    /// the producer does not need per-write completion futures. Use
+    /// `stream` for future-based backpressure or asynchronous work.
+    public static func streamSync(
+        contentType: String? = nil,
+        contentLength: Int? = nil,
+        status: HTTPResponseStatus = .ok,
+        onError: ResponseStream.ErrorHandler? = nil,
+        produce:
+            @escaping ResponseStream.SynchronousProducer
+    ) -> Response {
+        if let contentLength {
+            precondition(
+                contentLength >= 0,
+                "contentLength must be zero or greater"
+            )
+        }
+
+        var headers = HTTPHeaders()
+
+        if let contentType {
+            headers.add(
+                name: "content-type",
+                value: contentType
+            )
+        }
+
+        if let contentLength {
+            headers.add(
+                name: "content-length",
+                value: String(contentLength)
+            )
+        }
+
+        return Response(
+            status: status,
+            headers: headers,
+            body: .stream(
+                ResponseStream(
+                    synchronousProducer: produce,
+                    errorHandler: onError,
+                    expectedContentLength:
+                        contentLength
+                )
+            ),
+            normalizedContentLength:
+                contentLength != nil
+        )
+    }
+
     public static func buffer(
         _ value: ByteBuffer,
         contentType: String? = nil,

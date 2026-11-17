@@ -437,6 +437,76 @@ final class ResponseStreamingTests: XCTestCase {
         }
     }
 
+    func testSynchronousProducerFailureInvokesCleanupOnceAndCloses()
+        throws
+    {
+        enum ProducerError: Error {
+            case failed
+        }
+
+        let app = Application()
+        let loop = EmbeddedEventLoop()
+        let counter = ResponseStreamCounter()
+
+        app.get("/stream") { _ in
+            Response.streamSync(
+                onError: { error in
+                    if error is ProducerError {
+                        counter.errorCalls += 1
+                    }
+                }
+            ) { writer in
+                try writer.writeString("partial")
+                throw ProducerError.failed
+            }
+        }
+
+        let channel = EmbeddedChannel(
+            loop: loop
+        )
+        try channel.pipeline.syncOperations
+            .addHandler(
+                HTTPServerHandler(
+                    application: app
+                )
+            )
+
+        try activateHTTPTestChannel(channel)
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+        loop.run()
+
+        guard case .head? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response head")
+        }
+
+        guard case .body? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected partial response body")
+        }
+
+        XCTAssertNil(
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        )
+        XCTAssertEqual(
+            counter.errorCalls,
+            1
+        )
+        XCTAssertFalse(channel.isActive)
+    }
+
     func testFailedStreamProducerInvokesErrorCleanupOnce() throws {
         enum ProducerError: Error {
             case failed
@@ -742,6 +812,169 @@ final class ResponseStreamingTests: XCTestCase {
         else {
             return XCTFail("Expected response end")
         }
+    }
+
+    func testSynchronousResponseStreamWritesChunksAndEndsResponse()
+        throws
+    {
+        let app = Application()
+
+        app.get("/stream") { _ in
+            Response.streamSync(
+                contentType: "text/plain"
+            ) { writer in
+                try writer.writeString("hello")
+                try writer.writeString(" world")
+            }
+        }
+
+        let channel = try makeChannel(app)
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+
+        guard case .head(let head)? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response head")
+        }
+
+        XCTAssertEqual(
+            head.headers.first(
+                name: "content-type"
+            ),
+            "text/plain"
+        )
+
+        var values: [String] = []
+        var sawEnd = false
+
+        while let part = try channel.readOutbound(
+            as: HTTPServerResponsePart.self
+        ) {
+            switch part {
+            case .head:
+                return XCTFail(
+                    "Unexpected second response head"
+                )
+
+            case .body(let data):
+                guard case .byteBuffer(let buffer) = data else {
+                    return XCTFail(
+                        "Expected ByteBuffer stream chunk"
+                    )
+                }
+
+                values.append(
+                    buffer.getString(
+                        at: buffer.readerIndex,
+                        length: buffer.readableBytes
+                    ) ?? ""
+                )
+
+            case .end:
+                sawEnd = true
+            }
+        }
+
+        XCTAssertEqual(
+            values,
+            ["hello", " world"]
+        )
+        XCTAssertTrue(sawEnd)
+        XCTAssertTrue(channel.isActive)
+    }
+
+    func testSynchronousKnownLengthStreamAvoidsChunkedWireFraming()
+        throws
+    {
+        let app = Application()
+
+        app.get("/stream") { _ in
+            Response.streamSync(
+                contentType: "text/plain",
+                contentLength: 11
+            ) { writer in
+                try writer.writeString("hello")
+                try writer.writeString(" world")
+            }
+        }
+
+        let channel = try makeEncodedChannel(app)
+
+        try sendRequest(
+            method: .GET,
+            channel: channel
+        )
+
+        let wire = try readEncodedResponse(
+            from: channel
+        )
+        let lowercased = wire.lowercased()
+
+        XCTAssertTrue(
+            lowercased.contains(
+                "content-length: 11"
+            )
+        )
+        XCTAssertFalse(
+            lowercased.contains(
+                "transfer-encoding:"
+            )
+        )
+        XCTAssertTrue(
+            wire.hasSuffix(
+                "\r\n\r\nhello world"
+            )
+        )
+    }
+
+    func testHeadSuppressesSynchronousResponseStreamProducer()
+        throws
+    {
+        let app = Application()
+        let counter = ResponseStreamCounter()
+
+        app.get("/stream") { _ in
+            Response.streamSync { writer in
+                counter.producerCalls += 1
+                try writer.writeString("body")
+            }
+        }
+
+        let channel = try makeChannel(app)
+
+        try sendRequest(
+            method: .HEAD,
+            channel: channel
+        )
+
+        guard case .head? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail("Expected response head")
+        }
+
+        guard case .end? =
+            try channel.readOutbound(
+                as: HTTPServerResponsePart.self
+            )
+        else {
+            return XCTFail(
+                "HEAD stream response must end without body"
+            )
+        }
+
+        XCTAssertEqual(
+            counter.producerCalls,
+            0
+        )
     }
 
     private func makeEncodedChannel(

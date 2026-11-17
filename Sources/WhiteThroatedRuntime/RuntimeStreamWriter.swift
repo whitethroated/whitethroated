@@ -280,6 +280,59 @@ public struct RuntimeStreamWriter: @unchecked Sendable {
         return writeChecked(buffer)
     }
 
+    /// Emits a buffer without returning a write-completion future.
+    ///
+    /// Package-only synchronous response producers use this when they
+    /// do not need write-completion backpressure.
+    package func writeSynchronously(
+        _ buffer: ByteBuffer
+    ) throws {
+        requireEventLoop()
+
+        if let failure = record(
+            buffer.readableBytes
+        ) {
+            throw mapped(failure)
+        }
+
+        sink.writeBody(
+            .byteBuffer(buffer)
+        )
+    }
+
+    /// Emits a file region without returning a write-completion future.
+    package func writeFileRegionSynchronously(
+        _ region: FileRegion
+    ) throws {
+        requireEventLoop()
+
+        if let failure = record(
+            region.readableBytes
+        ) {
+            throw mapped(failure)
+        }
+
+        sink.writeBody(
+            .fileRegion(region)
+        )
+    }
+
+    /// Encodes and emits a String without returning a
+    /// write-completion future.
+    package func writeStringSynchronously(
+        _ value: String
+    ) throws {
+        requireEventLoop()
+
+        var buffer =
+            sink.allocator.buffer(
+                capacity: value.utf8.count
+            )
+        buffer.writeString(value)
+
+        try writeSynchronously(buffer)
+    }
+
     @discardableResult
     public func writeAndFlush(
         _ buffer: ByteBuffer
