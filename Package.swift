@@ -154,21 +154,24 @@ let package = Package(
         ),
     ],
     dependencies: [
+        // Ranges (not exact pins) so downstream apps can resolve their own
+        // compatible versions. Reproducible CI builds stay pinned through
+        // the committed Package.resolved.
         .package(
             url: "https://github.com/apple/swift-nio.git",
-            exact: "2.104.0"
+            from: "2.104.0"
         ),
         .package(
             url: "https://github.com/apple/swift-crypto.git",
-            exact: "4.5.2"
+            from: "4.5.2"
         ),
         .package(
             url: "https://github.com/swift-server/RediStack.git",
-            exact: "1.6.3"
+            from: "1.6.3"
         ),
         .package(
             url: "https://github.com/apple/swift-nio-ssl.git",
-            exact: "2.37.5"
+            from: "2.37.5"
         )
     ],
     targets: [
